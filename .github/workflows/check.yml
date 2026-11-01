@@ -12,6 +12,14 @@ jobs:
         with:
           node-version: '22'
       - run: npm run check
+      - name: Build offline game
+        run: python build_standalone.py
+      - name: Upload offline HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: lands-and-ages-play-0.4
+          path: play.html
+          retention-days: 30
   browser-smoke:
     runs-on: ubuntu-latest
     steps:
