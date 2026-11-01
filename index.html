@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#121e1c">
+  <meta name="description" content="Рабочий прототип 0.4 оригинальной экономической стратегии с перевозкой товаров по дорогам, производственными цепочками и развитием цивилизации.">
+  <title>СТРАТЕГИЯ — Прототип 0.4</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="engine.js"></script>
+  <script defer src="ui.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <div class="brand"><span class="brand-emblem" aria-hidden="true">✥</span><div><div class="eyebrow">ИГРОВАЯ МАСТЕРСКАЯ · ИГРА 0.4 · ПЕРВОЕ ИСПЫТАНИЕ</div><h1>ЗЕМЛИ И ЭПОХИ <span class="version">/ рабочее название</span></h1></div></div>
+      <div class="header-actions"><button id="pauseBtn" title="Пауза" type="button">Ⅱ ПАУЗА</button><button id="speedBtn" title="Скорость симуляции" type="button">×1</button><button id="saveBtn" title="Сохранить игру" type="button">▣ СОХРАНИТЬ</button></div>
+    </header>
+    <section class="top-stats" aria-label="Состояние державы">
+      <div class="stat"><span>ДЕНЬ</span><strong id="dayStat">1</strong></div>
+      <div class="stat"><span>КАЗНА</span><strong id="coinStat">175</strong></div>
+      <div class="stat"><span>ЖИТЕЛИ</span><strong id="popStat">8</strong></div>
+      <div class="stat"><span>ДОВОЛЬСТВО</span><strong id="moraleStat">73%</strong></div>
+      <div class="stat stats-progress"><span>ПУТИ РАЗВИТИЯ</span><div class="path-stats"><span title="Наука">✧ <b id="scienceStat">0</b></span><span title="Культура">♫ <b id="cultureStat">0</b></span><span title="Дипломатия">◆ <b id="diplomacyStat">0</b></span><span title="Оборона">⚑ <b id="militaryStat">0</b></span></div></div>
+    </section>
+    <section id="missionCard" class="mission-card" aria-label="Игровое задание">
+      <div class="mission-top"><span class="mission-kicker" id="missionStep">ПЕРВОЕ ИСПЫТАНИЕ</span><div class="mission-progress"><div id="missionFill"></div></div></div>
+      <strong id="missionTitle">Восстановить поселение</strong>
+      <p id="missionText">Соедини пекарню с дорожной сетью, чтобы жители снова получали хлеб.</p>
+      <div class="mission-actions" id="missionActions"><button id="missionFocus" type="button">◎ ПОКАЗАТЬ НА КАРТЕ</button><button id="missionTool" type="button">═ ВЫБРАТЬ ДОРОГУ</button></div>
+      <div id="missionChoices" class="mission-choices" hidden></div>
+      <span id="missionDetail" class="mission-detail">Совет: выделенная клетка показывает, где повреждена дорога.</span>
+    </section>
+    <div class="main-grid">
+      <section class="map-panel" aria-label="Игровая карта">
+        <div class="panel-head"><div><strong>ДОЛИНА ТРЁХ ДОРОГ</strong><span id="mapSubtitle">Поселение на границе неизведанных земель</span></div><div class="map-navigation"><button id="zoomOut" title="Уменьшить масштаб" aria-label="Уменьшить масштаб">−</button><span id="zoomLabel">100%</span><button id="zoomIn" title="Увеличить масштаб" aria-label="Увеличить масштаб">+</button></div></div>
+        <div class="map-container"><canvas id="gameMap" aria-label="Карта. Выберите инструмент и коснитесь клетки для действия, проведите пальцем для перемещения карты." tabindex="0"></canvas><div id="mapOverlay" class="map-overlay" hidden>ПАУЗА</div><div id="assetsStatus" class="assets-status" aria-live="polite">Загрузка 2.5D…</div><div class="map-compass" aria-hidden="true">N ↑</div><div class="map-watermark" aria-hidden="true">ИГРА 0.4 · ПЕРВОЕ ИСПЫТАНИЕ</div></div>
+        <div class="map-bottom"><span id="mapHint">Выберите инструмент и коснитесь карты. Проведите, чтобы перемещаться.</span><div class="map-arrows"><button data-pan="left" aria-label="Карта влево">←</button><button data-pan="up" aria-label="Карта вверх">↑</button><button data-pan="down" aria-label="Карта вниз">↓</button><button data-pan="right" aria-label="Карта вправо">→</button></div></div>
+      </section>
+      <aside class="sidebar">
+        <section class="side-section"><div class="section-header"><h2>СТРОИТЕЛЬСТВО</h2><span>Выбери → поставь</span></div>
+          <div id="tools" class="tool-grid" role="group" aria-label="Инструменты и здания">
+            <button data-tool="inspect" class="tool active" aria-pressed="true"><span class="tool-icon">⌕</span><span>Осмотреть</span><small>Сведения</small></button>
+            <button data-tool="road" class="tool" aria-pressed="false"><span class="tool-icon">═</span><span>Дорога</span><small>2 монеты + 1 доска</small></button>
+            <button data-tool="logger" class="tool" aria-pressed="false"><span class="tool-icon">♣</span><span>Лесничество</span><small>27 + 1 доска</small></button>
+            <button data-tool="farm" class="tool" aria-pressed="false"><span class="tool-icon">✿</span><span>Ферма</span><small>32 + 1 доска</small></button>
+            <button data-tool="sawmill" class="tool" aria-pressed="false"><span class="tool-icon">▥</span><span>Лесопилка</span><small>38 + 2 доски</small></button>
+            <button data-tool="mill" class="tool" aria-pressed="false"><span class="tool-icon">✳</span><span>Мельница</span><small>42 + 2 доски</small></button>
+            <button data-tool="bakery" class="tool" aria-pressed="false"><span class="tool-icon">♨</span><span>Пекарня</span><small>45 + 2 доски</small></button>
+            <button data-tool="house" class="tool" aria-pressed="false"><span class="tool-icon">⌂</span><span>Жилой дом</span><small>25 + 2 доски</small></button>
+          </div>
+        </section>
+        <section class="side-section"><div class="section-header"><h2>РАЗВИТИЕ ДЕРЖАВЫ</h2></div>
+          <div id="branches" class="branch-list" role="group" aria-label="Государственные сооружения">
+            <button data-tool="market" aria-pressed="false"><span>⚖</span><span><b>Рынок</b><small>Хлеб → доход · 50 + 2 доски</small></span></button>
+            <button data-tool="academy" aria-pressed="false"><span>✧</span><span><b>Академия</b><small>Доски → наука · 75 + 4 доски</small></span></button>
+            <button data-tool="theatre" aria-pressed="false"><span>♫</span><span><b>Театр</b><small>Хлеб → культура · 60 + 3 доски</small></span></button>
+            <button data-tool="embassy" aria-pressed="false"><span>◆</span><span><b>Посольство</b><small>Хлеб, доски → дипломатия · 80 + 4 доски</small></span></button>
+            <button data-tool="barracks" aria-pressed="false"><span>⚑</span><span><b>Казармы</b><small>Хлеб, доски → оборона · 65 + 3 доски</small></span></button>
+          </div>
+        </section>
+        <section class="side-section construction-pane"><div class="section-header"><h2>АКТИВНЫЕ СТРОЙКИ</h2><span>Доставка → строители → готово</span></div><div id="constructionList" class="construction-list" aria-live="polite"></div></section>
+        <section class="side-section tax-row"><div class="section-header"><h2>НАЛОГИ</h2><output id="taxValue">14%</output></div><input type="range" id="taxSlider" min="0" max="30" step="1" value="14"><p>Казна растёт за счёт жителей. Чрезмерные налоги снижают довольство.</p></section>
+      </aside>
+    </div>
+    <div class="bottom-grid">
+      <section class="stocks card"><div class="section-header"><h2>ТОВАРЫ НА СКЛАДЕ</h2><span>Доставляются носильщиками</span></div><div class="resource-grid"><div><span>♣ Брёвна</span><b id="logsStock">7</b></div><div><span>▥ Доски</span><b id="boardsStock">9</b></div><div><span>✿ Зерно</span><b id="grainStock">6</b></div><div><span>✳ Мука</span><b id="flourStock">2</b></div><div><span>♨ Хлеб</span><b id="breadStock">8</b></div></div><p class="explainer">Лес → брёвна → лесопилка → доски. Ферма → зерно → мельница → мука → пекарня → хлеб. Пекарне также нужны брёвна для топлива. Ни один груз не телепортируется: носильщики доставляют его по дороге.</p></section>
+      <section class="news card"><div class="section-header"><h2>ЛЕТОПИСЬ ПОСЕЛЕНИЯ</h2><button id="surveyBtn" type="button">⌕ ИССЛЕДОВАТЬ РУИНЫ</button></div><div id="tileInfo" class="tile-info"><strong>Начало истории</strong><span>Нажми на здание или клетку, чтобы узнать подробности. На краях карты есть древние руины.</span></div><ul id="eventLog" class="events"></ul></section>
+    </div>
+    <footer class="footer"><span>СТРАТЕГИЯ 0.4 · автономный прототип · без внешних библиотек</span><div><button id="helpBtn">КАК ИГРАТЬ</button><button id="resetBtn">НОВОЕ ИСПЫТАНИЕ</button><button id="freeBtn">СВОБОДНАЯ ИГРА</button></div></footer>
+  </div>
+  <dialog id="helpDialog"><div class="help-inner"><h2>КАК ИГРАТЬ</h2><p><b>Цель первого испытания:</b> дождаться восстановления повреждённой дороги строителями, запустить выпечку, построить жилой дом и выбрать путь развития. После победы можно продолжить свободное строительство.</p><ol><li>Наблюдай за жёлтыми носильщиками на дорогах: они физически перевозят сырьё и готовые товары.</li><li>Выбери «Дорога» и строй пути между зданиями. Без связи со складом производство стоит.</li><li>Выбери здание и коснись свободной клетки. Это создаст стройплощадку: материалы прибудут на носильщиках, после чего строители начнут работу.</li><li>Прокладывай цепочки: лесничество → лесопилка → доски; ферма → мельница → пекарня → хлеб. Хлеб потребляют жители.</li><li>Построй рынок, академию, театр, посольство или казармы — каждый путь развития тратит реальные ресурсы.</li><li>Найди древние руины на карте, выбери исследование: находка пополнит знания и культуру, но не раскроет тайны мира.</li><li>Перемещай карту протягиванием мышью или пальцем, масштабируй кнопками +/−. Сохраняй кампанию локально.</li></ol><button id="closeHelp">ПОНЯТНО</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
