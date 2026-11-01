@@ -1,11 +1,11 @@
 {
   "name": "lands-and-ages-prototype",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Playable construction: physical supplies, builders, progressive roads and buildings, and five civilization paths",
   "scripts": {
-    "test": "node --test tests/engine.test.cjs",
-    "check": "node --check engine.js && node --check ui.js && npm test"
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check engine.js && node --check ui.js && node --check visual-model.js && npm test"
   },
   "engines": {
     "node": ">=20"

@@ -1,0 +1,45 @@
+/* Deterministic 2.5D visual state helpers. Visual-only; saves stay in engine.js. */
+(function(root,factory){
+  const api=factory();
+  if(typeof module==='object'&&module.exports)module.exports=api;
+  if(root)root.StrategyVisual=api;
+})(typeof globalThis==='object'?globalThis:this,function(){
+  'use strict';
+  const N=1,E=2,S=4,W=8;
+  function roadMask(roads,x,y,width,height){
+    if(x<0||y<0||x>=width||y>=height||!roads[y*width+x])return 0;
+    let mask=0;
+    if(y>0&&roads[(y-1)*width+x])mask|=N;
+    if(x<width-1&&roads[y*width+x+1])mask|=E;
+    if(y<height-1&&roads[(y+1)*width+x])mask|=S;
+    if(x>0&&roads[y*width+x-1])mask|=W;
+    return mask;
+  }
+  function roadKind(mask){
+    const bits=[N,E,S,W].filter(d=>mask&d).length;
+    if(bits===0)return 'isolated';
+    if(bits===1)return 'end';
+    if(bits===2)return mask===(N|S)||mask===(E|W)?'straight':'corner';
+    return bits===3?'junction':'crossroads';
+  }
+  // Only actual completed construction work determines visual stages.
+  function constructionStage(site){
+    const need=site.required?.boards||0,have=site.goods?.boards||0;
+    if(have<need)return 'foundation';
+    const ratio=Math.max(0,Math.min(1,(site.progress||0)/Math.max(.001,site.duration||1)));
+    if(ratio<.20)return 'foundation';
+    if(ratio<.50)return 'frame';
+    if(ratio<.78)return 'walls';
+    return 'roof';
+  }
+  // Screen-facing directions; game uses world grid diagonally projected on screen.
+  function facing(entity){
+    const dest=entity.path?.[entity.segment+1];
+    if(!dest)return {direction:'se',moving:false};
+    const dx=dest.x-entity.x,dy=dest.y-entity.y;
+    if(Math.abs(dx)+Math.abs(dy)<.001)return {direction:'se',moving:false};
+    const sx=dx-dy,sy=dx+dy;
+    return {direction:(sy<0?'n':'s')+(sx<0?'w':'e'),moving:true};
+  }
+  return {N,E,S,W,roadMask,roadKind,constructionStage,facing};
+});
