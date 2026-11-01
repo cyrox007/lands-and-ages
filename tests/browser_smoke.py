@@ -11,9 +11,10 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style.css">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|ui)\.js"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|ui)\.js"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
+visual=(root/'visual-model.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 
@@ -28,6 +29,7 @@ def mount(page,prior=None):
       }});
     }''',prior)
     page.add_script_tag(content=engine)
+    page.add_script_tag(content=visual)
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
     page.add_script_tag(content=ui)
 
@@ -49,6 +51,10 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().buildings')==7
     page.wait_for_function('window.__strategyDebug().spritesReady===8',timeout=20000)
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.4.2'
+    assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
+    assert page.evaluate('window.__strategyDebug().roadKind(15,10)')=='straight'
+    assert page.evaluate('window.__strategyDebug().tileCache')>0
     assert page.locator('#gameMap').bounding_box()['width']>min(250,w*.7)
     assert page.evaluate('window.__strategyDebug().mission.stage')==0
     assert page.locator('#missionTitle').inner_text()=='Почини главную дорогу'
@@ -56,6 +62,8 @@ def check(browser,name,w,h,mobile):
     assert page.locator('[data-tool="road"]').get_attribute('aria-pressed')=='true'
     tap_cell(page,17,10,mobile)
     page.wait_for_function('window.__strategyDebug().sites.length===1')
+    assert page.evaluate('window.__strategyDebug().stageAt(17,10)')=='foundation'
+    assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
     assert page.evaluate('window.__strategyDebug().mission.stage')==0, 'queued road is not finished road'
     assert page.evaluate('window.__strategyDebug().coins')<=173
     assert page.locator('#constructionList .construction-item').count()==1
@@ -71,6 +79,8 @@ def check(browser,name,w,h,mobile):
     page.wait_for_function('window.__strategyDebug().spritesReady===8',timeout=20000)
     page.evaluate('window.__strategyDebug().step(23)')
     page.wait_for_function('window.__strategyDebug().mission.stage>=1')
+    assert page.evaluate('window.__strategyDebug().roadKind(17,10)')=='straight'
+    assert page.evaluate('window.__strategyDebug().stageAt(17,10)') is None
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().paused') is True
     page.locator('#pauseBtn').click()
