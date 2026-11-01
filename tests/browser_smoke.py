@@ -50,8 +50,35 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('document.documentElement.scrollWidth')<=w+1,name
     assert page.evaluate('window.__strategyDebug().buildings')==7
     page.wait_for_function('window.__strategyDebug().spritesReady===8',timeout=20000)
+    page.wait_for_function('window.__strategyDebug().workerSheetsReady===4',timeout=20000)
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.4.2'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.4.3'
+    # Sprite atlases are genuine frame sheets. Their cropped poses have different pixels.
+    pixel_diffs=page.evaluate('''() => {
+      const modes=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
+      return modes.map(mode=>{
+        const img=new Image();img.src=window.StrategyAssets[mode];
+        const c=document.createElement('canvas');c.width=96;c.height=128;
+        const g=c.getContext('2d',{willReadFrequently:true});
+        g.drawImage(img,0,0,96,128,0,0,96,128);
+        const a=g.getImageData(0,0,96,128).data.slice();
+        g.clearRect(0,0,96,128);g.drawImage(img,5*96,0,96,128,0,0,96,128);
+        const b=g.getImageData(0,0,96,128).data;
+        let differences=0;for(let i=0;i<a.length;i+=4)
+          if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]||a[i+3]!==b[i+3])differences++;
+        return differences;
+      });
+    }''')
+    assert min(pixel_diffs)>100,('Static frames masquerading as animation',pixel_diffs)
+    clock_before=page.evaluate('window.__strategyDebug().animationClock')
+    page.wait_for_timeout(170)
+    assert page.evaluate('window.__strategyDebug().animationClock')>clock_before
+    page.locator('#pauseBtn').click()
+    paused_before=page.evaluate('window.__strategyDebug().animationClock')
+    page.wait_for_timeout(170)
+    paused_after=page.evaluate('window.__strategyDebug().animationClock')
+    assert paused_after==paused_before,('Animation playing during pause',paused_before,paused_after)
+    page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
     assert page.evaluate('window.__strategyDebug().roadKind(15,10)')=='straight'
     assert page.evaluate('window.__strategyDebug().tileCache')>0

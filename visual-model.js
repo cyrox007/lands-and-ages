@@ -41,5 +41,14 @@
     const sx=dx-dy,sy=dx+dy;
     return {direction:(sy<0?'n':'s')+(sx<0?'w':'e'),moving:true};
   }
-  return {N,E,S,W,roadMask,roadKind,constructionStage,facing};
+  // Atlas frames follow actual simulated time and worker state; idle has no motion.
+  // Pausing stops animationClock advancement in UI, so both workers freeze in place.
+  function animationFrame(state,simulatedSeconds,id=0){
+    if(state==='idle')return 0;
+    if(state!=='walk'&&state!=='work')return 0;
+    if(!Number.isFinite(simulatedSeconds))return 0;
+    const fps=state==='work'?9:11;
+    return ((Math.floor(Math.max(0,simulatedSeconds)*fps+id*2)%8)+8)%8;
+  }
+  return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame};
 });

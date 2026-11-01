@@ -1,4 +1,4 @@
-/* Strategy 0.4.2 — visual quarter: cached terrain, correct road geometry and animated professions. */
+/* Strategy 0.4.3 — true frame-based worker animation sheets and simulation-linked playback. */
 (function(){
   'use strict';
   const E=window.StrategyEngine,V=window.StrategyVisual;
@@ -33,6 +33,38 @@
     };
     img.onerror=()=>{sprites[name]=null;};
     img.src=(window.StrategyAssets&&window.StrategyAssets[name])||('assets/'+name+'.webp');
+  }
+  // Four atlas sheets contain 8 independently drawn poses x 4 directions.
+  // Loaded separately to keep the eight legacy buildings and their selection masks intact.
+  const WORKER_FRAME_W=96,WORKER_FRAME_H=128;
+  const WORKER_SHEETS=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
+  const workerSheets={};let workerSheetsReady=0;
+  for(const name of WORKER_SHEETS){
+    const img=new Image();workerSheets[name]=img;
+    img.onload=()=>{workerSheetsReady++;const label=$('assetsStatus');
+      if(label&&spritesReady===8)label.textContent=`2.5D · 8 зданий + ${workerSheetsReady}/4 анимации`;};
+    img.onerror=()=>{workerSheets[name]=null;};
+    img.src=(window.StrategyAssets&&window.StrategyAssets[name])||('assets/'+name+'.webp');
+  }
+  let animationClock=0;
+  const facingRow={se:0,sw:1,ne:2,nw:3};
+  function workerState(entity,role){
+    const face=V.facing(entity);
+    const moving=role==='builder'?entity.phase==='travel'&&face.moving:!!entity.job&&face.moving;
+    const working=role==='builder'&&entity.phase==='work'&&entity.site!==null;
+    const sheet=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
+      (entity.carrying?'worker-porter-carry':'worker-porter-walk');
+    const state=working?'work':moving?'walk':'idle';
+    const frame=V.animationFrame(state,animationClock,entity.id);
+    return {sheet,state,frame,row:facingRow[face.direction]??0,direction:face.direction};
+  }
+  function workerSprite(entity,role,px,py,size){
+    const pose=workerState(entity,role),img=workerSheets[pose.sheet];
+    if(!img?.naturalWidth)return false;
+    // Character feet stay locked to the simulation tile; only drawn limbs change.
+    ctx.drawImage(img,pose.frame*WORKER_FRAME_W,pose.row*WORKER_FRAME_H,
+      WORKER_FRAME_W,WORKER_FRAME_H,px-size*.5,py-size*WORKER_FRAME_H/WORKER_FRAME_W,size,size*WORKER_FRAME_H/WORKER_FRAME_W);
+    return true;
   }
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   function persist(){try{localStorage.setItem(STORAGE,game.save());return true;}catch(_){return false;}}
@@ -283,53 +315,22 @@
   }
   function drawBuilder(b){
     const p=screen(b.x+.5,b.y+.5),t=tileSize(),h=tileHeight();
-    const moving=b.phase==='travel'&&V.facing(b).moving;
-    const beat=moving&&!paused?Math.sin(performance.now()*.013+b.id*2):0;
-    const work=b.phase==='work'&&!paused?Math.sin(performance.now()*.011+b.id):0;
-    const facing=V.facing(b).direction,flip=facing.endsWith('w')?-1:1;
-    const y=p.y+h*.1-Math.abs(beat)*h*.028;
-    blob(p.x,p.y+h*.21,t*.105,h*.078,'#19231d',.40);
-    ctx.save();ctx.translate(p.x,y);ctx.scale(flip,1);
-    // Animated shaded boots and separate legs, without reusing the porter sprite.
-    const gait=beat*h*.085;
-    line(-t*.034,h*.04,-t*.053-gait,h*.22,'#584735',Math.max(2,3.2*zoom));
-    line(t*.031,h*.04,t*.052+gait,h*.22,'#3f342c',Math.max(2,3.2*zoom));
-    line(-t*.053-gait,h*.22,-t*.005-gait,h*.23,'#443228',Math.max(2,3.2*zoom));
-    line(t*.052+gait,h*.22,t*.098+gait,h*.22,'#443228',Math.max(2,3.2*zoom));
-    poly([[-t*.082,-h*.155],[t*.075,-h*.17],[t*.07,h*.075],[-t*.075,h*.068]],'#b9823e','#5f4b2f',1);
-    poly([[-t*.055,-h*.152],[t*.028,-h*.15],[t*.038,h*.05],[-t*.045,h*.05]],'#e0ad55');
-    blob(0,-h*.245,t*.059,h*.093,'#d7ad7f');
-    poly([[-t*.091,-h*.29],[0,-h*.39],[t*.075,-h*.29],[t*.088,-h*.254],[-t*.091,-h*.254]],'#d7b657','#76653f',1.2);
-    line(-t*.078,-h*.10,-t*.105-beat*t*.025,h*.025,'#ac7b4f',Math.max(2,3*zoom));
-    const armX=t*.082,armY=-h*.085;
-    if(b.phase==='work'){
-      const angle=-.7+work*.6;
-      const ex=armX+Math.cos(angle)*t*.11,ey=armY+Math.sin(angle)*h*.24;
-      line(armX,armY,ex,ey,'#ac7b4f',Math.max(2,3*zoom));
-      line(ex,ey,ex+Math.cos(angle)*t*.095,ey+Math.sin(angle)*h*.20,'#6d4d30',Math.max(1.4,2*zoom));
-      line(ex+Math.cos(angle)*t*.095-t*.046,ey+Math.sin(angle)*h*.20,ex+Math.cos(angle)*t*.095+t*.046,ey+Math.sin(angle)*h*.20,'#b7bfc0',Math.max(2,3*zoom));
-    }else{
-      line(armX,armY,armX+t*.045+beat*t*.025,h*.02,'#ac7b4f',Math.max(2,3*zoom));
-      line(armX+t*.045,h*.02,armX+t*.11,h*.075,'#89653f',Math.max(1.4,2*zoom));
+    const footY=p.y+h*.26;
+    // 100% frame-sheet playback. No static character sprite or global bobbing.
+    if(!workerSprite(b,'builder',p.x,footY,t*.48)){
+      blob(p.x,footY-h*.24,t*.10,h*.20,'#dda93f');
     }
-    ctx.restore();
   }
   function drawCarrier(c){
     const p=screen(c.x+.5,c.y+.5),t=tileSize(),h=tileHeight();
-    blob(p.x,p.y+h*.12,t*.13,h*.10,'#172c29',.35);
-    const movement=V.facing(c),moving=movement.moving&&!!c.job;
-    const step=moving&&!paused?Math.sin(performance.now()*.011+c.id*2)*h*.045:0;
-    const lean=moving&&!paused?Math.sin(performance.now()*.011+c.id*2)*.025:0;
-    const size=t*.42,flip=movement.direction.endsWith('w')?-1:1;
-    ctx.save();ctx.translate(p.x,p.y+h*.18+step);ctx.scale(flip,1);ctx.rotate(lean);
-    if(!sprite('carrier',0,0,size,size*1.75)){
-      blob(0,-h*.22,t*.08,h*.14,c.carrying?'#efc782':'#f1deab');
+    const footY=p.y+h*.26;
+    if(!workerSprite(c,'porter',p.x,footY,t*.48)){
+      blob(p.x,footY-h*.23,t*.10,h*.20,'#aa8255');
     }
-    ctx.restore();
     if(c.carrying){
-      blob(p.x+t*.13,p.y-h*.24,t*.105,h*.06,'#7a5436',.90);
-      ctx.fillStyle='#f8e5a3';ctx.font=`bold ${Math.max(9,t*.18)}px sans-serif`;
-      ctx.textAlign='center';ctx.fillText(String(c.carrying.amount),p.x+t*.15,p.y-h*.27);
+      ctx.fillStyle='#f9e0a1';ctx.textAlign='center';
+      ctx.font=`bold ${Math.max(8,t*.14)}px sans-serif`;
+      ctx.fillText(String(c.carrying.amount),p.x+t*.24,p.y-h*.46);
     }
   }
   function draw(){
@@ -551,7 +552,7 @@
   function loop(now){
     if(!last)last=now;
     const dt=Math.max(0,Math.min(.08,(now-last)/1000));last=now;
-    if(!paused)game.step(dt*speed);
+    if(!paused){game.step(dt*speed);animationClock+=dt*speed;}
     // At most 60 render updates per second; simulation time uses actual frame delta.
     if(now-lastDraw>=16.6){draw();lastDraw=now;}
     if(now-lastHud>=450){updateHUD();lastHud=now;}
@@ -562,5 +563,5 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,resources:{...game.warehouse().goods},
     buildings:game.buildings.length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.4.2',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++)game.step(.1);updateHUD();draw();}});
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.4.3',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++)game.step(.1);animationClock+=n;updateHUD();draw();}});
 })();
