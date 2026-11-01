@@ -50,5 +50,15 @@
     const fps=state==='work'?9:11;
     return ((Math.floor(Math.max(0,simulatedSeconds)*fps+id*2)%8)+8)%8;
   }
-  return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame};
+  // A pair of legs moves because of simulated displacement, not wall-clock time.
+  function gaitFrame(travelled,cellDistancePerCycle=.68){
+    if(!Number.isFinite(travelled)||travelled<0||!Number.isFinite(cellDistancePerCycle)||cellDistancePerCycle<=0)return 0;
+    return Math.floor(((travelled/cellDistancePerCycle)%1)*8+1e-8)%8;
+  }
+  // Don't animate unpowered, disconnected or resource-starved factories.
+  function productionActive(building,connected,ready){
+    return Boolean(building && connected && ready && Number.isFinite(building.progress) && building.progress>0 &&
+      ['logger','sawmill','farm','mill','bakery'].includes(building.type));
+  }
+  return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame,gaitFrame,productionActive};
 });

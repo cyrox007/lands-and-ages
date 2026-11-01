@@ -58,3 +58,26 @@ test('анимационные циклы детерминированы по и
  assert.equal(V.animationFrame('walk',t+8/11,1),V.animationFrame('walk',t,1));
  assert.equal(V.animationFrame('work',t+8/9,2),V.animationFrame('work',t,2));
 });
+
+test('кадры шага зависят от расстояния, не от времени и FPS',()=>{
+  const V=require('../visual-model.js');
+  assert.equal(V.gaitFrame(0),0);
+  assert.equal(V.gaitFrame(.34),4);
+  assert.equal(V.gaitFrame(.68),0);
+  assert.equal(V.gaitFrame(.17),2);
+  assert.equal(V.gaitFrame(.17),V.gaitFrame(.17)); // paused/no position delta
+  assert.equal(V.gaitFrame(NaN),0);
+  assert.equal(V.gaitFrame(-2),0);
+});
+
+test('производственная анимация не запускается при простое или без ресурсов',()=>{
+  const V=require('../visual-model.js');
+  const b={type:'bakery',progress:2};
+  assert.equal(V.productionActive(b,true,true),true);
+  assert.equal(V.productionActive(b,true,false),false);
+  assert.equal(V.productionActive(b,false,true),false);
+  assert.equal(V.productionActive({...b,progress:0},true,true),false);
+  assert.equal(V.productionActive({type:'house',progress:2},true,true),false);
+  for(const type of ['logger','sawmill','farm','mill','bakery'])
+    assert.equal(V.productionActive({type,progress:.1},true,true),true,type);
+});

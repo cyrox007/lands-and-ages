@@ -52,7 +52,16 @@ def check(browser,name,w,h,mobile):
     page.wait_for_function('window.__strategyDebug().spritesReady===8',timeout=20000)
     page.wait_for_function('window.__strategyDebug().workerSheetsReady===4',timeout=20000)
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.4.3'
+    # Walk cycle is tied to real traveled grid distance, not animationClock.
+    page.evaluate('window.__strategyDebug().step(2)')
+    assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')>0
+    page.locator('#pauseBtn').click()
+    t=page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')
+    page.wait_for_timeout(90)
+    assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
+    page.locator('#pauseBtn').click()
+    assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.4.4'
     # Sprite atlases are genuine frame sheets. Their cropped poses have different pixels.
     pixel_diffs=page.evaluate('''() => {
       const modes=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
