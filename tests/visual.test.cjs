@@ -39,3 +39,22 @@ test('направление ходьбы выводится из реально
  assert.deepEqual(V.facing(b),{direction:'ne',moving:true});
  b.path=[];assert.deepEqual(V.facing(b),{direction:'se',moving:false});
 });
+
+test('циклы рабочих: 8 разных кадров для ходьбы и работы',()=>{
+ const w=Array.from({length:8},(_,i)=>V.animationFrame('walk',i/11,0));
+ const b=Array.from({length:8},(_,i)=>V.animationFrame('work',i/9,0));
+ assert.deepEqual(w,[0,1,2,3,4,5,6,7]);
+ assert.deepEqual(b,[0,1,2,3,4,5,6,7]);
+});
+test('рабочие стоят без анимации в idle и при паузе',()=>{
+ assert.equal(V.animationFrame('idle',0,2),0);
+ assert.equal(V.animationFrame('idle',1000,2),0);
+ assert.equal(V.animationFrame('walk',1.7,1),V.animationFrame('walk',1.7,1));
+ assert.equal(V.animationFrame('work',1.7,1),V.animationFrame('work',1.7,1));
+});
+test('анимационные циклы детерминированы по игровому времени, не по Date.now()',()=>{
+ const t=3.14;
+ assert.equal(V.animationFrame('walk',t,1),V.animationFrame('walk',t,1));
+ assert.equal(V.animationFrame('walk',t+8/11,1),V.animationFrame('walk',t,1));
+ assert.equal(V.animationFrame('work',t+8/9,2),V.animationFrame('work',t,2));
+});
