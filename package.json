@@ -1,6 +1,6 @@
 {
   "name": "lands-and-ages-prototype",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "Playable construction: physical supplies, builders, progressive roads and buildings, and five civilization paths",
   "scripts": {

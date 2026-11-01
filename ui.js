@@ -1,4 +1,4 @@
-/* Strategy 0.4.3 — true frame-based worker animation sheets and simulation-linked playback. */
+/* Strategy 0.4.4 — distance-driven gait, persistent facing and live production effects. */
 (function(){
   'use strict';
   const E=window.StrategyEngine,V=window.StrategyVisual;
@@ -47,6 +47,28 @@
     img.src=(window.StrategyAssets&&window.StrategyAssets[name])||('assets/'+name+'.webp');
   }
   let animationClock=0;
+  // Transient rendering data, derived from real simulated displacement. Never saved.
+  const motion=new Map();
+  function updateMotion(){
+    const active=new Set();
+    for(const [role,people] of [['porter',game.carriers],['builder',game.builders]])for(const e of people){
+      const key=role+':'+e.id;active.add(key);
+      const prior=motion.get(key)||{x:e.x,y:e.y,distance:0,workTime:0,direction:'se'};
+      const distance=Math.hypot(e.x-prior.x,e.y-prior.y);
+      const facing=V.facing(e);
+      const moving=(role==='porter'?Boolean(e.job):e.phase==='travel')&&facing.moving;
+      if(moving&&distance>0&&distance<1.51){
+        prior.distance+=distance;
+        prior.direction=facing.direction;
+      }else if(facing.moving){prior.direction=facing.direction;}
+      if(role==='builder'&&e.phase==='work'&&e.site!==null)prior.workTime=animationClock;
+      prior.x=e.x;prior.y=e.y;
+      motion.set(key,prior);
+    }
+    for(const key of motion.keys())if(!active.has(key))motion.delete(key);
+  }
+  function resetMotion(){motion.clear();updateMotion();}
+
   const facingRow={se:0,sw:1,ne:2,nw:3};
   function workerState(entity,role){
     const face=V.facing(entity);
@@ -55,8 +77,13 @@
     const sheet=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
       (entity.carrying?'worker-porter-carry':'worker-porter-walk');
     const state=working?'work':moving?'walk':'idle';
-    const frame=V.animationFrame(state,animationClock,entity.id);
-    return {sheet,state,frame,row:facingRow[face.direction]??0,direction:face.direction};
+    const previous=motion.get(role+':'+entity.id);
+    // One 8-pose walking cycle per 0.68 grid cells, matching stride to distance.
+    // A worker can no longer march in place or glide with a wall-clock animation.
+    const frame=state==='walk'?V.gaitFrame(previous?.distance??0):
+      V.animationFrame(state,animationClock,entity.id);
+    const direction=face.moving?face.direction:(previous?.direction||'se');
+    return {sheet,state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
   }
   function workerSprite(entity,role,px,py,size){
     const pose=workerState(entity,role),img=workerSheets[pose.sheet];
@@ -233,6 +260,48 @@
     }
     return null;
   }
+  // Visual-only work cycles: no resource creation, no simulation mutations.
+  // Use animationClock, which freezes on pause. An idle building has no motion.
+  function drawProductionEffect(b,p,t,h){
+    const clock=animationClock;
+    if(b.type==='bakery'){
+      // Hearth glow from the entrance; chimney smoke follows the real baking cycle.
+      const warm=.20+.10*Math.sin(clock*9+b.id);
+      blob(p.x+t*.18,p.y-h*.09,t*.10,h*.12,'#ffb35a',warm);
+      for(let i=0;i<4;i++){
+        const f=(clock*.28+i*.25)%1;
+        blob(p.x-t*.11+t*.055*f,p.y-t*.91-t*.19*f,t*(.035+.025*f),h*(.055+.035*f),'#eee2c9',.28*(1-f));
+      }
+    }else if(b.type==='sawmill'){
+      // Blade reciprocates above the log; dust only when wood is being processed.
+      const k=Math.sin(clock*13+b.id),bladeX=p.x+t*(.12+.09*k);
+      line(bladeX,p.y-h*.28,bladeX+t*.06,p.y-h*.55,'#eef0df',Math.max(1.3,2*zoom));
+      line(bladeX+t*.015,p.y-h*.25,bladeX+t*.08,p.y-h*.50,'#5c6260',Math.max(.8,1*zoom));
+      for(let i=0;i<4;i++){
+        const f=(clock*.62+i*.25)%1;
+        blob(p.x+t*(.17+.08*f),p.y-h*(.12+.15*f),t*.011,h*.024,'#e8c58c',.55*(1-f));
+      }
+    }else if(b.type==='mill'){
+      // Flour particles at the open grindstone. Static painted sails remain
+      // static until a separate blade-free mill artwork can support real rotation.
+      for(let i=0;i<4;i++){
+        const f=(clock*.46+i*.25)%1;
+        blob(p.x-t*(.12-.11*f),p.y-h*(.29+.08*f),t*.013,h*.018,'#f9e4bb',.70*(1-f));
+      }
+      const ring=.055+.016*Math.sin(clock*8);
+      blob(p.x-t*.015,p.y-h*.21,t*ring,h*.035,'#ddbd8a',.42);
+    }else if(b.type==='farm'){
+      const sway=Math.sin(clock*3+b.id);
+      for(let i=0;i<5;i++){
+        const x=p.x+t*(-.25+i*.125),y=p.y+h*(.12+(i%2)*.035);
+        line(x,y,x+t*(sway*.028),y-h*(.22+(i%3)*.025),'#d5ae53',Math.max(.9,1.45*zoom));
+      }
+    }else if(b.type==='logger'){
+      const swing=Math.sin(clock*9+b.id);
+      line(p.x+t*.27,p.y+h*.1,p.x+t*(.29+.075*swing),p.y-h*.19,'#bd8f54',Math.max(1.4,2.4*zoom));
+      line(p.x+t*(.29+.075*swing),p.y-h*.19,p.x+t*(.36+.075*swing),p.y-h*.21,'#dde1d4',Math.max(2,3.3*zoom));
+    }
+  }
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
     diamond(p.x,p.y,.75,'#263d3180');
@@ -241,13 +310,8 @@
       ctx.textAlign='center';ctx.font=`bold ${Math.max(12,t*.32)}px sans-serif`;ctx.fillStyle='#f8eac6';
       ctx.fillText(DEF[b.type].symbol,p.x,p.y-h*.12);
     }
-    if(b.type==='bakery'&&connected&&game.readyToProduce(b)&&b.progress>0&&!paused){
-      const smoke=performance.now()*.001;
-      for(let i=0;i<3;i++){
-        const shift=(smoke*.46+i*.32)%1;
-        blob(p.x+t*.23+shift*t*.06,p.y-t*.76-shift*t*.19,t*(.037+.02*shift),h*(.05+.045*shift),'#e0d9c2',.23*(1-shift));
-      }
-    }
+    const active=V.productionActive(b,connected,game.readyToProduce(b));
+    if(active)drawProductionEffect(b,p,t,h);
     if(!connected){
       ctx.textAlign='center';ctx.font=`bold ${Math.max(14,t*.28)}px sans-serif`;
       ctx.fillStyle='#ffd1a0';ctx.strokeStyle='#703f2b';ctx.lineWidth=3;
@@ -370,7 +434,7 @@
     const mission=game.missionProgress();
     if(mission.target&&mission.stage!==3){
       const spot=screen(mission.target.x+.5,mission.target.y+.5);
-      const pulse=.62+.24*Math.sin(performance.now()*.003);
+      const pulse=.62+.24*Math.sin(animationClock*.8);
       diamond(spot.x,spot.y,1.1,'#e0d38055','#f8eea7',3);
       ctx.textAlign='center';ctx.font=`bold ${Math.max(10,16*zoom)}px sans-serif`;
       ctx.fillStyle='#fff4cb';ctx.globalAlpha=pulse;
@@ -528,11 +592,11 @@
   $('closeHelp').addEventListener('click',()=>$('helpDialog').close());
   $('resetBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать новую карту? Текущий прогресс будет потерян.'))return;
-    game=new Game().startMission();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
+    game=new Game().startMission();resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
   });
   $('freeBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать свободную игру без задач? Текущий прогресс будет заменён.'))return;
-    game=new Game();stageShown=-2;winShown=false;camera.x=10;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
+    game=new Game();resetMotion();stageShown=-2;winShown=false;camera.x=10;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
   });
   window.addEventListener('keydown',e=>{
     if(e.target.closest('input,button,dialog'))return;
@@ -547,12 +611,12 @@
   window.addEventListener('blur',()=>{setPaused(true);persist();});
   window.addEventListener('beforeunload',persist);
   new ResizeObserver(resize).observe(canvas);
-  resize();selectTool(!restored?'road':'inspect');updateHUD();
+  resetMotion();resize();selectTool(!restored?'road':'inspect');updateHUD();
   if(restored)notify('Прогресс поселения восстановлен.');
   function loop(now){
     if(!last)last=now;
     const dt=Math.max(0,Math.min(.08,(now-last)/1000));last=now;
-    if(!paused){game.step(dt*speed);animationClock+=dt*speed;}
+    if(!paused){game.step(dt*speed);animationClock+=dt*speed;updateMotion();}
     // At most 60 render updates per second; simulation time uses actual frame delta.
     if(now-lastDraw>=16.6){draw();lastDraw=now;}
     if(now-lastHud>=450){updateHUD();lastHud=now;}
@@ -563,5 +627,5 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,resources:{...game.warehouse().goods},
     buildings:game.buildings.length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.4.3',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++)game.step(.1);animationClock+=n;updateHUD();draw();}});
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.4.4',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){game.step(.1);animationClock+=.1;updateMotion();}updateHUD();draw();}});
 })();
