@@ -148,6 +148,21 @@
   function line(x,y,tx,ty,color,size){ctx.strokeStyle=color;ctx.lineWidth=size;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(tx,ty);ctx.stroke();}
   function blob(x,y,rx,ry,fill,alpha=1){ctx.save();ctx.globalAlpha=alpha;ctx.fillStyle=fill;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill();ctx.restore();}
   function rectIso(cx,cy,w,hgt,fill,stroke=null){poly([[cx-w/2,cy],[cx,cy-hgt/2],[cx+w/2,cy],[cx,cy+hgt/2]],fill,stroke,.8);}
+  // All elevated sprites cast light from the upper-left towards lower-right.
+  // Transparent layered gradients add volume without expensive canvas filters.
+  function castShadow(x,y,t,h,scale=1,strength=.3){
+    ctx.save();
+    ctx.translate(x+t*.23*scale,y+h*.33*scale);
+    ctx.rotate(-.15);
+    const rx=t*.55*scale,ry=h*.27*scale;
+    const g=ctx.createRadialGradient(0,0,1,0,0,rx);
+    g.addColorStop(0,'rgba(15,30,24,'+strength+')');
+    g.addColorStop(.53,'rgba(17,35,26,'+(strength*.55)+')');
+    g.addColorStop(1,'rgba(17,35,26,0)');
+    ctx.fillStyle=g;ctx.scale(1,ry/rx);
+    ctx.beginPath();ctx.ellipse(0,0,rx,rx,0,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
   // Natural ground is rendered ONCE as a single world-sized raster.
   // No modulo/repeating 384px pattern and no per-cell grass diamonds:
   // hidden logical cells are used only for gameplay and interactions.
@@ -234,26 +249,53 @@
       groundSurface.width*zoom,groundSurface.height*zoom);
   }
   function landscapePatches(){
+    // Soft geology stains live in the base terrain; individual stone deposits
+    // are depth-sorted tall objects so they are visible and cast real shadows.
     const t=tileSize(),h=tileHeight();
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const tile=game.tiles[id(x,y)];
       if(tile.terrain!=='hills')continue;
-      const jitterX=((x*73+y*31)%11-5)*.056;
-      const jitterY=((x*37+y*19)%9-4)*.05;
-      const p=screen(x+.5+jitterX,y+.5+jitterY);
-      if(p.x<-t*2||p.y<-t*2||p.x>width+t*2||p.y>height+t*2)continue;
-      // Unequal stone clusters instead of a repeated diamond backdrop.
-      for(let k=0;k<3;k++){
-        const phase=((x*41+y*17+k*23)%17)/17;
-        const dx=t*((k-1)*.17+phase*.1),dy=h*((k%2)*.08-.11);
-        const r=t*(.07+.065*phase);
-        poly([[p.x+dx-r,p.y+dy+h*.09],[p.x+dx-r*.25,p.y+dy-h*(.18+.06*phase)],
-          [p.x+dx+r*.65,p.y+dy-h*.11],[p.x+dx+r,p.y+dy+h*.13]],
-          ['#88887e','#c3baa4','#777a74'][k]);
-        line(p.x+dx-r*.14,p.y+dy-h*.10,p.x+dx-r*.015,
-          p.y+dy-h*.18,'#d7d0bd',.8*zoom);
+      const p=screen(x+.5,y+.5);
+      blob(p.x,p.y,t*.52,h*.35,'#897d67',.20);
+      for(let k=0;k<5;k++){
+        const xx=p.x+t*(Math.sin(x*17+y*29+k*7)*.36);
+        const yy=p.y+h*(Math.cos(y*11+x*7+k*3)*.26);
+        blob(xx,yy,t*.018,h*.026,'#d1c1a3',.28);
       }
     }
+  }
+  function rockDeposit(x,y){
+    const tile=game.tiles[id(x,y)],stock=Math.max(0,tile.stone||0);
+    if(stock===0)return;
+    const t=tileSize(),h=tileHeight(),p=screen(x+.5,y+.5);
+    const abundance=Math.max(.36,Math.min(1,stock/55));
+    const shapes=Math.max(2,Math.ceil(abundance*5));
+    castShadow(p.x,p.y+h*.14,t,h,1.42,.46);
+    // An asymmetric cluster of tall boulders: highlight / lit side /
+    // shaded side / dark fissures, with coarse scree around the base.
+    const offsets=[[-.30,.07,.70],[-.05,-.09,1.16],[.26,.04,.81],
+      [-.16,.25,.67],[.22,.24,.53]];
+    for(let i=0;i<shapes;i++){
+      const [ox,oy,size]=offsets[i],cx=p.x+t*ox,base=p.y+h*oy;
+      const w=t*(.20+.13*size),z=h*(.50+.48*size)*Math.min(1,.4+abundance*.7);
+      const left=[cx-w*.57,base-h*.04],right=[cx+w*.68,base+h*.08];
+      const top=[cx-w*.10,base-z],ridge=[cx+w*.26,base-z*.76];
+      poly([left,top,ridge,[cx+w*.11,base-h*.06]],i%2?'#7d8580':'#8c8a7d','#505c55',.95*zoom);
+      poly([[cx+w*.11,base-h*.06],ridge,right,[cx+w*.34,base+h*.08]],
+        i%2?'#555f5b':'#616962','#46514d',.85*zoom);
+      poly([left,[cx-w*.36,base-z*.52],top,[cx+w*.11,base-z*.61]],
+        i%2?'#bbc0af':'#d1cab8',null);
+      line(top[0]-w*.08,top[1]+h*.06,cx-w*.32,base-z*.44,'#eee3ca',1.15*zoom);
+      line(cx+w*.16,base-z*.40,cx+w*.30,base-z*.21,'#424e49',1.25*zoom);
+      line(cx-w*.05,base-z*.29,cx+w*.035,base-z*.11,'#67726b',.85*zoom);
+    }
+    for(let i=0;i<11;i++){
+      const dx=Math.sin(i*8.7+x+y)*t*.52,dy=Math.cos(i*5.7+y)*h*.33;
+      const rr=t*(.015+(i%4)*.009);
+      poly([[p.x+dx-rr,p.y+dy],[p.x+dx-rr*.1,p.y+dy-h*.08],
+        [p.x+dx+rr,p.y+dy+h*.02]],i%3?'#a4a399':'#d4c7b1');
+    }
+    if(stock<18)blob(p.x,p.y+h*.1,t*.18,h*.09,'#4d5046',.18);
   }
   const waterGroupCache=new WeakMap();
   function waterGroups(){
@@ -483,7 +525,8 @@
     const scale=stage==='stump'?.31:stage==='regrowing'?.37:stage==='sapling'?.45:
       stage==='young'?.72:stage==='old'?1.19:1;
     const w=t*1.14*scale,ht=h*3.05*scale;
-    blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.25);
+    castShadow(p.x,p.y+h*.10,t,h,scale*1.04,.30);
+    blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.26);
     const wind=(!isSmall?Math.sin(animationClock*.8+x*.6+y*.9)*.009:0);
     ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind);
     ctx.drawImage(sprite,-w/2,-ht,w,ht);ctx.restore();
@@ -697,7 +740,8 @@
   }
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
-    diamond(p.x,p.y,.75,'#263d3180');
+    castShadow(p.x,p.y+h*.08,t,h,1.43,.37);
+    diamond(p.x,p.y,.75,'#263d3133');
     if(b.type==='quarry'){
       diamond(p.x,p.y,.72,'#716c60','#c8b894');
       for(let k=0;k<6;k++){
@@ -882,6 +926,8 @@
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const tile=game.tiles[id(x,y)];if(!visible(screen(x+.5,y+.5)))continue;
       if(tile.terrain==='forest')objects.push({x,y,depth:x+y+.65,type:'forest'});
+      if(tile.terrain==='hills'&&tile.stone>0&&!game.buildingAt(x,y)&&!game.siteAt(x,y))
+        objects.push({x,y,depth:x+y+.67,type:'rocks'});
       if(tile.terrain==='ruin')objects.push({x,y,depth:x+y+.65,type:'ruin'});
        if(tile.terrain==='grass'&&!game.roads[id(x,y)]&&!game.buildingAt(x,y)&&!game.siteAt(x,y)&&!game.fieldAt(x,y)&&
           (x*31+y*47+x*y*11)%13===0)objects.push({x,y,depth:x+y+.60,type:'bush'});
@@ -902,6 +948,7 @@
     objects.sort((a,b)=>a.depth-b.depth||a.x-b.x);
     for(const o of objects){
       if(o.type==='forest')tree(o.x,o.y,(o.x*5+o.y*9)%6);
+      else if(o.type==='rocks')rockDeposit(o.x,o.y);
       else if(o.type==='ruin')ruins(o.x,o.y);
        else if(o.type==='bush')bush(o.x,o.y,(o.x*3+o.y*7)%11);
       else if(o.type==='villager'){
