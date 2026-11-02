@@ -107,3 +107,9 @@ dialog{max-height:85dvh}
  .map-bottom #mapHint{display:none}
  .top-stats{top:48px}
 }
+
+/* Персонажи поселения в карточке главного здания. */
+.headquarters-workers{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:10px}
+.headquarters-workers>div{text-align:center;min-width:0;background:#283a32;border-radius:6px;padding:3px}
+.headquarters-workers img{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:contain}
+.headquarters-workers small{font-size:9px;color:#dbc994}

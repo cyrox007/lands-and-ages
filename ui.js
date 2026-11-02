@@ -35,6 +35,21 @@
     img.onerror=()=>{sprites[name]=null;};
     img.src=(window.StrategyAssets&&window.StrategyAssets[name])||('assets/'+name+'.webp');
   }
+  // Главное здание сохраняет тип warehouse: меняется только его внешний вид.
+  const headquartersSprite=new Image();
+  headquartersSprite.onload=()=>{
+    const maskCanvas=document.createElement('canvas');
+    maskCanvas.width=128;maskCanvas.height=128;
+    const context=maskCanvas.getContext('2d',{willReadFrequently:true});
+    context.drawImage(headquartersSprite,0,0,128,128);
+    spriteMasks.headquarters={w:128,h:128,data:context.getImageData(0,0,128,128).data};
+  };
+  headquartersSprite.src=window.StrategyHeadquartersAsset||
+    'assets/buildings/headquarters/headquarters-level1.webp';
+  const WORKER_ART={
+    builder:'Строитель',porter:'Носильщик',logger:'Лесоруб',
+    'quarry-worker':'Каменотёс',farmer:'Земледелец'
+  };
   // Four atlas sheets contain 8 independently drawn poses x 4 directions.
   // Loaded separately to keep the eight legacy buildings and their selection masks intact.
   // Подлинные растровые слои из утверждённых спрайт-листов.
@@ -733,7 +748,9 @@
   }
   function buildingRect(b){
     const p=buildingCenter(b),t=tileSize(),h=tileHeight();
-    const w=t*(BUILDING_SCALES[b.type]||1.60),img=sprites[b.type];
+    const headquarters=b.type==='warehouse'&&game.scenario==='settlement'&&headquartersSprite.naturalWidth;
+    const w=t*(headquarters?1.58:(BUILDING_SCALES[b.type]||1.60));
+    const img=headquarters?headquartersSprite:sprites[b.type];
     const height=img&&img.naturalWidth?w*img.naturalHeight/img.naturalWidth:t*1.4;
     return {x:p.x-w/2,y:p.y+h*.33-height,w,h:height,p};
   }
@@ -748,7 +765,8 @@
         if(u>.17&&u<.83&&v>.13)return b;
         continue;
       }
-      const mask=spriteMasks[b.type];
+      const mask=b.type==='warehouse'&&game.scenario==='settlement'&&headquartersSprite.naturalWidth?
+        spriteMasks.headquarters:spriteMasks[b.type];
       if(!mask){
         // Procedural quarry and future buildings have no alpha mask atlas yet.
         if(u>.13&&u<.87&&v>.18)return b;
@@ -918,10 +936,13 @@
     wrapper.append(heading,preview,counts);$('tileInfo').append(wrapper);
   }
   function drawBuilding(b){
-    const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
+    const rect=buildingRect(b),{w:renderedWidth,h:imageHeight,p}=rect;
+    const t=tileSize(),h=tileHeight(),connected=game.connected(b);
     castShadow(p.x,p.y+h*.08,t,h,1.43,.37);
     diamond(p.x,p.y,.75,'#263d3133');
-    if(b.type==='mill'){
+    if(b.type==='warehouse'&&game.scenario==='settlement'&&headquartersSprite.naturalWidth){
+      ctx.drawImage(headquartersSprite,rect.x,rect.y,rect.w,rect.h);
+    }else if(b.type==='mill'){
       drawMillBuilding(b,p,t,h);
     }else if(b.type==='quarry'){
       // A working quarry remains visibly industrial even once its nearby
@@ -1397,6 +1418,18 @@
      title.textContent=data.title;desc.textContent=data.desc;$('tileInfo').append(title,desc);
      if(game.scenario==='settlement')setPanel('news');
      const b=game.buildingAt(x,y);
+     if(b?.type==='warehouse'&&game.scenario==='settlement'){
+       title.textContent='Главное здание поселения · склад';
+       const gallery=document.createElement('div');gallery.className='headquarters-workers';
+       for(const [role,name] of Object.entries(WORKER_ART)){
+         const item=document.createElement('div'),picture=new Image();
+         picture.alt=name;picture.loading='lazy';
+         picture.src=window.StrategyWorkerArt?.[role]||'assets/workers/'+role+'.webp';
+         const caption=document.createElement('small');caption.textContent=name;
+         item.append(picture,caption);gallery.append(item);
+       }
+       $('tileInfo').append(gallery);
+     }
      if(b?.type==='mill'){
        showMillInterior(b);
        const mill=game.millInterior(b),state=mill.phase;

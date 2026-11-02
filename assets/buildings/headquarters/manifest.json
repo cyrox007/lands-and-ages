@@ -1,0 +1,56 @@
+{
+  "version": "0.5.9-draft",
+  "engineType": "warehouse",
+  "name": "Главное здание поселения",
+  "levels": {
+    "1": "headquarters-level1.webp",
+    "2": "headquarters-level2.webp",
+    "3": "headquarters-level3.webp",
+    "4": "headquarters-level4.webp"
+  },
+  "activeLevel": 1,
+  "construction": [
+    "headquarters-foundation.webp",
+    "headquarters-frame.webp",
+    "headquarters-walls.webp",
+    "headquarters-roof.webp",
+    "headquarters-complete.webp"
+  ],
+  "damage": [
+    "headquarters-light-damage.webp",
+    "headquarters-heavy-damage.webp",
+    "headquarters-fresh-ruins.webp",
+    "headquarters-old-ruins.webp"
+  ],
+  "modules": [
+    "headquarters-module-core.webp",
+    "headquarters-module-wing.webp",
+    "headquarters-module-cupola.webp",
+    "headquarters-module-roof.webp",
+    "headquarters-module-flag.webp",
+    "headquarters-module-gate.webp",
+    "headquarters-module-loading.webp"
+  ],
+  "workers": [
+    "builder.webp",
+    "porter.webp",
+    "logger.webp",
+    "quarry-worker.webp",
+    "farmer.webp"
+  ],
+  "motionReference": {
+    "file": "workers/walk-reference-se.webp",
+    "width": 96,
+    "height": 128,
+    "frames": 8,
+    "direction": "se",
+    "status": "reference-only"
+  },
+  "sources": [
+    "art/sources/headquarters-concept-original.png",
+    "art/sources/workers-design-concept-original.png",
+    "art/sources/headquarters-worker-motion-brief.png"
+  ],
+  "visualOnly": true,
+  "note": "Четыре будущих уровня и фазы разрушения являются черновыми игровыми изображениями. В рантайме подключён только первый уровень."
+}
