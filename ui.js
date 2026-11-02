@@ -641,10 +641,7 @@
   function inspectAt(x,y){const data=game.inspect(x,y);$('tileInfo').replaceChildren();
     const title=document.createElement('strong'),desc=document.createElement('span');
      title.textContent=data.title;desc.textContent=data.desc;$('tileInfo').append(title,desc);
-     if(game.scenario==='settlement'){
-       shell.dataset.panel='news';
-       document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded',String(btn.dataset.hudPanel==='news')));
-     }
+     if(game.scenario==='settlement')setPanel('news');
      const b=game.buildingAt(x,y);
      if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
        const row=document.createElement('div');row.className='staff-controls';
@@ -741,7 +738,7 @@
     selectedCrop=b.dataset.crop;
     document.querySelectorAll('[data-crop]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));
     selectTool('field');
-    if(innerWidth<=750)shell.dataset.panel='none';
+    if(innerWidth<=750)setPanel('none');
   }));
   document.querySelectorAll('[data-pan]').forEach(b=>b.addEventListener('click',()=>{
     const delta={left:[-2,0],right:[2,0],up:[0,-2],down:[0,2]}[b.dataset.pan];
@@ -757,16 +754,16 @@
   $('closeHelp').addEventListener('click',()=>$('helpDialog').close());
   $('resetBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать новую карту? Текущий прогресс будет потерян.'))return;
-    game=new Game().startMission();shell.dataset.panel='none';resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
+    game=new Game().startMission();setPanel('none');setMissionExpanded(false);resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
   });
   $('freeBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать свободную игру без задач? Текущий прогресс будет заменён.'))return;
-    game=new Game(1729,'settlement');shell.dataset.panel='none';resetMotion();stageShown=-2;winShown=false;camera.x=11.5;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
+    game=new Game(1729,'settlement');setPanel('none');setMissionExpanded(false);resetMotion();stageShown=-2;winShown=false;camera.x=11.5;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
   });
   window.addEventListener('keydown',e=>{
     if(e.target.closest('input,button,dialog'))return;
     if(e.code==='Space'){e.preventDefault();setPaused(!paused);}
-    if(e.key==='Escape')selectTool('inspect');
+    if(e.key==='Escape'){setPanel('none');setMissionExpanded(false);selectTool('inspect');}
     if(e.key==='+'||e.key==='=')zoomBy(.15);
     if(e.key==='-')zoomBy(-.15);
     const pan={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.code];
