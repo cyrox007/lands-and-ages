@@ -608,8 +608,8 @@
     if(m.done&&!winShown){winShown=true;persist();}
   }
   function focusMission(){const m=game.missionProgress();if(!m.target)return;camera.x=m.target.x+.5;camera.y=m.target.y+.5;draw();}
-  $('missionFocus').addEventListener('click',focusMission);
-  $('missionTool').addEventListener('click',()=>{selectTool($('missionTool').dataset.actionTool);if(game.missionProgress().stage!==3)focusMission();});
+  $('missionFocus').addEventListener('click',()=>{focusMission();setMissionExpanded(false);});
+  $('missionTool').addEventListener('click',()=>{selectTool($('missionTool').dataset.actionTool);if(game.missionProgress().stage!==3)focusMission();setMissionExpanded(false);});
   function updateHUD(){
     const hud=game.hud();updateMission();
     const sites=$('constructionList');sites.replaceChildren();
