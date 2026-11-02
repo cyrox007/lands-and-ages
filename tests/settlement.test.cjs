@@ -91,8 +91,8 @@ test('legacy campaign remains playable and v2 saves migrate stone resource',()=>
 test('grain, vegetables, lumber and stone flow to the warehouse and on to secondary and tertiary industry',()=>{
   const g=new Game(1729,'settlement');
   for(const [type,x,y] of [
-    ['logger',12,9],['farm',13,9],['sawmill',14,9],['mill',15,9],
-    ['quarry',16,9],['bakery',17,9],['road',16,10],['road',17,10]
+    ['logger',12,9],['farm',13,9],['sawmill',14,9],['mill',18,8],
+    ['quarry',16,9],['bakery',17,9],['road',16,10],['road',17,10],['road',18,10]
   ])assert.equal(g.build(type,x,y).ok,true,type);
   run(g,115);
   const members=['logger','farm','quarry','sawmill'].map(type=>g.buildings.find(b=>b.type===type));
@@ -124,16 +124,16 @@ test('grain, vegetables, lumber and stone flow to the warehouse and on to second
 
 test('stone-dependent building remains foundation until a porter brings stone',()=>{
   const g=new Game(1729,'settlement');
-  assert.equal(g.build('mill',15,9).ok,true);
-  const site=g.siteAt(15,9);assert.equal(site.required.stone,1);
+  assert.equal(g.build('mill',14,8).ok,true);
+  const site=g.siteAt(14,8);assert.equal(site.required.stone,1);
   run(g,60);
-  assert.ok(g.siteAt(15,9),'mill cannot appear without stone');
+  assert.ok(g.siteAt(14,8),'mill cannot appear without stone');
   assert.equal(site.progress,0,'builders may not work with missing stone');
   assert.equal(site.goods.stone,0);
   assert.equal(site.goods.boards,2,'boards arrive separately');
   const copy=Game.restore(g.save());assert.ok(copy);
-  assert.equal(copy.siteAt(15,9).required.stone,1);
-  assert.equal(copy.siteAt(15,9).progress,0);
+  assert.equal(copy.siteAt(14,8).required.stone,1);
+  assert.equal(copy.siteAt(14,8).progress,0);
 });
 
 test('residents visibly walk to natural sources, harvest there and return tangible inventory',()=>{
