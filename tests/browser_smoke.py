@@ -10,8 +10,8 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
-html=re.sub(r'<link rel="stylesheet" href="style.css">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|ui)\.js"></script>','',html)
+html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
+html=re.sub(r'<script defer src="(?:engine|visual-model|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
@@ -220,5 +220,43 @@ with sync_playwright() as pw:
         assert page.evaluate('window.__strategyDebug().freeWorkers')==3
         assert not errors,(name,errors)
         print(name,{'oneHQ':True,'fullViewport':True,'overlaidHUD':True,'errors':0})
+        context.close()
+    browser.close()
+
+# Regression: a browser caching the old 0.4 stylesheet must never turn
+# the 0.5 HUD back into a scrolling document. Inline critical geometry wins.
+legacy_css=css.split('/* 0.5: The viewport IS the game.')[0]
+with sync_playwright() as pw:
+    browser=pw.chromium.launch(headless=True,args=['--no-sandbox'],executable_path=shutil.which('chromium') or None)
+    for name,w,h,mobile in [('cached-style-desktop',1280,800,False),('cached-style-mobile',393,852,True)]:
+        context=browser.new_context(viewport={'width':w,'height':h},is_mobile=mobile,has_touch=mobile)
+        page=context.new_page();page.set_content(html)
+        page.add_style_tag(content=legacy_css)
+        page.evaluate('''() => Object.defineProperty(window,'localStorage',{configurable:true,value:{
+          getItem(){return null},setItem(){},removeItem(){}}})''')
+        page.add_script_tag(content=engine)
+        page.add_script_tag(content=visual)
+        page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
+        page.add_script_tag(content=ui)
+        page.wait_for_function('Boolean(window.__strategyDebug)')
+        metrics=page.evaluate('''() => {
+          const c=document.querySelector('#gameMap').getBoundingClientRect();
+          const v=document.querySelector('.shell'),m=document.querySelector('.map-container');
+          return {width:c.width,height:c.height,left:c.left,top:c.top,
+            viewportWidth:innerWidth,viewportHeight:innerHeight,
+            bodyOverflow:getComputedStyle(document.body).overflow,
+            shellPosition:getComputedStyle(v).position,
+            mapPosition:getComputedStyle(m).position,
+            dockDisplay:getComputedStyle(document.querySelector('.game-dock')).display,
+            scrollHeight:document.documentElement.scrollHeight}
+        }''')
+        assert abs(metrics['width']-w)<2 and abs(metrics['height']-h)<2,(name,metrics)
+        assert abs(metrics['left'])<2 and abs(metrics['top'])<2,(name,metrics)
+        assert metrics['scrollHeight']<=h+1,(name,metrics)
+        assert metrics['bodyOverflow']=='hidden' and metrics['shellPosition']=='fixed',(name,metrics)
+        assert metrics['dockDisplay']=='flex',(name,metrics)
+        page.locator('[data-hud-panel="build"]').click()
+        assert page.locator('.sidebar').is_visible(),name
+        print(name,metrics)
         context.close()
     browser.close()
