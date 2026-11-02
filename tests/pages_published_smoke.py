@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="approved-mill-raster-20261102-v12"
+EXPECTED="refined-mill-composition-20261102-v13"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -75,6 +75,9 @@ with sync_playwright() as pw:
         assert page.evaluate("window.__strategyDebug().millRotorState(5).bakedSprite")==False
         page.wait_for_function("window.__strategyDebug().millPackage().loaded===3",timeout=20000)
         assert page.evaluate("window.__strategyDebug().millPackage().total")==3
+        page.wait_for_function("window.__strategyDebug().millPackage().detailedLoaded===2",timeout=20000)
+        layout=page.evaluate("window.__strategyDebug().millPackage().layout")
+        assert layout["rotorWidth"]<layout["width"]*.55
         assert page.evaluate("window.__strategyDebug().millPackage().raster")==True
         assert page.evaluate("window.__strategyDebug().millPackage().source")=="approved-imagegen-sheets"
 

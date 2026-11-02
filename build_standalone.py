@@ -7,12 +7,19 @@ html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','<style>'+ 
 html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|ui)\.js(?:\?[^"]+)?"></script>','',html)
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in sorted((root/'assets').glob('*.webp'))}
 assert len(assets)==12
-mill_assets={p.stem.replace('mill-','').replace('states-','').replace('-',''):'data:image/webp;base64,'+
-             base64.b64encode(p.read_bytes()).decode('ascii')
-             for p in sorted((root/'assets/buildings/mill').glob('mill-*.webp'))}
+mill_files={'start':'mill-states-start.webp',
+            'end':'mill-states-end.webp','parts':'mill-parts.webp'}
+mill_assets={name:'data:image/webp;base64,'+
+             base64.b64encode((root/'assets/buildings/mill'/filename).read_bytes()).decode('ascii')
+             for name,filename in mill_files.items()}
 assert set(mill_assets)=={'start','end','parts'}
+detail_assets={name:'data:image/webp;base64,'+base64.b64encode(
+    (root/'assets/buildings/mill'/filename).read_bytes()).decode('ascii')
+    for name,filename in {'body':'mill-detailed-body.webp',
+                          'rotor':'mill-detailed-rotor.webp'}.items()}
 scripts=('window.StrategyAssets='+json.dumps(assets,separators=(',',':'))+';\n'+
          'window.StrategyMillAtlases='+json.dumps(mill_assets,separators=(',',':'))+';\n'+
+         'window.StrategyMillDetailAssets='+json.dumps(detail_assets,separators=(',',':'))+';\n'+
          (root/'engine.js').read_text('utf8')+'\n;\n'+
          (root/'visual-model.js').read_text('utf8')+'\n;\n'+
          (root/'mill-pack.js').read_text('utf8')+'\n;\n'+

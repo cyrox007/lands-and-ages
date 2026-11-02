@@ -37,11 +37,28 @@
       overgrown_ruins:'overgrown_ruins',restoring:'restoring',
       damaged:'damaged'}[phase]||'body_assembled';
   }
+  function layout(tileWidth,tileHeight){
+    const width=tileWidth*2.28,height=width*316/360;
+    const left=-width/2,top=tileHeight*.46-height;
+    const rotorWidth=width*186/360;
+    return {
+      width,height,left,top,
+      hubX:left+width*135/360,
+      hubY:top+height*148/316,
+      rotorWidth,rotorHeight:rotorWidth*227/239
+    };
+  }
   return Object.freeze({
-    id:'mill',version:2,path,cell,atlases,sprites,states,
+    id:'mill',version:3,path,cell,atlases,sprites,states,
     storage:{input:{grain:12},output:{flour:12}},
     recipe:{input:{grain:2},output:{flour:1},seconds:6,workers:1},
-    rotorPivot:{x:-.104,y:.445,size:.536,hubOffsetY:.0625},
-    constructionSprite,stateSprite
+    // Координаты совпадают с пикселями исходного многослойного корпуса.
+    detailed:{
+      body:'mill-detailed-body.webp',rotor:'mill-detailed-rotor.webp',
+      bodySize:{w:360,h:316},rotorSize:{w:239,h:227},
+      hub:{x:135,y:148},rotorWidthInBody:186,
+      renderWidthTiles:2.28,baseOffset:0.46
+    },
+    constructionSprite,stateSprite,layout
   });
 });
