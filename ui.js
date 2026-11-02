@@ -14,7 +14,7 @@
   let mode='inspect',paused=false,speed=1,zoom=innerWidth<600?.88:1;
   const camera={x:game.scenario==='settlement'?11.5:17,y:10};
   let width=800,height=500,dpr=1,last=0,lastDraw=0,lastHud=0,lastSave=0,hover=null;
-  let pointer=null,toastUntil=0;
+  let pointer=null,toastUntil=0,touchPlacement=null;
   const TRAITS={grass:'#69875d',forest:'#456f54',hills:'#998a6c',water:'#478b9c',ruin:'#ae9c7b'};
   const MATERIAL_COLORS={warehouse:['#b38b55','#dcc497','#7f5f3a'],house:['#8f5f42','#ceb184','#73482f'],logger:['#6f5840','#c5aa7b','#5e4630'],sawmill:['#82624a','#d4b88b','#684b36'],farm:['#8e764d','#d7bf7b','#7e663f'],mill:['#a59a83','#ddd0b0','#7e7360'],bakery:['#9f6c45','#dfc6a0','#865237'],generic:['#8f694e','#d3b186','#6d4f38']};
   const ASSET_NAMES=['warehouse','house','logger','sawmill','farm','mill','bakery','carrier'];
@@ -114,7 +114,7 @@
   function persist(){try{localStorage.setItem(STORAGE,game.save());return true;}catch(_){return false;}}
   function notify(s){$('toast').textContent=s;$('toast').classList.add('visible');toastUntil=performance.now()+2800;}
   function selectTool(type){
-    mode=type;
+    mode=type;touchPlacement=null;hover=null;
     if(innerWidth<=750&&type!=='field'){
       const container=document.querySelector('.shell');
       if(container)container.dataset.panel='none';
@@ -126,7 +126,10 @@
     const tool=type==='inspect'?'Осмотр: коснись клетки карты.':type==='excavate'?'Исследование: выбери древние руины (15 монет).':
       type==='road'?'Дорога: 2 монеты + 1 доска. Носильщики доставят материал, строители проложат путь.':
       type==='field'?'Поле: выбери культуру, затем свободный участок до 3 клеток от фермы. Урожай растёт только с назначенным земледельцем.':
-      'Заложить стройку: '+DEF[type].name+' — '+DEF[type].cost+' монет, '+DEF[type].boards+' досок; доставка и работа занимают время.';
+      'Заложить стройку: '+DEF[type].name+' ('+
+        game.footprint(type).w+'×'+game.footprint(type).h+' клетки) — '+
+        DEF[type].cost+' монет, '+DEF[type].boards+
+        ' досок. Подсветка покажет всю площадку до строительства.';
     $('mapHint').textContent=tool;
   }
   function zoomBy(delta){zoom=clamp(zoom+delta,.62,2.20);$('zoomLabel').textContent=Math.round(zoom*100)+'%';}
@@ -699,8 +702,12 @@
     ctx.drawImage(img,cx-w/2,cy-h,w,h);return true;
   }
   const BUILDING_SCALES={warehouse:1.21,house:1.17,logger:1.16,sawmill:1.2,farm:1.19,mill:1.24,bakery:1.18};
+  function buildingCenter(b){
+    const {w,h}=b.size||{w:1,h:1};
+    return screen(b.x+w/2,b.y+h/2);
+  }
   function buildingRect(b){
-    const p=screen(b.x+.5,b.y+.5),t=tileSize(),h=tileHeight();
+    const p=buildingCenter(b),t=tileSize(),h=tileHeight();
     const w=t*(BUILDING_SCALES[b.type]||1.60),img=sprites[b.type];
     const height=img&&img.naturalWidth?w*img.naturalHeight/img.naturalWidth:t*1.4;
     return {x:p.x-w/2,y:p.y+h*.33-height,w,h:height,p};
@@ -926,7 +933,7 @@
     }
   }
   function drawSite(site){
-    const pos=screen(site.x+.5,site.y+.5),t=tileSize(),h=tileHeight();
+    const pos=buildingCenter(site),t=tileSize(),h=tileHeight();
     if(site.type==='mill'&&M){drawMillConstruction(site,pos,t,h);return;}
     const need=site.required.boards||0,have=site.goods.boards||0;
     const requiredStone=site.required.stone||0,deliveredStone=site.goods.stone||0,materialsReady=have>=need&&deliveredStone>=requiredStone;
@@ -1154,6 +1161,43 @@
     const appearance=V.porterAppearance(c.carrying);
     if(appearance.cargo)drawCargo(c.carrying,p.x+t*.13,p.y-h*.07,t,h);
   }
+  function drawPlacementPreview(x,y){
+    const p=screen(x+.5,y+.5);
+    if(!DEF[mode]&&mode!=='road'&&mode!=='field'){
+      diamond(p.x,p.y,1,'#b3ffca28','#dbf8bd');return;
+    }
+    const area=game.placement(mode,x,y);
+    const check=game.canBuild(mode,x,y),valid=check.ok;
+    if(mode==='mill'&&millDetailed.body?.naturalWidth){
+      const center=screen(x+area.size.w/2,y+area.size.h/2);
+      const a=M.layout(tileSize(),tileHeight());
+      ctx.save();ctx.globalAlpha=valid?.58:.24;
+      ctx.drawImage(millDetailed.body,center.x+a.left,center.y+a.top,a.width,a.height);
+      ctx.restore();
+    }
+    for(const tile of area.cells){
+      if(tile.x<0||tile.y<0||tile.x>=W||tile.y>=H)continue;
+      const c=screen(tile.x+.5,tile.y+.5);
+      const good=valid&&tile.ok;
+      diamond(c.x,c.y,1,
+        good?'rgba(73,190,112,.34)':'rgba(221,70,52,.36)',
+        good?'#b5f6b0':'#ff9388');
+    }
+    const {w,h}=area.size,coords=[
+      screen(x,y),screen(x+w,y),screen(x+w,y+h),screen(x,y+h)
+    ];
+    poly(coords.map(p=>[p.x,p.y]),'rgba(0,0,0,0)',
+      valid?'#c9ffbf':'#ffa38f',Math.max(1.5,2.6*zoom));
+    const center=screen(x+w/2,y+h/2),tip=check.ok?
+      w+'×'+h+' · Можно строить':
+      w+'×'+h+' · '+(area.error||check.error||'Недоступно');
+    ctx.save();ctx.font='bold '+Math.max(11,12*zoom)+'px sans-serif';
+    ctx.textAlign='center';ctx.lineWidth=3.5;ctx.strokeStyle='#182b26';
+    ctx.fillStyle=valid?'#e0ffdd':'#ffd4c8';
+    const yy=center.y-tileHeight()*.83;
+    ctx.strokeText(tip,center.x,yy);ctx.fillText(tip,center.x,yy);
+    ctx.restore();
+  }
   function draw(){
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.fillStyle='#233f38';ctx.fillRect(0,0,width,height);
@@ -1179,8 +1223,14 @@
        if(tile.terrain==='grass'&&!game.roads[id(x,y)]&&!game.buildingAt(x,y)&&!game.siteAt(x,y)&&!game.fieldAt(x,y)&&
           (x*31+y*47+x*y*11)%13===0)objects.push({x,y,depth:x+y+.60,type:'bush'});
     }
-    for(const b of game.buildings)if(visible(screen(b.x+.5,b.y+.5)))objects.push({x:b.x,y:b.y,depth:b.x+b.y+.75,type:'building',b});
-    for(const site of game.construction)if(visible(screen(site.x+.5,site.y+.5)))objects.push({x:site.x,y:site.y,depth:site.x+site.y+.73,type:'site',site});
+    for(const b of game.buildings)if(visible(buildingCenter(b))){
+      const size=b.size||{w:1,h:1};
+      objects.push({x:b.x,y:b.y,depth:b.x+b.y+(size.w+size.h)/2-.25,type:'building',b});
+    }
+    for(const site of game.construction)if(visible(buildingCenter(site))){
+      const size=site.size||{w:1,h:1};
+      objects.push({x:site.x,y:site.y,depth:site.x+site.y+(size.w+size.h)/2-.27,type:'site',site});
+    }
     for(const b of game.builders)if(visible(screen(b.x+.5,b.y+.5)))objects.push({x:b.x,y:b.y,depth:b.x+b.y+.90,type:'builder',b});
     for(const c of game.carriers)if(visible(screen(c.x+.5,c.y+.5)))objects.push({x:c.x,y:c.y,depth:c.x+c.y+.90,type:'carrier',c});
     for(const agent of game.workAgents||[])if(visible(screen(agent.x,agent.y)))
@@ -1217,11 +1267,8 @@
       ctx.fillText(mission.stage===0?'▼ ПОЧИНИТЬ':mission.stage===1?'▼ ПЕКАРНЯ':'▼ ПОСТРОИТЬ ДОМ',spot.x,spot.y-tileSize()*.50);
       ctx.globalAlpha=1;
     }
-    if(hover&&hover.x>=0&&hover.x<W&&hover.y>=0&&hover.y<H){
-      const p=screen(hover.x+.5,hover.y+.5);
-      const buildable=mode==='road'||DEF[mode]?game.canBuild(mode,hover.x,hover.y).ok:true;
-      diamond(p.x,p.y,1,buildable?'#b3ffca37':'#ff886635',buildable?'#dbf8bd':'#ffae86');
-    }
+    if(hover&&hover.x>=0&&hover.x<W&&hover.y>=0&&hover.y<H)
+      drawPlacementPreview(hover.x,hover.y);
     ctx.strokeStyle='#d3d0a840';ctx.lineWidth=2;ctx.strokeRect(.5,.5,width-1,height-1);
   }
   const PATHS={wealth:{name:'Торговля',type:'market',stat:'wealth',desc:'Построй рынок у дороги и дождись первой продажи хлеба.'},
@@ -1389,7 +1436,11 @@
   canvas.addEventListener('pointerdown',e=>{
     if(pointer)return;
     if(e.pointerType==='touch'&&e.cancelable)e.preventDefault();
-    const p=canvasPointer(e);pointer={id:e.pointerId,x:p.x,y:p.y,prevX:p.x,prevY:p.y,moved:false};
+    const p=canvasPointer(e);
+    if(e.pointerType==='touch'&&mode!=='inspect'&&mode!=='excavate')
+      hover=cellAt(p.x,p.y);
+    pointer={id:e.pointerId,pointerType:e.pointerType,x:p.x,y:p.y,
+      prevX:p.x,prevY:p.y,moved:false};
     try{canvas.setPointerCapture(e.pointerId);}catch(_){}
   });
   canvas.addEventListener('pointermove',e=>{
@@ -1397,7 +1448,7 @@
     if(!pointer){hover=cellAt(p.x,p.y);return;}
     if(e.pointerId!==pointer.id)return;
     if(Math.hypot(p.x-pointer.x,p.y-pointer.y)>7)pointer.moved=true;
-    if(pointer.moved){const deltaX=(p.x-pointer.prevX)/(tileSize()/2);
+    if(pointer.moved){touchPlacement=null;const deltaX=(p.x-pointer.prevX)/(tileSize()/2);
       const deltaY=(p.y-pointer.prevY)/(tileHeight()/2);
       camera.x=clamp(camera.x-(deltaX+deltaY)/2,-3,W+3);
       camera.y=clamp(camera.y-(deltaY-deltaX)/2,-3,H+3);hover=null;}
@@ -1407,14 +1458,26 @@
     if(!pointer||e.pointerId!==pointer.id)return;
     const p=canvasPointer(e);if(!pointer.moved&&e.type==='pointerup'){
       const hit=mode==='inspect'?pickBuilding(p.x,p.y):null;
-      act(hit?{x:hit.x,y:hit.y}:cellAt(p.x,p.y));
+      const cell=hit?{x:hit.x,y:hit.y}:cellAt(p.x,p.y);
+      if(pointer.pointerType==='touch'&&mode!=='inspect'&&mode!=='excavate'){
+        hover=cell;
+        if(!touchPlacement||touchPlacement.x!==cell.x||
+          touchPlacement.y!==cell.y||touchPlacement.mode!==mode){
+          touchPlacement={...cell,mode};
+          notify('Проверь площадку '+game.footprint(mode).w+'×'+
+            game.footprint(mode).h+'. Повторное касание подтвердит строительство.');
+        }else{
+          touchPlacement=null;act(cell);
+        }
+      }else act(cell);
     }
     pointer=null;
   };
   canvas.addEventListener('pointerup',endPointer);
   canvas.addEventListener('pointercancel',endPointer);
   canvas.addEventListener('lostpointercapture',()=>{pointer=null;});
-  canvas.addEventListener('pointerleave',()=>{if(!pointer)hover=null;});
+  canvas.addEventListener('pointerleave',()=>{if(!pointer&&
+    !touchPlacement)hover=null;});
   canvas.addEventListener('wheel',e=>{if(e.cancelable)e.preventDefault();zoomBy(e.deltaY<0?.12:-.12);},{passive:false});
   document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>{
     selectTool(b.dataset.tool);
@@ -1508,7 +1571,9 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.6-refined-mill',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,
+    placement:(type,x,y)=>({...game.placement(type,x,y),check:game.canBuild(type,x,y)}),
+    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.7-placement',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
