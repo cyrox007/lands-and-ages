@@ -356,8 +356,21 @@
         blob(p.x+t*(.17+.08*f),p.y-h*(.12+.15*f),t*.011,h*.024,'#e8c58c',.55*(1-f));
       }
     }else if(b.type==='mill'){
-      // Flour particles at the open grindstone. Static painted sails remain
-      // static until a separate blade-free mill artwork can support real rotation.
+      // A rotating foreground rotor linked to the REAL flour grinding state.
+      // When grain runs out, rotation freezes; pause freezes animationClock.
+      const cx=p.x+t*.20,cy=p.y-h*.96,angle=clock*1.6+b.id*.17;
+      blob(cx,cy,t*.11,h*.12,'#3d3028',.82);
+      for(let k=0;k<4;k++){
+        const theta=angle+k*Math.PI/2,ux=Math.cos(theta),uy=Math.sin(theta);
+        const vx=-uy,vy=ux;
+        const a=t*.10,big=t*.42,w=t*.073;
+        poly([[cx+ux*a+vx*w,cy+uy*a+vy*w*.62],
+          [cx+ux*big+vx*w*.62,cy+uy*big+vy*w*.62],
+          [cx+ux*big-vx*w*.62,cy+uy*big-vy*w*.62],
+          [cx+ux*a-vx*w,cy+uy*a-vy*w*.62]],'#d6bd90','#735b3d',1.15*zoom);
+        line(cx+ux*a,cy+uy*a,cx+ux*big,cy+uy*big,'#e9ddba',1.2*zoom);
+      }
+      blob(cx,cy,t*.048,h*.058,'#8e714c',1);
       for(let i=0;i<4;i++){
         const f=(clock*.46+i*.25)%1;
         blob(p.x-t*(.12-.11*f),p.y-h*(.29+.08*f),t*.013,h*.018,'#f9e4bb',.70*(1-f));
@@ -493,17 +506,76 @@
       blob(p.x,footY-h*.24,t*.10,h*.20,'#dda93f');
     }
   }
+  function drawCargo(cargo,x,y,t,h){
+    if(!cargo)return;
+    const n=cargo.amount;
+    ctx.save();ctx.lineCap='round';
+    if(cargo.res==='logs'||cargo.res==='boards'){
+      for(let i=0;i<Math.min(n,3);i++){
+        const sy=y+h*(i*.07-.04),length=t*(cargo.res==='logs'?.37:.33);
+        line(x-length*.43,sy,x+length*.57,sy-h*.08,
+          cargo.res==='logs'?'#79502c':'#be9668',Math.max(3,t*.065));
+        line(x-length*.43,sy,x+length*.57,sy-h*.08,
+          '#d9ad74',Math.max(.7,t*.012));
+        blob(x-length*.43,sy,t*.035,h*.048,'#e1b783',1);
+      }
+    }else if(cargo.res==='grain'){
+      for(let k=0;k<6;k++){
+        const ang=(k-2.5)*.23;
+        line(x,y+h*.08,x+Math.sin(ang)*t*.13,y-h*.30,'#bca465',Math.max(1,t*.018));
+        blob(x+Math.sin(ang)*t*.12,y-h*.26,t*.028,h*.05,'#e3c779',1);
+      }
+      line(x-t*.08,y-h*.04,x+t*.08,y-h*.05,'#d1b48b',Math.max(2,t*.03));
+    }else if(cargo.res==='flour'){
+      blob(x,y-h*.11,t*.17,h*.24,'#f0e4cb',1);
+      poly([[x-t*.12,y-h*.26],[x+t*.1,y-h*.26],[x+t*.07,y-h*.37],[x-t*.08,y-h*.37]],
+        '#d8c6a5','#8f826b',1);
+      line(x-t*.075,y-h*.08,x+t*.09,y-h*.08,'#b5a485',1.1*zoom);
+    }else if(cargo.res==='stone'){
+      for(let k=0;k<Math.min(n,3);k++){
+        const sx=x+t*(k-.8)*.10,sy=y+h*(k%2)*.06;
+        poly([[sx-t*.085,sy],[sx-t*.035,sy-h*.15],[sx+t*.063,sy-h*.11],
+          [sx+t*.092,sy+h*.02]],'#a9a8a1','#6b706e',1);
+      }
+    }else if(cargo.res==='vegetables'){
+      for(let k=0;k<3;k++){
+        const sx=x+t*(k-1)*.09,sy=y+h*(k%2)*.08;
+        blob(sx,sy,t*.06,h*.10,k===1?'#cb9b42':'#9bbb62');
+        line(sx,sy-h*.08,sx-t*.025,sy-h*.18,'#426f3c',2*zoom);
+      }
+    }else if(cargo.res==='bread'){
+      blob(x,y-h*.09,t*.16,h*.17,'#c98d4e');
+      for(let k=0;k<3;k++)line(x-t*.075+k*t*.06,y-h*.16,
+        x-t*.05+k*t*.06,y-h*.22,'#f6c985',1.2*zoom);
+    }
+    ctx.restore();
+  }
+  function drawWorkAgent(a){
+    const b=game.buildings.find(v=>v.id===a.buildingId);if(!b)return;
+    const p=screen(a.x,a.y),t=tileSize(),h=tileHeight();
+    const moving=a.phase==='out'||a.phase==='return';
+    drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
+    if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
+    if(a.phase==='work'){
+      const wave=Math.sin(animationClock*9+a.buildingId);
+      if(b.type==='logger'){
+        line(p.x+t*.045,p.y-h*.11,p.x+t*(.17+.06*wave),p.y-h*(.40+.05*wave),'#94673b',2.5*zoom);
+        line(p.x+t*(.17+.06*wave),p.y-h*(.40+.05*wave),
+          p.x+t*(.25+.06*wave),p.y-h*(.43+.05*wave),'#c3d4cd',3*zoom);
+      }else if(b.type==='quarry'){
+        line(p.x+t*.035,p.y-h*.10,p.x+t*(.18+.06*wave),p.y-h*(.39+.03*wave),'#876544',2*zoom);
+        line(p.x+t*(.13+.06*wave),p.y-h*(.41+.03*wave),
+          p.x+t*(.25+.06*wave),p.y-h*(.36+.03*wave),'#d0d4ca',3*zoom);
+      }else if(b.type==='farm')line(p.x+t*.04,p.y-h*.10,p.x+t*.22,p.y-h*(.31+.04*wave),'#b8ad76',2*zoom);
+    }
+  }
   function drawCarrier(c){
     const p=screen(c.x+.5,c.y+.5),t=tileSize(),h=tileHeight();
     const footY=p.y+h*.26;
     if(!workerSprite(c,'porter',p.x,footY,t*.48)){
       blob(p.x,footY-h*.23,t*.10,h*.20,'#aa8255');
     }
-    if(c.carrying){
-      ctx.fillStyle='#f9e0a1';ctx.textAlign='center';
-      ctx.font=`bold ${Math.max(8,t*.14)}px sans-serif`;
-      ctx.fillText(String(c.carrying.amount),p.x+t*.24,p.y-h*.46);
-    }
+    if(c.carrying)drawCargo(c.carrying,p.x+t*.13,p.y-h*.07,t,h);
   }
   function draw(){
     ctx.setTransform(dpr,0,0,dpr,0,0);
