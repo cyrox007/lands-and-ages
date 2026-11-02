@@ -650,6 +650,12 @@
     for(const b of sorted){
       const rect=buildingRect(b),u=(px-rect.x)/rect.w,v=(py-rect.y)/rect.h;
       if(u<0||u>=1||v<0||v>=1)continue;
+      // The new windmill has one procedural rotor, not the baked-in-blades
+      // transparency mask of the obsolete artwork.
+      if(b.type==='mill'){
+        if(u>.17&&u<.83&&v>.13)return b;
+        continue;
+      }
       const mask=spriteMasks[b.type];
       if(!mask){
         // Procedural quarry and future buildings have no alpha mask atlas yet.
@@ -1401,12 +1407,16 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.3-cobblestone',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.4-visual-depth',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
         plan.arms.reduce((sum,arm)=>sum+arm.stones.length,0)};
-    },roadSpritesCached:roadSpriteCache.size,stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
+    },roadSpritesCached:roadSpriteCache.size,
+    stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},
+    constructionArtAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionVisualPhase(site):null;},
+    millRotorState:(id)=>({angle:millRotors.get(id)?.angle??null,blades:4,bakedSprite:false}),
+    rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
     spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
