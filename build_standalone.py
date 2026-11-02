@@ -4,7 +4,7 @@ import re,json,base64
 root=Path(__file__).resolve().parent
 html=(root/'index.html').read_text('utf8')
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','<style>'+ (root/'style.css').read_text('utf8')+'</style>',html)
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|ui)\.js(?:\?[^"]+)?"></script>','',html)
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in sorted((root/'assets').glob('*.webp'))}
 assert len(assets)==12
 mill_files={'start':'mill-states-start.webp',
@@ -38,6 +38,7 @@ scripts=('window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
          (root/'resource-pack.js').read_text('utf8')+'\n;\n'+
          (root/'worker-art.js').read_text('utf8')+'\n;\n'+
          (root/'painted-motion.js').read_text('utf8')+'\n;\n'+
+         (root/'profession-actions.js').read_text('utf8')+'\n;\n'+
          (root/'ui.js').read_text('utf8'))
 assert '</script' not in scripts.lower()
 html=html.replace('</body>','<script>'+scripts+'</script>\n</body>')

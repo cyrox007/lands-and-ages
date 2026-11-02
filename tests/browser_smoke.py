@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
@@ -19,6 +19,7 @@ mill_pack=(root/'mill-pack.js').read_text('utf8')
 resource_pack=(root/'resource-pack.js').read_text('utf8')
 worker_art=(root/'worker-art.js').read_text('utf8')
 painted_motion=(root/'painted-motion.js').read_text('utf8')
+profession_actions=(root/'profession-actions.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 mill_files={'start':'mill-states-start.webp',
@@ -46,6 +47,7 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=resource_pack)
     page.add_script_tag(content=worker_art)
     page.add_script_tag(content=painted_motion)
+    page.add_script_tag(content=profession_actions)
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
@@ -383,6 +385,50 @@ with sync_playwright() as pw:
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
+        # Реестр профессий доступен игре, а состояния выбираются по данным движка.
+        catalogue=page.evaluate("""() => {
+          const d=window.__strategyDebug();
+          return {
+            names:Object.keys(d.professionPacks),
+            chop:d.professionAction('logger',{phase:'work'}),
+            mine:d.professionAction('quarry',{phase:'work'}),
+            harvest:d.professionAction('farmer',{phase:'work'}),
+            idle:d.professionAction('logger',{phase:'idle'}),
+            building:d.professionAction('builder',{phase:'work',progress:.9}),
+            saw:d.professionAction('sawmill',{active:true}),
+            noSaw:d.professionAction('sawmill',{active:false})
+          };
+        }""")
+        assert len(catalogue['names'])==13,(name,catalogue)
+        for field,action in [('chop','fell_tree'),('mine','mine_stone'),
+                             ('harvest','harvest_crop'),('building','finish_roof'),
+                             ('saw','saw_boards')]:
+            assert catalogue[field]['id']==action,(name,field,catalogue)
+        assert catalogue['idle']['id']=='idle'
+        assert catalogue['noSaw']['id']=='idle'
+
+        # У профессий различаются не только названия, но и реальные пиксели действия.
+        effects=page.evaluate("""async () => {
+          const mod=window.StrategyPaintedMotion;
+          const image=new Image();
+          image.src=window.StrategyPaintedPeople;await image.decode();
+          const render=action=>{
+            const c=document.createElement('canvas');c.width=160;c.height=180;
+            const g=c.getContext('2d',{willReadFrequently:true});
+            mod.draw(g,image,8,'work',2,'se',80,170,75,0,action);
+            return g.getImageData(0,0,160,180).data;
+          };
+          const a=render('fell_tree'),b=render('mine_stone'),d=render('harvest_crop');
+          const diff=(a,b)=>{
+            let count=0;
+            for(let i=0;i<a.length;i+=4)
+              if(a[i]!==b[i]||a[i+1]!==b[i+1]||
+                 a[i+2]!==b[i+2]||a[i+3]!==b[i+3])count++;
+            return count;
+          };
+          return {woodStone:diff(a,b),stoneCrop:diff(b,d)};
+        }""")
+        assert effects['woodStone']>20 and effects['stoneCrop']>20,(name,effects)
         assert page.evaluate('window.__strategyDebug().paintedCounts().idle')>0
         page.wait_for_function('window.__paintedDrawCount>=4',timeout=20000)
         # Не ограничиваемся портретами: в Chromium реально рисуются все действия.
