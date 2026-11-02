@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="placement-footprint-20261102-v14"
+EXPECTED="mill-ground-anchor-20261102-v15"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -78,6 +78,12 @@ with sync_playwright() as pw:
         page.wait_for_function("window.__strategyDebug().millPackage().detailedLoaded===2",timeout=20000)
         layout=page.evaluate("window.__strategyDebug().millPackage().layout")
         assert layout["rotorWidth"]<layout["width"]*.55
+        body=page.evaluate("window.__strategyDebug().millGroundLayout('body')")
+        survey=page.evaluate("window.__strategyDebug().millGroundLayout('survey')")
+        level1=body["top"]+body["height"]*284/316
+        level2=survey["top"]+survey["size"]*135/176
+        assert abs(level1-level2)<.001,(name,"floating construction foundation")
+
         assert page.evaluate("window.__strategyDebug().millPackage().raster")==True
         assert page.evaluate("window.__strategyDebug().millPackage().source")=="approved-imagegen-sheets"
         # 2×2 preview and the geometry of adjacent completed roads.
