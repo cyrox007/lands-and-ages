@@ -17,11 +17,11 @@
     mill:{name:'Мельница',symbol:'✳',cost:42,boards:2,stone:1,max:12,workers:1,recipe:{in:{grain:2},out:{flour:1},time:6}},
     bakery:{name:'Пекарня',symbol:'♨',cost:45,boards:2,stone:2,max:12,workers:1,recipe:{in:{flour:1,logs:1},out:{bread:3},time:7}},
     house:{name:'Дом',symbol:'⌂',cost:25,boards:2,stone:1,max:0,recipe:null},
-    academy:{name:'Академия',symbol:'✧',cost:75,boards:4,max:8,recipe:{in:{boards:1},point:'science',gain:4,time:9}},
-    theatre:{name:'Театр',symbol:'♫',cost:60,boards:3,max:8,recipe:{in:{bread:1},point:'culture',gain:3,time:9}},
-    market:{name:'Рынок',symbol:'⚖',cost:50,boards:2,max:8,recipe:{in:{bread:2},point:'wealth',gain:9,time:8}},
-    embassy:{name:'Посольство',symbol:'◆',cost:80,boards:4,max:8,recipe:{in:{bread:1,boards:1},point:'diplomacy',gain:3,time:10}},
-    barracks:{name:'Казармы',symbol:'⚑',cost:65,boards:3,max:8,recipe:{in:{bread:1,boards:1},point:'military',gain:3,time:10}}
+    academy:{name:'Академия',symbol:'✧',cost:75,boards:4,max:8,workers:1,recipe:{in:{boards:1},point:'science',gain:4,time:9}},
+    theatre:{name:'Театр',symbol:'♫',cost:60,boards:3,max:8,workers:1,recipe:{in:{bread:1},point:'culture',gain:3,time:9}},
+    market:{name:'Рынок',symbol:'⚖',cost:50,boards:2,max:8,workers:1,recipe:{in:{bread:2},point:'wealth',gain:9,time:8}},
+    embassy:{name:'Посольство',symbol:'◆',cost:80,boards:4,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'diplomacy',gain:3,time:10}},
+    barracks:{name:'Казармы',symbol:'⚑',cost:65,boards:3,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'military',gain:3,time:10}}
   };
   const COLORS={warehouse:'#ffc671',quarry:'#a8a2a0',logger:'#5eae79',sawmill:'#c79057',farm:'#8bbb61',mill:'#e4b76c',bakery:'#e49c65',house:'#96b4dc',academy:'#9f9ee8',theatre:'#e6a7ce',market:'#e8bc76',embassy:'#a1c8e6',barracks:'#df9593'};
   const inside=(x,y)=>x>=0&&x<W&&y>=0&&y<H;
@@ -479,10 +479,23 @@
       if(eaten<need){this.morale=Math.max(0,this.morale-9);this.note('Не хватает хлеба. Население недовольно.');}
       else this.morale=Math.min(100,this.morale+(this.tax>23?-3:this.tax<10?3:1));
       this.coins+=Math.floor(this.population*this.tax/18);
+      if(this.scenario==='settlement'&&this.day%8===0){
+        for(const tile of this.tiles)if(tile.terrain==='forest')tile.wood=Math.min(40,(tile.wood||0)+1);
+      }
       this.morale=Math.max(0,Math.min(100,this.morale-(this.tax>23?3:0)));
       const capacity=8+this.count('house')*6;
       if(eaten===need&&this.morale>=55&&this.population<capacity&&this.day%3===0)this.population++;
       if(this.morale<20&&this.day%2===0&&this.population>3)this.population--;
+      if(this.scenario==='settlement'){
+        // A shrinking village cannot employ more people than it has.
+        this.population=Math.max(this.carriers.length+this.builders.length,this.population);
+        let surplus=this.employed()+this.carriers.length+this.builders.length-this.population;
+        if(surplus>0)for(const b of this.buildings.slice().reverse()){
+          if(surplus<=0)break;
+          const n=Math.min(this.staff[b.id]||0,surplus);
+          if(n){this.staff[b.id]-=n;surplus-=n;this.note(DEF[b.type].name+': часть работников освободила места из-за сокращения населения.');}
+        }
+      }
       if(this.day%4===0)this.note('День '+this.day+': '+this.population+' жителей · настроение '+this.morale+'%.');
     }
     step(dt){
