@@ -256,7 +256,8 @@
     }
   }
   function tree(x,y,variant=0){
-    const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
+    const jitterX=((x*23+y*37)%9-4)*.028,jitterY=((x*17+y*13)%9-4)*.026;
+    const p=screen(x+.5+jitterX,y+.5+jitterY),t=tileSize(),h=tileHeight();
     const scale=.95+((variant%5)-2)*.04,lean=(variant%3-1)*t*.03;
     blob(p.x,p.y+h*.14,t*.21*scale,h*.12*scale,'#10241c',.28);
     ctx.fillStyle='#6a4a2e';ctx.fillRect(p.x-t*.028+lean,p.y-h*.47,t*.056,h*.54);
@@ -427,7 +428,7 @@
       ctx.fillText(DEF[b.type].symbol,p.x,p.y-h*.12);
     }
     const active=V.productionActive(b,connected,game.readyToProduce(b));
-    if(active)drawProductionEffect(b,p,t,h);
+    if(active&&!['logger','quarry','farm'].includes(b.type))drawProductionEffect(b,p,t,h);
     if(game.scenario==='settlement'&&(game.staff[b.id]||0)>0&&!['logger','quarry','farm'].includes(b.type)){
       const pos=screen(b.x+.91,b.y+.79);
       drawCitizen(pos.x,pos.y+h*.06,t,active,b.type);
@@ -553,7 +554,7 @@
   function drawWorkAgent(a){
     const b=game.buildings.find(v=>v.id===a.buildingId);if(!b)return;
     const p=screen(a.x,a.y),t=tileSize(),h=tileHeight();
-    const moving=a.phase==='out'||a.phase==='return';
+    const moving=a.phase==='arrive'||a.phase==='out'||a.phase==='return';
     drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
     if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
     if(a.phase==='work'){
