@@ -11,13 +11,14 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
 mill_pack=(root/'mill-pack.js').read_text('utf8')
 resource_pack=(root/'resource-pack.js').read_text('utf8')
 worker_art=(root/'worker-art.js').read_text('utf8')
+painted_motion=(root/'painted-motion.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 mill_files={'start':'mill-states-start.webp',
@@ -44,6 +45,7 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=mill_pack)
     page.add_script_tag(content=resource_pack)
     page.add_script_tag(content=worker_art)
+    page.add_script_tag(content=painted_motion)
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
@@ -381,6 +383,7 @@ with sync_playwright() as pw:
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
+        assert page.evaluate('window.__strategyDebug().paintedCounts().idle')>0
         page.wait_for_function('window.__paintedDrawCount>=4',timeout=20000)
         assert all(r['variant'].startswith('villager-') for r in residents)
         assert all(r['y']>=10.5 for r in residents),(name,residents)
