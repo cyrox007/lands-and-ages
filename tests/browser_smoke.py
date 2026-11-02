@@ -82,6 +82,37 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().buildings')==7
     page.wait_for_function('window.__strategyDebug().spritesReady===8',timeout=20000)
     page.wait_for_function('window.__strategyDebug().workerSheetsReady===4',timeout=20000)
+    # Проверяем, что новые 4×8 атласы действительно декодируются и рисуются в Canvas.
+    illustrated=page.evaluate("""async () => {
+      const art=window.StrategyWorkerArt;
+      if(!art)return {error:'нет генератора'};
+      const results=[];
+      for(const role of art.roles){
+        const svg=art.atlas(role,'walk');
+        const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+        const img=new Image();
+        try{
+          await new Promise((resolve,reject)=>{
+            img.onload=resolve;img.onerror=()=>reject(Error('SVG: '+role));
+            img.src=url;
+          });
+          const c=document.createElement('canvas');
+          c.width=img.naturalWidth;c.height=img.naturalHeight;
+          const g=c.getContext('2d');g.drawImage(img,0,0);
+          let rendered=0;
+          for(let row=0;row<4;row++)for(let frame=0;frame<8;frame++)
+            if(g.getImageData(frame*96+48,row*128+65,1,1).data[3]>0)rendered++;
+          results.push({role,width:img.naturalWidth,height:img.naturalHeight,rendered});
+        }finally{URL.revokeObjectURL(url);}
+      }
+      return {results};
+    }""")
+    assert 'error' not in illustrated,illustrated
+    assert len(illustrated['results'])==5
+    for result in illustrated['results']:
+        assert result['width']==768 and result['height']==512,result
+        assert result['rendered']==32,result
+
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
     assert page.evaluate('window.__strategyDebug().rockDeposits')>0
     page.wait_for_function('window.__strategyDebug().resourcePack().loaded',timeout=20000)
