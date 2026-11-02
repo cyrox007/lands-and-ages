@@ -57,12 +57,19 @@ def check(browser,name,w,h,mobile):
     page.evaluate('window.__strategyDebug().step(2)')
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')>0
     page.locator('#pauseBtn').click()
+    before=page.evaluate('window.__strategyDebug()')
+    tap_cell(page,17,10,mobile)
+    assert page.evaluate('window.__strategyDebug().sites.length')==0,'pause must reject road order'
+    assert page.evaluate('window.__strategyDebug().coins')==before['coins']
+    page.evaluate('window.__strategyDebug().step(20)')
+    assert page.evaluate('window.__strategyDebug().day')==before['day']
+    assert page.evaluate('window.__strategyDebug().animationClock')==before['animationClock']
     t=page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')
     page.wait_for_timeout(90)
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.0-dev'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.2-ecology'
     # Sprite atlases are genuine frame sheets. Their cropped poses have different pixels.
     pixel_diffs=page.evaluate('''() => {
       const modes=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
@@ -91,7 +98,10 @@ def check(browser,name,w,h,mobile):
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
     assert page.evaluate('window.__strategyDebug().roadKind(15,10)')=='straight'
-    assert page.evaluate('window.__strategyDebug().tileCache')>0
+    assert page.evaluate('window.__strategyDebug().groundTextureWidth')==384
+    assert page.evaluate('window.__strategyDebug().treeArtCount')>0
+    assert page.evaluate('window.__strategyDebug().waterGroupCount')>0
+    assert page.evaluate('window.__strategyDebug().tileCache')==0,'grass diamond tiles must not render'
     box=page.locator('#gameMap').bounding_box()
     assert abs(box['width']-w)<2,(name,box,w)
     assert abs(box['height']-h)<2,(name,box,h)
