@@ -64,6 +64,16 @@
           }:null});
         this.roads.push(false);
       }
+      // Connected water bodies, not isolated blue tiles. Keep the settlement
+      // corridor clear so existing campaign locations and paths remain valid.
+      const basins=[{x:22.2,y:14.3,rx:2.4,ry:1.3},{x:3.1,y:3.6,rx:1.8,ry:1.0}];
+      for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+        if(this.tiles[id(x,y)].terrain==='ruin')continue;
+        if(basins.some(b=>((x-b.x)/b.rx)**2+((y-b.y)/b.ry)**2<1)){
+          const tile=this.tiles[id(x,y)];
+          tile.terrain='water';tile.wood=0;tile.stone=0;tile.tree=null;
+        }
+      }
     }
     initialize(){
       for(let x=4;x<=19;x++)this.roads[id(x,10)]=true;
