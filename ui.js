@@ -563,7 +563,7 @@
     $('dayStat').textContent=hud.day;$('coinStat').textContent=hud.coins;
     $('popStat').textContent=hud.population;$('moraleStat').textContent=hud.morale+'%';
     for(const k of ['science','culture','diplomacy','military'])$(k+'Stat').textContent=hud[k];
-    for(const k of ['logs','boards','stone','grain','flour','bread'])$(k+'Stock').textContent=hud.goods[k];
+    for(const k of ['logs','boards','stone','grain','vegetables','flour','bread'])$(k+'Stock').textContent=hud.goods[k];
      $('freeWorkers').textContent=hud.scenario==='settlement'?hud.freeWorkers:'—';
      $('workforceHint').textContent=hud.scenario==='settlement'?'Свободные жители: '+hud.freeWorkers+' · Носильщики: '+game.carriers.length+' · Строители: '+game.builders.length:'Тестовая миссия: работники назначены автоматически';
     $('taxSlider').value=hud.tax;$('taxValue').textContent=hud.tax+'%';
