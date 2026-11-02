@@ -36,7 +36,7 @@ def mount(page,prior=None,boot="mission"):
       const draw=CanvasRenderingContext2D.prototype.drawImage;
       window.__obsoleteMillDrawCount=0;
       CanvasRenderingContext2D.prototype.drawImage=function(image,...args){
-        if(image instanceof HTMLImageElement && image.src===window.StrategyAssets?.mill)
+        if(this.canvas?.id==='gameMap' && image instanceof HTMLImageElement && image.src===window.StrategyAssets?.mill)
           window.__obsoleteMillDrawCount++;
         return draw.call(this,image,...args);
       };
