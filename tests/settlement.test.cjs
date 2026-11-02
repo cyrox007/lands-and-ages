@@ -145,7 +145,7 @@ test('residents visibly walk to natural sources, harvest there and return tangib
   run(g,.4);
   const agent=g.workAgents.find(a=>a.buildingId===logger.id);
   assert.ok(agent,'resident actor exists for a staffed workshop');
-  assert.ok(agent.phase==='out'||agent.phase==='work','worker heads toward forest');
+  assert.ok(['arrive','out','work'].includes(agent.phase),'worker walks from headquarters to forest');
   assert.equal(logger.goods.logs,stock,'production does not happen at the start of a timer');
   run(g,9);
   assert.ok(g.tiles.reduce((n,t)=>n+(t.wood||0),0)<woodBefore,'tree lost actual wood');
