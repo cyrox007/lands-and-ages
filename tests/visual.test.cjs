@@ -120,3 +120,15 @@ test('повороты, T-узлы и крестовые перекрёстки 
     assert.ok(p.arms.every(a=>a.stones.length===15));
   }
 });
+
+test('постройка проходит разметку, фундамент, каркас, стены и крышу',()=>{
+  const site={type:'mill',required:{boards:2,stone:1},
+    goods:{boards:2,stone:0},duration:20,progress:0};
+  assert.equal(V.constructionVisualPhase(site),'survey','без камня нельзя возводить стены');
+  site.goods.stone=1;
+  for(const [progress,phase] of [[0,'foundation'],[3,'foundation'],
+    [4,'frame'],[9,'frame'],[10,'walls'],[15,'walls'],[16,'roof'],[19.8,'roof']]){
+    site.progress=progress;
+    assert.equal(V.constructionVisualPhase(site),phase,'progress='+progress);
+  }
+});
