@@ -289,7 +289,11 @@
       const rect=buildingRect(b),u=(px-rect.x)/rect.w,v=(py-rect.y)/rect.h;
       if(u<0||u>=1||v<0||v>=1)continue;
       const mask=spriteMasks[b.type];
-      if(!mask)continue;
+      if(!mask){
+        // Procedural quarry and future buildings have no alpha mask atlas yet.
+        if(u>.13&&u<.87&&v>.18)return b;
+        continue;
+      }
       const ix=Math.min(mask.w-1,Math.floor(u*mask.w)),iy=Math.min(mask.h-1,Math.floor(v*mask.h));
       if(mask.data[(iy*mask.w+ix)*4+3]>70)return b;
     }
