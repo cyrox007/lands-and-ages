@@ -90,3 +90,33 @@ test('носильщик отображает ровно фактический 
     assert.equal(appearance.cargo,res,'рисуется только актуальный ресурс');
   }
 });
+
+test('брусчатка покрывает все 16 топологий дорог без пропусков',()=>{
+  for(let mask=0;mask<16;mask++){
+    const plan=V.cobblestonePlan(mask);
+    const directions=[V.N,V.E,V.S,V.W].filter(bit=>mask&bit);
+    assert.deepEqual(plan.arms.map(arm=>arm.bit),directions);
+    assert.equal(plan.center.length,9,'центр тоже мощёный');
+    assert.equal(plan.arms.reduce((n,arm)=>n+arm.stones.length,0),15*directions.length);
+    for(const arm of plan.arms){
+      assert.equal(arm.stones[0].u0,.14);
+      assert.ok(Math.abs(arm.stones.at(-1).u1-.5)<1e-10,
+        'соседние дорожные плитки сходятся на границе участков');
+      for(const stone of arm.stones){
+        assert.ok(stone.u0>=.14 && stone.u1<=.501);
+        assert.ok(stone.v0>=-.221 && stone.v1<=.221);
+        assert.ok(stone.u1>stone.u0 && stone.v1>stone.v0);
+      }
+    }
+  }
+});
+test('повороты, T-узлы и крестовые перекрёстки имеют собственные мощёные рукава',()=>{
+  for(const [mask,expected] of [
+    [V.N|V.E,2],[V.N|V.S,2],[V.N|V.E|V.S,3],
+    [V.N|V.E|V.S|V.W,4]
+  ]){
+    const p=V.cobblestonePlan(mask);
+    assert.equal(p.arms.length,expected);
+    assert.ok(p.arms.every(a=>a.stones.length===15));
+  }
+});
