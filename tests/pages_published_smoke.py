@@ -44,8 +44,19 @@ with sync_playwright() as pw:
         context=browser.new_context(viewport={"width":width,"height":height},
                                     is_mobile=mobile,has_touch=mobile)
         page=context.new_page()
-        page.goto(URL+"?viewport-check="+name,wait_until="domcontentloaded",timeout=30000)
-        page.wait_for_function("Boolean(window.__strategyDebug)",timeout=20000)
+        errors=[];failed=[]
+        page.on("pageerror",lambda e:errors.append(str(e)))
+        page.on("requestfailed",lambda req:failed.append(req.url))
+        response=page.goto(URL+"?viewport-check="+name,wait_until="domcontentloaded",timeout=30000)
+        try:
+            page.wait_for_function("Boolean(window.__strategyDebug)",timeout=20000)
+        except Exception:
+            print("Live game boot failure",name,
+                  "HTTP",response.status if response else None,
+                  "errors",errors,"failed requests",failed,
+                  "scripts",page.eval_on_selector_all('script[src]','els=>els.map(el=>el.src)'),
+                  "body",page.locator('body').inner_text()[:350],flush=True)
+            raise
         metrics=page.evaluate("""() => {
           const c=document.querySelector('#gameMap').getBoundingClientRect();
           const shell=document.querySelector('.shell');
