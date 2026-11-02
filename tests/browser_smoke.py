@@ -69,7 +69,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.2-ecology'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.2-seamless'
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
@@ -106,7 +106,13 @@ def check(browser,name,w,h,mobile):
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
     assert page.evaluate('window.__strategyDebug().roadKind(15,10)')=='straight'
-    assert page.evaluate('window.__strategyDebug().groundTextureWidth')==384
+    assert page.evaluate('window.__strategyDebug().groundTextureWidth')==1804
+    assert page.evaluate('window.__strategyDebug().groundTextureHeight')==902
+    assert page.evaluate('window.__strategyDebug().groundMaterialMode')=='nonperiodic-world-raster'
+    samples=page.evaluate('''() => [500,884,1268].map(x=>window.__strategyDebug().groundSample(x,450))''')
+    assert all(p[3]==255 for p in samples),(name,samples)
+    assert len({tuple(v) for v in samples})>1,(name,'texture repeats at 384px',samples)
+    assert 'createPattern(' not in ui and 'function terrainTile(' not in ui,'no recurring square tiles'
     assert page.evaluate('window.__strategyDebug().treeArtCount')>0
     assert page.evaluate('window.__strategyDebug().waterGroupCount')>0
     assert page.evaluate('window.__strategyDebug().tileCache')==0,'grass diamond tiles must not render'
