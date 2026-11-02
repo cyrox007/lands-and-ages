@@ -107,3 +107,7 @@ dialog{max-height:85dvh}
  .map-bottom #mapHint{display:none}
  .top-stats{top:48px}
 }
+
+/* Небольшие игровые изображения запасов, не меняющие высоту карточек склада. */
+.resource-grid [data-resource]{display:flex;align-items:center;gap:4px;white-space:normal}
+.resource-grid [data-resource] canvas{flex-shrink:0;width:24px;height:24px}

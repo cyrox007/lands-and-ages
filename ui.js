@@ -35,6 +35,36 @@
     img.onerror=()=>{sprites[name]=null;};
     img.src=(window.StrategyAssets&&window.StrategyAssets[name])||('assets/'+name+'.webp');
   }
+  // Спрайты ресурсов взяты из утверждённого пользователем набора: пять видов, по два объёма.
+  const RESOURCE_TILES={boards:[0,1],stone:[2,3],logs:[4,5],grain:[6,7],flour:[8,9]};
+  const RESOURCE_TILE_SIZE=24;
+  const resourceAtlas=new Image();
+  resourceAtlas.onload=paintResourceLabels;
+  resourceAtlas.src=window.StrategyAssets?.['resource-atlas']||'assets/resource-atlas.webp';
+  function resourceFrame(type,amount){
+    const pair=RESOURCE_TILES[type];
+    if(!pair||!resourceAtlas.naturalWidth)return null;
+    const index=pair[amount>1?1:0];
+    return {x:(index%5)*RESOURCE_TILE_SIZE,y:Math.floor(index/5)*RESOURCE_TILE_SIZE};
+  }
+  function drawResourceArt(type,amount,x,y,size){
+    const frame=resourceFrame(type,amount);
+    if(!frame)return false;
+    ctx.drawImage(resourceAtlas,frame.x,frame.y,RESOURCE_TILE_SIZE,RESOURCE_TILE_SIZE,
+      x-size*.5,y-size*.76,size,size);
+    return true;
+  }
+  function paintResourceLabels(){
+    for(const label of document.querySelectorAll('.resource-grid [data-resource]')){
+      const frame=resourceFrame(label.dataset.resource,2);
+      if(!frame)continue;
+      let icon=label.querySelector('canvas');
+      if(!icon){icon=document.createElement('canvas');icon.width=28;icon.height=28;
+        icon.setAttribute('aria-hidden','true');label.prepend(icon);}
+      icon.getContext('2d').drawImage(resourceAtlas,frame.x,frame.y,
+        RESOURCE_TILE_SIZE,RESOURCE_TILE_SIZE,0,0,28,28);
+    }
+  }
   // Four atlas sheets contain 8 independently drawn poses x 4 directions.
   // Loaded separately to keep the eight legacy buildings and their selection masks intact.
   // Подлинные растровые слои из утверждённых спрайт-листов.
@@ -855,6 +885,10 @@
     castShadow(pos.x,pos.y+h*.3,t,h,1.60,.28);
     const phase=V.constructionVisualPhase(site);
     millArt(M.constructionSprite(phase),pos,t,h);
+    if((site.goods.boards||0)>0)
+      drawResourceArt('boards',site.goods.boards,pos.x-t*.48,pos.y+h*.28,t*.43);
+    if((site.goods.stone||0)>0)
+      drawResourceArt('stone',site.goods.stone,pos.x+t*.46,pos.y+h*.28,t*.43);
     const ready=Object.entries(site.required).every(([k,n])=>(site.goods[k]||0)>=n);
     const progress=Math.floor(site.progress/site.duration*100);
     const label=ready?'⚒ '+progress+'%':
@@ -1046,17 +1080,9 @@
             '#d5ae79',2.1*zoom);
         }
       }
-      // Physical deliveries must be visible in the builder's work area.
-      for(let k=0;k<Math.min(5,have);k++){
-        const xx=x-t*.53+t*(k%3)*.09,yy=y+h*(.29+Math.floor(k/3)*.10);
-        line(xx,yy,xx+t*.20,yy-h*.06,'#b88754',Math.max(2,3.6*zoom));
-        line(xx,yy-h*.028,xx+t*.20,yy-h*.087,'#e3bc82',.85*zoom);
-      }
-      for(let k=0;k<Math.min(5,deliveredStone);k++){
-        const xx=x+t*(.35+(k%3)*.075),yy=y+h*(.23+Math.floor(k/3)*.10);
-        poly([[xx-t*.04,yy],[xx,yy-h*.11],[xx+t*.06,yy-h*.05],
-          [xx+t*.07,yy+h*.035]],k%2?'#92938a':'#c1b8a6','#595a53',.7*zoom);
-      }
+      // Фактически доставленные материалы на стройплощадке, а не условная иконка.
+      if(have)drawResourceArt('boards',have,x-t*.46,y+h*.25,t*.45);
+      if(deliveredStone)drawResourceArt('stone',deliveredStone,x+t*.46,y+h*.25,t*.45);
       if(materialsReady&&ratio>0){
         const f=(animationClock*.7+site.id*.13)%1;
         for(let k=0;k<4;k++){
@@ -1065,9 +1091,7 @@
         }
       }
     }
-    if(have>0){const count=Math.min(4,have);
-      for(let k=0;k<count;k++)line(pos.x-t*.34,pos.y+h*(.17+k*.035),pos.x-t*.12,pos.y+h*(.06+k*.035),'#e0bd7a',Math.max(2,3*zoom));
-    }
+    if(isRoad&&have>0)drawResourceArt('boards',have,pos.x-t*.24,pos.y+h*.17,t*.35);
     const label=have<need?`▥ ${have}/${need}`:deliveredStone<requiredStone?`◆ ${deliveredStone}/${requiredStone}`:`⚒ ${Math.floor(ratio*100)}%`;
     ctx.save();ctx.textAlign='center';ctx.font=`bold ${Math.max(10,12.5*zoom)}px sans-serif`;
     ctx.lineWidth=3;ctx.strokeStyle='#29261d';ctx.fillStyle='#fff4cf';
@@ -1089,6 +1113,7 @@
   }
   function drawCargo(cargo,x,y,t,h){
     if(!cargo)return;
+    if(drawResourceArt(cargo.res,cargo.amount,x,y,t*.48))return;
     const n=cargo.amount;
     ctx.save();ctx.lineCap='round';
     if(cargo.res==='logs'||cargo.res==='boards'){

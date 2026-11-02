@@ -6,7 +6,7 @@ html=(root/'index.html').read_text('utf8')
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','<style>'+ (root/'style.css').read_text('utf8')+'</style>',html)
 html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|ui)\.js(?:\?[^"]+)?"></script>','',html)
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in sorted((root/'assets').glob('*.webp'))}
-assert len(assets)==12
+assert len(assets)==13
 mill_files={'start':'mill-states-start.webp',
             'end':'mill-states-end.webp','parts':'mill-parts.webp'}
 mill_assets={name:'data:image/webp;base64,'+

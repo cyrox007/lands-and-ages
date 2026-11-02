@@ -197,7 +197,7 @@ dialog{max-height:85dvh}
   <script defer src="engine.js?v=0.5.7-placement"></script>
   <script defer src="visual-model.js?v=0.5.4-visual-depth"></script>
   <script defer src="mill-pack.js?v=0.5.7-mill-ground-anchor"></script>
-  <script defer src="ui.js?v=0.5.7-mill-ground-anchor"></script>
+  <script defer src="ui.js?v=0.5.8-resource-icons"></script>
 </head>
 <body>
   <div class="shell" data-panel="none" data-layout="strategy-hud-v3">
@@ -262,7 +262,7 @@ dialog{max-height:85dvh}
       </aside>
     </div>
     <div class="bottom-grid">
-      <section class="stocks card hud-panel" id="stocksPanel"><div class="hud-panel-heading"><strong>Общий склад</strong><button class="hud-close" data-close-panel type="button" aria-label="Закрыть склад">×</button></div><div class="section-header"><h2>ТОВАРЫ НА СКЛАДЕ</h2><span>Доставляются носильщиками</span></div><div class="resource-grid"><div><span>♣ Брёвна</span><b id="logsStock">7</b></div><div><span>▥ Доски</span><b id="boardsStock">9</b></div><div><span>◆ Камень</span><b id="stoneStock">0</b></div><div><span>✿ Зерно</span><b id="grainStock">6</b></div><div><span>❀ Овощи</span><b id="vegetablesStock">0</b></div><div><span>✳ Мука</span><b id="flourStock">2</b></div><div><span>♨ Хлеб</span><b id="breadStock">8</b></div></div><p class="explainer">Лес → брёвна → лесопилка → доски. Каменоломня → камень. Поля → зерно → мельница → мука → пекарня → хлеб. Пекарне также нужны брёвна для топлива. Ни один груз не телепортируется: носильщики доставляют его по дороге.</p></section>
+      <section class="stocks card hud-panel" id="stocksPanel"><div class="hud-panel-heading"><strong>Общий склад</strong><button class="hud-close" data-close-panel type="button" aria-label="Закрыть склад">×</button></div><div class="section-header"><h2>ТОВАРЫ НА СКЛАДЕ</h2><span>Доставляются носильщиками</span></div><div class="resource-grid"><div><span data-resource="logs">Брёвна</span><b id="logsStock">7</b></div><div><span data-resource="boards">Доски</span><b id="boardsStock">9</b></div><div><span data-resource="stone">Камень</span><b id="stoneStock">0</b></div><div><span data-resource="grain">Зерно</span><b id="grainStock">6</b></div><div><span>❀ Овощи</span><b id="vegetablesStock">0</b></div><div><span data-resource="flour">Мука</span><b id="flourStock">2</b></div><div><span>♨ Хлеб</span><b id="breadStock">8</b></div></div><p class="explainer">Лес → брёвна → лесопилка → доски. Каменоломня → камень. Поля → зерно → мельница → мука → пекарня → хлеб. Пекарне также нужны брёвна для топлива. Ни один груз не телепортируется: носильщики доставляют его по дороге.</p></section>
       <section class="news card hud-panel" id="newsPanel"><div class="hud-panel-heading"><strong>Информация и жители</strong><button class="hud-close" data-close-panel type="button" aria-label="Закрыть информацию">×</button></div><div class="section-header"><h2>ЛЕТОПИСЬ ПОСЕЛЕНИЯ</h2><button id="surveyBtn" type="button">⌕ ИССЛЕДОВАТЬ РУИНЫ</button></div><div id="tileInfo" class="tile-info"><strong>Начало истории</strong><span>Нажми на здание или клетку, чтобы узнать подробности и назначить рабочих. На краях карты есть древние руины.</span></div><ul id="eventLog" class="events"></ul></section>
     </div>
     <nav class="game-dock" aria-label="Главные игровые команды">
