@@ -69,7 +69,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.2-seamless'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.3-cobblestone'
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
@@ -106,6 +106,13 @@ def check(browser,name,w,h,mobile):
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
     assert page.evaluate('window.__strategyDebug().roadKind(15,10)')=='straight'
+    for x,kind,mask,stones in [(15,'straight',10,39),(16,'end',8,24)]:
+        paved=page.evaluate('(x)=>window.__strategyDebug().roadPaving(x,10)',x)
+        assert paved['kind']==kind,(name,paved)
+        assert paved['mask']==mask,(name,paved)
+        assert paved['stones']==stones,(name,paved)
+    assert page.evaluate('window.__strategyDebug().roadSpritesCached')>0
+
     assert page.evaluate('window.__strategyDebug().groundTextureWidth')==1804
     assert page.evaluate('window.__strategyDebug().groundTextureHeight')==902
     assert page.evaluate('window.__strategyDebug().groundMaterialMode')=='nonperiodic-world-raster'
@@ -168,6 +175,10 @@ def check(browser,name,w,h,mobile):
     page.evaluate('window.__strategyDebug().step(23)')
     page.wait_for_function('window.__strategyDebug().mission.stage>=1')
     assert page.evaluate('window.__strategyDebug().roadKind(17,10)')=='straight'
+    paved=page.evaluate('window.__strategyDebug().roadPaving(17,10)')
+    assert paved['stones']==39,(name,paved)
+    assert page.evaluate('window.__strategyDebug().roadSpritesCached')>0
+
     assert page.evaluate('window.__strategyDebug().stageAt(17,10)') is None
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().paused') is True
