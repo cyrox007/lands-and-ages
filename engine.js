@@ -830,6 +830,14 @@
           !s.buildings.some(b=>b.type==='warehouse')||!Number.isFinite(s.coins)||
           !Number.isInteger(s.day)||s.day<1||!Number.isFinite(s.population)||
           !s.buildings.every(b=>DEF[b.type]&&inside(b.x,b.y)&&b.goods&&RES.every(k=>Number.isFinite(b.goods[k])&&b.goods[k]>=0)))return null;
+        // Размеры в сохранениях проверяются, чтобы повреждённый файл
+        // не занимал произвольные области карты.
+        const safeSize=o=>!o.size||
+          (Number.isInteger(o.size.w)&&Number.isInteger(o.size.h)&&
+           o.size.w>=1&&o.size.w<=3&&o.size.h>=1&&o.size.h<=3&&
+           o.x+o.size.w<=W&&o.y+o.size.h<=H);
+        if(!s.buildings.every(safeSize)||
+          !(s.construction||[]).every(safeSize))return null;
         // Старые сохранения автоматически получают рабочий пакет мельницы.
         for(const b of s.buildings)if(b.type==='mill'){
           if(!b.mill)b.mill={phase:'operational',integrity:100,ruinAge:0,repairProgress:0};
