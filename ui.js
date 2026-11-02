@@ -756,7 +756,7 @@
   new ResizeObserver(resize).observe(canvas);
   window.addEventListener('resize',resize);
   resetMotion();resize();selectTool(!restored&&game.mission.active?'road':'inspect');updateHUD();
-  if(restored)notify('Прогресс поселения восстановлен.');
+  if(restored)notify(game.scenario==='legacy'?'Восстановлено старое испытание. Для старта с одного здания: Меню → Новое поселение.':'Прогресс поселения восстановлен.');
   function loop(now){
     if(!last)last=now;
     const dt=Math.max(0,Math.min(.08,(now-last)/1000));last=now;
