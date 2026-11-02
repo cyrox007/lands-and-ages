@@ -1171,7 +1171,7 @@
     if(mode==='mill'&&millDetailed.body?.naturalWidth){
       const center=screen(x+area.size.w/2,y+area.size.h/2);
       const a=M.layout(tileSize(),tileHeight());
-      ctx.save();ctx.globalAlpha=valid?.58:.24;
+      ctx.save();ctx.globalAlpha=valid ? .58 : .24;
       ctx.drawImage(millDetailed.body,center.x+a.left,center.y+a.top,a.width,a.height);
       ctx.restore();
     }
