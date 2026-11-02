@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="cobblestone-world-20261102-v8"
+EXPECTED="visual-depth-20261102-v9"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -70,6 +70,10 @@ with sync_playwright() as pw:
         samples=page.evaluate('''() => [500,884,1268].map(x=>window.__strategyDebug().groundSample(x,450))''')
         assert len({tuple(v) for v in samples})>1,(name,"384px repeating square",samples)
         assert page.evaluate("window.__strategyDebug().treeArtCount")>0
+        assert page.evaluate("window.__strategyDebug().rockDeposits")>0
+        assert page.evaluate("window.__strategyDebug().millRotorState(5).blades")==4
+        assert page.evaluate("window.__strategyDebug().millRotorState(5).bakedSprite")==False
+
         assert page.evaluate("window.__strategyDebug().waterGroupCount")>0
         for res in ['logs','bread','flour','stone','grain','boards','vegetables']:
             pose=page.evaluate('(res)=>window.__strategyDebug().porterPoseForCargo(res)',res)
