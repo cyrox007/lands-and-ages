@@ -70,6 +70,14 @@ def check(browser,name,w,h,mobile):
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
     assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.2-ecology'
+    # Old carry atlas has a painted sack. Actual carrier renders clean walk
+    # poses and draws only one resource on top, even for bread / flour / logs.
+    for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
+        pose=page.evaluate('(res)=>window.__strategyDebug().porterPoseForCargo(res)',cargo)
+        assert pose['sheet']=='worker-porter-walk',(name,cargo,pose)
+    unloaded=page.evaluate('window.__strategyDebug().porterPoseForCargo(null)')
+    assert unloaded['sheet']=='worker-porter-walk'
+
     # Sprite atlases are genuine frame sheets. Their cropped poses have different pixels.
     pixel_diffs=page.evaluate('''() => {
       const modes=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];

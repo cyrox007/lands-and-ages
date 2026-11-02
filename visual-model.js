@@ -55,10 +55,18 @@
     if(!Number.isFinite(travelled)||travelled<0||!Number.isFinite(cellDistancePerCycle)||cellDistancePerCycle<=0)return 0;
     return Math.floor(((travelled/cellDistancePerCycle)%1)*8+1e-8)%8;
   }
+  // Cargo is always drawn as a separate resource-specific object.
+  // The legacy 'worker-porter-carry' atlas has an unremovable painted sack:
+  // using it together with a real cargo draws TWO different loads.
+  // Until a blank-handed carrying atlas is generated, use the clean animated
+  // porter body for every delivery and draw exactly the current resource.
+  function porterAppearance(carrying){
+    return {bodySheet:'worker-porter-walk',cargo:carrying?.res||null};
+  }
   // Don't animate unpowered, disconnected or resource-starved factories.
   function productionActive(building,connected,ready){
     return Boolean(building && connected && ready && Number.isFinite(building.progress) && building.progress>0 &&
       ['logger','quarry','sawmill','farm','mill','bakery'].includes(building.type));
   }
-  return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame,gaitFrame,productionActive};
+  return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame,gaitFrame,productionActive,porterAppearance};
 });

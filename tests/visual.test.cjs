@@ -81,3 +81,12 @@ test('производственная анимация не запускает�
   for(const type of ['logger','sawmill','farm','mill','bakery'])
     assert.equal(V.productionActive({type,progress:.1},true,true),true,type);
 });
+test('носильщик отображает ровно фактический груз без постоянного мешка',()=>{
+  assert.deepEqual(V.porterAppearance(null),{bodySheet:'worker-porter-walk',cargo:null});
+  const resources=['logs','boards','stone','grain','vegetables','flour','bread'];
+  for(const res of resources){
+    const appearance=V.porterAppearance({res,amount:2});
+    assert.equal(appearance.bodySheet,'worker-porter-walk',res);
+    assert.equal(appearance.cargo,res,'рисуется только актуальный ресурс');
+  }
+});
