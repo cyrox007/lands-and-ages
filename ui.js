@@ -148,6 +148,28 @@
   function line(x,y,tx,ty,color,size){ctx.strokeStyle=color;ctx.lineWidth=size;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(tx,ty);ctx.stroke();}
   function blob(x,y,rx,ry,fill,alpha=1){ctx.save();ctx.globalAlpha=alpha;ctx.fillStyle=fill;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill();ctx.restore();}
   function rectIso(cx,cy,w,hgt,fill,stroke=null){poly([[cx-w/2,cy],[cx,cy-hgt/2],[cx+w/2,cy],[cx,cy+hgt/2]],fill,stroke,.8);}
+  // All elevated sprites cast light from the upper-left towards lower-right.
+  // Transparent layered gradients add volume without expensive canvas filters.
+  const shadowTexture=document.createElement('canvas');
+  shadowTexture.width=160;shadowTexture.height=88;
+  (function paintShadow(){
+    const g=shadowTexture.getContext('2d');
+    g.save();g.translate(80,44);g.scale(1,.54);
+    const shade=g.createRadialGradient(0,0,1,0,0,77);
+    shade.addColorStop(0,'rgba(12,27,20,1)');
+    shade.addColorStop(.55,'rgba(12,27,20,.55)');
+    shade.addColorStop(1,'rgba(12,27,20,0)');
+    g.fillStyle=shade;g.beginPath();g.arc(0,0,77,0,Math.PI*2);g.fill();
+    g.restore();
+  })();
+  function castShadow(x,y,t,h,scale=1,strength=.3){
+    // Pre-rasterized shadow avoids hundreds of gradients per frame on mobile.
+    const w=t*1.1*scale,height=h*.57*scale;
+    ctx.save();ctx.translate(x+t*.23*scale,y+h*.33*scale);
+    ctx.rotate(-.15);ctx.globalAlpha=strength;
+    ctx.drawImage(shadowTexture,-w/2,-height/2,w,height);
+    ctx.restore();
+  }
   // Natural ground is rendered ONCE as a single world-sized raster.
   // No modulo/repeating 384px pattern and no per-cell grass diamonds:
   // hidden logical cells are used only for gameplay and interactions.
@@ -234,26 +256,53 @@
       groundSurface.width*zoom,groundSurface.height*zoom);
   }
   function landscapePatches(){
+    // Soft geology stains live in the base terrain; individual stone deposits
+    // are depth-sorted tall objects so they are visible and cast real shadows.
     const t=tileSize(),h=tileHeight();
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const tile=game.tiles[id(x,y)];
       if(tile.terrain!=='hills')continue;
-      const jitterX=((x*73+y*31)%11-5)*.056;
-      const jitterY=((x*37+y*19)%9-4)*.05;
-      const p=screen(x+.5+jitterX,y+.5+jitterY);
-      if(p.x<-t*2||p.y<-t*2||p.x>width+t*2||p.y>height+t*2)continue;
-      // Unequal stone clusters instead of a repeated diamond backdrop.
-      for(let k=0;k<3;k++){
-        const phase=((x*41+y*17+k*23)%17)/17;
-        const dx=t*((k-1)*.17+phase*.1),dy=h*((k%2)*.08-.11);
-        const r=t*(.07+.065*phase);
-        poly([[p.x+dx-r,p.y+dy+h*.09],[p.x+dx-r*.25,p.y+dy-h*(.18+.06*phase)],
-          [p.x+dx+r*.65,p.y+dy-h*.11],[p.x+dx+r,p.y+dy+h*.13]],
-          ['#88887e','#c3baa4','#777a74'][k]);
-        line(p.x+dx-r*.14,p.y+dy-h*.10,p.x+dx-r*.015,
-          p.y+dy-h*.18,'#d7d0bd',.8*zoom);
+      const p=screen(x+.5,y+.5);
+      blob(p.x,p.y,t*.52,h*.35,'#897d67',.20);
+      for(let k=0;k<5;k++){
+        const xx=p.x+t*(Math.sin(x*17+y*29+k*7)*.36);
+        const yy=p.y+h*(Math.cos(y*11+x*7+k*3)*.26);
+        blob(xx,yy,t*.018,h*.026,'#d1c1a3',.28);
       }
     }
+  }
+  function rockDeposit(x,y){
+    const tile=game.tiles[id(x,y)],stock=Math.max(0,tile.stone||0);
+    if(stock===0)return;
+    const t=tileSize(),h=tileHeight(),p=screen(x+.5,y+.5);
+    const abundance=Math.max(.36,Math.min(1,stock/55));
+    const shapes=Math.max(2,Math.ceil(abundance*5));
+    castShadow(p.x,p.y+h*.14,t,h,1.42,.46);
+    // An asymmetric cluster of tall boulders: highlight / lit side /
+    // shaded side / dark fissures, with coarse scree around the base.
+    const offsets=[[-.30,.07,.70],[-.05,-.09,1.16],[.26,.04,.81],
+      [-.16,.25,.67],[.22,.24,.53]];
+    for(let i=0;i<shapes;i++){
+      const [ox,oy,size]=offsets[i],cx=p.x+t*ox,base=p.y+h*oy;
+      const w=t*(.20+.13*size),z=h*(.50+.48*size)*Math.min(1,.4+abundance*.7);
+      const left=[cx-w*.57,base-h*.04],right=[cx+w*.68,base+h*.08];
+      const top=[cx-w*.10,base-z],ridge=[cx+w*.26,base-z*.76];
+      poly([left,top,ridge,[cx+w*.11,base-h*.06]],i%2?'#7d8580':'#8c8a7d','#505c55',.95*zoom);
+      poly([[cx+w*.11,base-h*.06],ridge,right,[cx+w*.34,base+h*.08]],
+        i%2?'#555f5b':'#616962','#46514d',.85*zoom);
+      poly([left,[cx-w*.36,base-z*.52],top,[cx+w*.11,base-z*.61]],
+        i%2?'#bbc0af':'#d1cab8',null);
+      line(top[0]-w*.08,top[1]+h*.06,cx-w*.32,base-z*.44,'#eee3ca',1.15*zoom);
+      line(cx+w*.16,base-z*.40,cx+w*.30,base-z*.21,'#424e49',1.25*zoom);
+      line(cx-w*.05,base-z*.29,cx+w*.035,base-z*.11,'#67726b',.85*zoom);
+    }
+    for(let i=0;i<11;i++){
+      const dx=Math.sin(i*8.7+x+y)*t*.52,dy=Math.cos(i*5.7+y)*h*.33;
+      const rr=t*(.015+(i%4)*.009);
+      poly([[p.x+dx-rr,p.y+dy],[p.x+dx-rr*.1,p.y+dy-h*.08],
+        [p.x+dx+rr,p.y+dy+h*.02]],i%3?'#a4a399':'#d4c7b1');
+    }
+    if(stock<18)blob(p.x,p.y+h*.1,t*.18,h*.09,'#4d5046',.18);
   }
   const waterGroupCache=new WeakMap();
   function waterGroups(){
@@ -483,7 +532,8 @@
     const scale=stage==='stump'?.31:stage==='regrowing'?.37:stage==='sapling'?.45:
       stage==='young'?.72:stage==='old'?1.19:1;
     const w=t*1.14*scale,ht=h*3.05*scale;
-    blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.25);
+    castShadow(p.x,p.y+h*.10,t,h,scale*1.04,.30);
+    blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.26);
     const wind=(!isSmall?Math.sin(animationClock*.8+x*.6+y*.9)*.009:0);
     ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind);
     ctx.drawImage(sprite,-w/2,-ht,w,ht);ctx.restore();
@@ -607,6 +657,12 @@
     for(const b of sorted){
       const rect=buildingRect(b),u=(px-rect.x)/rect.w,v=(py-rect.y)/rect.h;
       if(u<0||u>=1||v<0||v>=1)continue;
+      // The new windmill has one procedural rotor, not the baked-in-blades
+      // transparency mask of the obsolete artwork.
+      if(b.type==='mill'){
+        if(u>.17&&u<.83&&v>.13)return b;
+        continue;
+      }
       const mask=spriteMasks[b.type];
       if(!mask){
         // Procedural quarry and future buildings have no alpha mask atlas yet.
@@ -640,27 +696,15 @@
         blob(p.x+t*(.17+.08*f),p.y-h*(.12+.15*f),t*.011,h*.024,'#e8c58c',.55*(1-f));
       }
     }else if(b.type==='mill'){
-      // A rotating foreground rotor linked to the REAL flour grinding state.
-      // When grain runs out, rotation freezes; pause freezes animationClock.
-      const cx=p.x+t*.20,cy=p.y-h*.96,angle=clock*1.6+b.id*.17;
-      blob(cx,cy,t*.11,h*.12,'#3d3028',.82);
-      for(let k=0;k<4;k++){
-        const theta=angle+k*Math.PI/2,ux=Math.cos(theta),uy=Math.sin(theta);
-        const vx=-uy,vy=ux;
-        const a=t*.10,big=t*.42,w=t*.073;
-        poly([[cx+ux*a+vx*w,cy+uy*a+vy*w*.62],
-          [cx+ux*big+vx*w*.62,cy+uy*big+vy*w*.62],
-          [cx+ux*big-vx*w*.62,cy+uy*big-vy*w*.62],
-          [cx+ux*a-vx*w,cy+uy*a-vy*w*.62]],'#d6bd90','#735b3d',1.15*zoom);
-        line(cx+ux*a,cy+uy*a,cx+ux*big,cy+uy*big,'#e9ddba',1.2*zoom);
-      }
-      blob(cx,cy,t*.048,h*.058,'#8e714c',1);
+      // Flour dust and millstone vibration only; rotor is drawn exactly once
+      // by drawWindmill() whether the mill is running or idle.
       for(let i=0;i<4;i++){
         const f=(clock*.46+i*.25)%1;
-        blob(p.x-t*(.12-.11*f),p.y-h*(.29+.08*f),t*.013,h*.018,'#f9e4bb',.70*(1-f));
+        blob(p.x-t*(.12-.11*f),p.y-h*(.29+.08*f),t*.013,h*.018,
+          '#f9e4bb',.70*(1-f));
       }
-      const ring=.055+.016*Math.sin(clock*8);
-      blob(p.x-t*.015,p.y-h*.21,t*ring,h*.035,'#ddbd8a',.42);
+      blob(p.x-t*.015,p.y-h*.21,t*(.055+.016*Math.sin(clock*8)),
+        h*.035,'#ddbd8a',.42);
     }else if(b.type==='quarry'){
       const swing=Math.sin(clock*8+b.id);
       const toolX=p.x+t*(.13+.055*swing),toolY=p.y-h*(.32+.065*Math.abs(swing));
@@ -687,6 +731,7 @@
     const colors={logger:'#678e67',quarry:'#ae9b82',farm:'#b9a365',sawmill:'#927f55',
       mill:'#b2a68b',bakery:'#b98a65',idle:'#9ab3a0'};
     const c=colors[kind]||'#a1b8a5',sway=active?Math.sin(animationClock*6)*t*.023:Math.sin(animationClock*.9)*t*.006;
+    castShadow(x,y+t*.028,t,t/2,.26,.22);
     blob(x,y+t*.025,t*.07,t*.022,'#0c251e',.28);
     line(x-t*.018,y-t*.04,x-t*.024+sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
     line(x+t*.018,y-t*.04,x+t*.025-sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
@@ -695,16 +740,103 @@
     line(x-t*.04,y-t*.16,x-t*.065+sway,y-t*.09,'#d5ac84',Math.max(.8,1.3*zoom));
     line(x+t*.04,y-t*.16,x+t*.07-sway,y-t*(active?.12:.10),'#d5ac84',Math.max(.8,1.3*zoom));
   }
+  // A single independent windmill rotor. No baked-in static blades:
+  // the old mill.webp is deliberately NOT rendered at any point.
+  const millRotors=new Map();
+  function windmillAngle(id,active){
+    const prior=millRotors.get(id)||{angle:(id*.23)%(Math.PI*2),clock:animationClock};
+    const dt=Math.min(.1,Math.max(0,animationClock-prior.clock));
+    if(active)prior.angle=(prior.angle+dt*1.7)%(Math.PI*2);
+    prior.clock=animationClock;millRotors.set(id,prior);
+    return prior.angle;
+  }
+  function drawWindmill(b,p,t,h,active){
+    const left=p.x-t*.37,right=p.x+t*.37,top=p.y-h*1.50,base=p.y+h*.19;
+    // Stone tower: three lit wall facets, clipped bands of hand-laid masonry,
+    // timber roof and chimney are all part of the same depth-correct structure.
+    poly([[left,top+h*.18],[p.x-t*.04,top-h*.03],[p.x+t*.10,top+h*.12],
+      [p.x+t*.04,base],[left-t*.03,base+h*.08]],'#b7a991','#554d41',1.2*zoom);
+    poly([[p.x+t*.10,top+h*.12],[right,top+h*.30],[right+t*.025,base+h*.08],
+      [p.x+t*.04,base]],'#827967','#45473f',1.1*zoom);
+    poly([[left,top+h*.18],[p.x+t*.04,top+h*.04],[right,top+h*.30],
+      [p.x-t*.02,top+h*.50]],'#d0bf9e',null);
+    for(let row=0;row<7;row++){
+      const y=top+h*.34+row*h*.18;
+      line(left+t*.03,y,p.x+t*.028,y+h*.025,'#777361',.95*zoom);
+      line(p.x+t*.075,y+h*.04,right-t*.018,y+h*.12,'#54584e',.95*zoom);
+      for(let col=0;col<3;col++){
+        const x=left+t*(.07+col*.11+(row%2)*.04);
+        line(x,y-t*.003,x+t*.015,y+h*.085,'#99917f',.8*zoom);
+      }
+    }
+    // Mill cap with stepped timber shingle layers and a visible overhang.
+    const roofPeak=[p.x-t*.05,top-h*.45];
+    poly([[left-t*.10,top+h*.18],roofPeak,[p.x+t*.025,top-h*.16],
+      [p.x+t*.035,top+h*.27]],'#895c3c','#54392c',1.1*zoom);
+    poly([roofPeak,[p.x+t*.20,top-h*.26],[right+t*.06,top+h*.30],
+      [p.x+t*.035,top+h*.27]],'#5b4234','#412e28',1.1*zoom);
+    for(let k=0;k<4;k++){
+      const fy=top-h*.18+k*h*.11;
+      line(p.x+t*.02,fy,p.x+t*(.09+k*.065),fy+h*.05,'#bf9060',.85*zoom);
+    }
+    // Door and windows add scale and contrast to the stone structure.
+    poly([[p.x-t*.12,base],[p.x-t*.12,base-h*.54],[p.x+t*.035,base-h*.53],
+      [p.x+t*.035,base]],'#40352d','#d7b98d',1.3*zoom);
+    poly([[p.x+t*.06,top+h*.61],[p.x+t*.19,top+h*.69],
+      [p.x+t*.19,top+h*1.00],[p.x+t*.06,top+h*.91]],'#33362f','#bdac8a',1.1*zoom);
+    line(p.x+t*.12,top+h*.66,p.x+t*.12,top+h*.97,'#d5b883',1.1*zoom);
+    for(let k=0;k<3;k++){
+      const y=base+h*(.10+k*.07);
+      line(p.x-t*.19,y,p.x+t*.12,y+h*.035,'#968571',1.5*zoom);
+    }
+    // Only one set of four vanes. The same rotor freezes in place whenever
+    // the mill lacks staff, road access, input material, or the game is paused.
+    const cx=p.x+t*.14,cy=p.y-h*1.12,angle=windmillAngle(b.id,active);
+    blob(cx+t*.015,cy+h*.055,t*.15,h*.16,'#252822',.48);
+    for(let i=0;i<4;i++){
+      const a=angle+i*Math.PI/2,u=Math.cos(a),v=Math.sin(a),vx=-v,vy=u;
+      const inner=t*.11,outer=t*.48,w=t*.073;
+      poly([[cx+u*inner+vx*w,cy+v*inner+vy*w*.55],
+        [cx+u*outer+vx*w*.74,cy+v*outer+vy*w*.72],
+        [cx+u*outer-vx*w*.74,cy+v*outer-vy*w*.72],
+        [cx+u*inner-vx*w,cy+v*inner-vy*w*.55]],
+        i%2===0?'#d8c399':'#c8b186','#654d35',1*zoom);
+      line(cx+u*inner,cy+v*inner,cx+u*outer,cy+v*outer,
+        '#785435',Math.max(1.2,2.0*zoom));
+      for(let k=1;k<4;k++){
+        const f=inner+(outer-inner)*k/4;
+        line(cx+u*f+vx*w*.75,cy+v*f+vy*w*.5,
+          cx+u*f-vx*w*.75,cy+v*f-vy*w*.5,'#8c6f49',.9*zoom);
+      }
+    }
+    blob(cx,cy,t*.049,h*.065,'#916e47');
+    blob(cx-t*.014,cy-h*.015,t*.016,h*.02,'#f1d5a1',.7);
+  }
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
-    diamond(p.x,p.y,.75,'#263d3180');
-    if(b.type==='quarry'){
-      diamond(p.x,p.y,.72,'#716c60','#c8b894');
-      for(let k=0;k<6;k++){
-        const ox=((k%3)-1)*t*.17,oy=Math.floor(k/3)*h*.16;
-        poly([[p.x+ox-t*.10,p.y+oy],[p.x+ox-t*.02,p.y+oy-h*.22],[p.x+ox+t*.10,p.y+oy-h*.12],[p.x+ox+t*.15,p.y+oy+h*.09]],
-          ['#a9a99f','#c1bcb0','#888b84'][k%3],'#55564f',1);
+    castShadow(p.x,p.y+h*.08,t,h,1.43,.37);
+    diamond(p.x,p.y,.75,'#263d3133');
+    if(b.type==='mill'){
+      drawWindmill(b,p,t,h,V.productionActive(b,connected,game.readyToProduce(b)));
+    }else if(b.type==='quarry'){
+      // A working quarry remains visibly industrial even once its nearby
+      // stone outcrops have been depleted.
+      diamond(p.x,p.y,.77,'#615c50','#b8a58a');
+      for(let k=0;k<5;k++){
+        const xx=p.x+t*((k%3-1)*.16),yy=p.y+h*(Math.floor(k/3)*.20-.02);
+        poly([[xx-t*.11,yy],[xx-t*.04,yy-h*(.18+.03*k)],
+          [xx+t*.09,yy-h*.10],[xx+t*.15,yy+h*.05]],
+          k%2?'#a3a69b':'#bcb5a2','#4d554f',1.0*zoom);
+        line(xx-t*.03,yy-h*.13,xx+t*.03,yy-h*.16,
+          '#e3d7bd',.9*zoom);
       }
+      for(const side of [-1,1]){
+        line(p.x+t*side*.35,p.y+h*.14,p.x+t*side*.35,p.y-h*.56,
+          '#9e774d',2.7*zoom);
+      }
+      line(p.x-t*.35,p.y-h*.49,p.x+t*.35,p.y-h*.49,'#d2a56f',3.1*zoom);
+      line(p.x-t*.35,p.y-h*.07,p.x+t*.35,p.y-h*.07,'#d2a56f',2.0*zoom);
+      line(p.x+t*.27,p.y-h*.48,p.x+t*.42,p.y+h*.08,'#75583d',1.6*zoom);
     }else if(!sprite(b.type,p.x,p.y+h*.33,renderedWidth,imageHeight)){
       diamond(p.x,p.y-.23*t,.84,COLORS[b.type]);
       ctx.textAlign='center';ctx.font=`bold ${Math.max(12,t*.32)}px sans-serif`;ctx.fillStyle='#f8eac6';
@@ -737,36 +869,120 @@
       for(let i=0;i<3;i++)blob(pos.x-t*.11+i*t*.09,pos.y+h*(.02+i*.01),t*.025,h*.015,'#735b41',.45);
       if(!materialsReady){line(pos.x-t*.24,pos.y-h*.14,pos.x+t*.12,pos.y-h*.02,'#d9be91',1.4);}
     }else{
-      const rect=buildingRect({type:site.type,x:site.x,y:site.y});
-      const [wall,roof,shadow]=(MATERIAL_COLORS[site.type]||MATERIAL_COLORS.generic);
-      // stage 1: foundation and marked corners
-      diamond(pos.x,pos.y,.70,'#8e7154','#e0c494',1);
-      line(pos.x-t*.24,pos.y-h*.08,pos.x-t*.10,pos.y-h*.22,'#d8be8e',1.5);
-      line(pos.x+t*.24,pos.y-h*.08,pos.x+t*.10,pos.y-h*.22,'#d8be8e',1.5);
-      line(pos.x-t*.24,pos.y+h*.08,pos.x-t*.10,pos.y+h*.22,'#d8be8e',1.5);
-      line(pos.x+t*.24,pos.y+h*.08,pos.x+t*.10,pos.y+h*.22,'#d8be8e',1.5);
-      if(stage==='frame'||stage==='walls'||stage==='roof'){
-        const wallH=rect.h*(ratio<.45?.14:ratio<.72?.28:.40);
-        ctx.fillStyle=wall;ctx.fillRect(rect.x+rect.w*.20,rect.y+rect.h*.62-wallH,rect.w*.44,wallH);
-        ctx.fillStyle=shadow;ctx.fillRect(rect.x+rect.w*.64,rect.y+rect.h*.66-wallH,rect.w*.16,wallH*.92);
+      const phase=V.constructionVisualPhase(site),palette=MATERIAL_COLORS[site.type]||MATERIAL_COLORS.generic;
+      const [wall,roof,dark]=palette;
+      const x=pos.x,y=pos.y+t*.06,half=t*.34,depth=h*.26;
+      castShadow(x,y,t,h,1.16,.30);
+      // The stakes, measured ropes and material piles are present first,
+      // before any builder can begin erecting walls.
+      diamond(x,y,.78,'#6d5c4599','#bea078');
+      for(const side of [-1,1]){
+        const sx=x+side*half;
+        line(sx,y-depth*.35,sx,y-depth*.35-h*.20,'#dbb584',2*zoom);
+        line(sx,y-depth*.35-h*.17,sx-side*t*.12,y-depth*.65-h*.16,
+          '#f0d8a5',.9*zoom);
       }
-      if(stage==='frame'||stage==='walls'||stage==='roof'){
-        // frame and scaffolding
-        for(const s of [-1,1]){
-          const x=pos.x+s*t*.20;
-          line(x,pos.y+h*.16,x,pos.y-h*.72,'#b9854a',Math.max(2,3*zoom));
-          line(x,pos.y-h*.52,x-s*t*.11,pos.y-h*.30,'#d3a563',Math.max(1.5,2.4*zoom));
+      if(phase==='survey'){
+        poly([[x-half,y],[x,y-depth],[x+half,y],[x,y+depth]],
+          '#77674f66','#e2c597',1*zoom);
+        for(let k=0;k<3;k++){
+          const yy=y+h*(.16+k*.045);
+          line(x-t*.36,yy,x-t*.19,yy-h*.035,'#a27b4c',2.2*zoom);
         }
-        line(pos.x-t*.20,pos.y-h*.62,pos.x+t*.20,pos.y-h*.62,'#d7af73',Math.max(1.6,2.8*zoom));
-        line(pos.x-t*.20,pos.y-h*.35,pos.x+t*.20,pos.y-h*.35,'#d7af73',Math.max(1.6,2.8*zoom));
+      }else{
+        // Stone foundation: three visible masonry faces and a raised sill.
+        poly([[x-half,y],[x,y-depth],[x+half,y],[x,y+depth]],
+          '#c0b29a','#6e675a',1.2*zoom);
+        poly([[x-half,y],[x,y+depth],[x,y+depth+h*.16],[x-half,y+h*.14]],
+          '#9d927d','#60594f',1.05*zoom);
+        poly([[x,y+depth],[x+half,y],[x+half,y+h*.14],[x,y+depth+h*.16]],
+          '#756f64','#514c44',1.05*zoom);
+        for(let k=0;k<4;k++)
+          line(x-half*.9+k*t*.14,y+h*.11,x-half*.8+(k+.34)*t*.14,y+h*.14,
+            '#ddd3bc',.75*zoom);
+        const height=phase==='foundation'?0:phase==='frame'?h*.92:phase==='walls'?h*1.48:h*1.66;
+        if(height>0){
+          // Timber corner posts and progressive cross braces.
+          const corners=[[x-half,y],[x,y-depth],[x+half,y],[x,y+depth]];
+          for(const [px,py] of corners){
+            line(px,py,px,py-height,'#69482f',Math.max(2.2,4.2*zoom));
+            line(px-t*.006,py-height,px+t*.012,py-height,'#d3a16b',1.8*zoom);
+          }
+          poly(corners.slice(0,3).map(([px,py])=>[px,py-height]),
+            '#b9926199','#7b5b42',.8*zoom);
+          line(x-half,y-height,x,y-depth-height,'#c39a63',3*zoom);
+          line(x,y-depth-height,x+half,y-height,'#c39a63',3*zoom);
+          if(phase==='frame'){
+            for(const side of [-1,1])
+              line(x+side*half,y-height*.12,x,y-depth-height*.74,
+                '#d1a475',2.0*zoom);
+          }
+          if(phase==='walls'||phase==='roof'){
+            // Lit front and shaded side walls; openings remain dark windows.
+            poly([[x-half,y],[x-half,y-height],[x,y-depth-height],[x,y-depth]],
+              wall,'#574a39',1*zoom);
+            poly([[x,y-depth],[x,y-depth-height],[x+half,y-height],[x+half,y]],
+              dark,'#3f382f',1*zoom);
+            for(let row=0;row<5;row++){
+              const y0=y-height*(.15+row*.16);
+              line(x-half+t*.018,y0,x-t*.015,y0-h*.13,'#d4b389',.65*zoom);
+              line(x+t*.015,y0-h*.13,x+half-t*.01,y0,'#3e392f',.65*zoom);
+            }
+            poly([[x-t*.12,y-h*.20],[x-t*.12,y-height*.52],[x+t*.005,y-height*.60],
+              [x+t*.005,y-h*.22]],'#362e27','#dac5a4',1*zoom);
+            poly([[x+t*.13,y-height*.58],[x+t*.23,y-height*.62],
+              [x+t*.23,y-height*.86],[x+t*.13,y-height*.82]],
+              '#283a35','#d0b17f',1*zoom);
+          }
+          if(phase==='roof'){
+            const peak=y-height-h*.48;
+            const completion=clamp((ratio-.77)/.23,0,1);
+            // The gable frame appears before tiles cover it.
+            line(x-half-t*.03,y-height,x,peak,'#b7814a',3*zoom);
+            line(x,peak,x+half+t*.05,y-height,'#b7814a',3*zoom);
+            line(x,peak,x,y-depth-height-h*.33,'#e1b585',2*zoom);
+            poly([[x-half-t*.05,y-height],[x,peak],[x,y-depth-height-h*.33],
+              [x-half*.20,y-depth-height]],'#7a5539','#4c352a',1*zoom);
+            poly([[x,peak],[x+half+t*.05,y-height],[x+half*.23,y-depth-height],
+              [x,y-depth-height-h*.33]],'#4c3e35','#332d27',1*zoom);
+            // Shingle courses are added as the LAST phase advances.
+            const courses=Math.max(1,Math.ceil(completion*5));
+            for(let row=0;row<courses;row++){
+              const f=(row+1)/6;
+              line(x-half*(1-f),y-height-h*.44*(1-f),
+                x+t*.025,y-depth-height-h*.31*(1-f),'#aa7b54',1.2*zoom);
+              line(x+t*.03,y-depth-height-h*.31*(1-f),
+                x+half*f,y-height-h*.04*(1-f),'#8b6545',1.1*zoom);
+            }
+          }
+          // Scaffolding changes height with the actual build stage.
+          const scaffTop=y-height-h*.12;
+          for(const side of [-1,1]){
+            const sx=x+side*half*1.24;
+            line(sx,y+h*.15,sx,scaffTop,'#bd915d',2.3*zoom);
+            line(sx-side*t*.09,y+h*.11,sx,scaffTop,'#947247',1.6*zoom);
+          }
+          line(x-half*1.24,y-height*.47,x+half*1.24,y-height*.47,
+            '#d5ae79',2.1*zoom);
+        }
       }
-      if(stage==='roof'){
-        poly([[rect.x+rect.w*.18,rect.y+rect.h*.56],[rect.x+rect.w*.47,rect.y+rect.h*.36],[rect.x+rect.w*.80,rect.y+rect.h*.54],[rect.x+rect.w*.51,rect.y+rect.h*.69]],roof,'#f1ddbb',1);
+      // Physical deliveries must be visible in the builder's work area.
+      for(let k=0;k<Math.min(5,have);k++){
+        const xx=x-t*.53+t*(k%3)*.09,yy=y+h*(.29+Math.floor(k/3)*.10);
+        line(xx,yy,xx+t*.20,yy-h*.06,'#b88754',Math.max(2,3.6*zoom));
+        line(xx,yy-h*.028,xx+t*.20,yy-h*.087,'#e3bc82',.85*zoom);
       }
-      if(stage==='roof'&&ratio>.94&&sprites[site.type]?.naturalWidth){
-        ctx.save();ctx.globalAlpha=.55+.35*(ratio-.86)/.14;
-        sprite(site.type,rect.p.x,rect.p.y+h*.33,rect.w,rect.h);
-        ctx.restore();
+      for(let k=0;k<Math.min(5,deliveredStone);k++){
+        const xx=x+t*(.35+(k%3)*.075),yy=y+h*(.23+Math.floor(k/3)*.10);
+        poly([[xx-t*.04,yy],[xx,yy-h*.11],[xx+t*.06,yy-h*.05],
+          [xx+t*.07,yy+h*.035]],k%2?'#92938a':'#c1b8a6','#595a53',.7*zoom);
+      }
+      if(materialsReady&&ratio>0){
+        const f=(animationClock*.7+site.id*.13)%1;
+        for(let k=0;k<4;k++){
+          blob(x+t*(.04+k*.11),y-h*(.35+f*.19),t*.01,h*.016,
+            '#dbd0aa',.28*(1-f));
+        }
       }
     }
     if(have>0){const count=Math.min(4,have);
@@ -785,6 +1001,7 @@
   function drawBuilder(b){
     const p=screen(b.x+.5,b.y+.5),t=tileSize(),h=tileHeight();
     const footY=p.y+h*.26;
+    castShadow(p.x,footY,t,h,.34,.25);
     // 100% frame-sheet playback. No static character sprite or global bobbing.
     if(!workerSprite(b,'builder',p.x,footY,t*.48)){
       blob(p.x,footY-h*.24,t*.10,h*.20,'#dda93f');
@@ -837,6 +1054,7 @@
   function drawWorkAgent(a){
     const b=game.buildings.find(v=>v.id===a.buildingId);if(!b)return;
     const p=screen(a.x,a.y),t=tileSize(),h=tileHeight();
+    castShadow(p.x,p.y+h*.20,t,h,.3,.19);
     const moving=a.phase==='arrive'||a.phase==='out'||a.phase==='return';
     drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
     if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
@@ -856,6 +1074,7 @@
   function drawCarrier(c){
     const p=screen(c.x+.5,c.y+.5),t=tileSize(),h=tileHeight();
     const footY=p.y+h*.26;
+    castShadow(p.x,footY,t,h,.32,.24);
     if(!workerSprite(c,'porter',p.x,footY,t*.48)){
       blob(p.x,footY-h*.23,t*.10,h*.20,'#aa8255');
     }
@@ -882,6 +1101,8 @@
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const tile=game.tiles[id(x,y)];if(!visible(screen(x+.5,y+.5)))continue;
       if(tile.terrain==='forest')objects.push({x,y,depth:x+y+.65,type:'forest'});
+      if(tile.terrain==='hills'&&tile.stone>0&&!game.buildingAt(x,y)&&!game.siteAt(x,y))
+        objects.push({x,y,depth:x+y+.67,type:'rocks'});
       if(tile.terrain==='ruin')objects.push({x,y,depth:x+y+.65,type:'ruin'});
        if(tile.terrain==='grass'&&!game.roads[id(x,y)]&&!game.buildingAt(x,y)&&!game.siteAt(x,y)&&!game.fieldAt(x,y)&&
           (x*31+y*47+x*y*11)%13===0)objects.push({x,y,depth:x+y+.60,type:'bush'});
@@ -902,6 +1123,7 @@
     objects.sort((a,b)=>a.depth-b.depth||a.x-b.x);
     for(const o of objects){
       if(o.type==='forest')tree(o.x,o.y,(o.x*5+o.y*9)%6);
+      else if(o.type==='rocks')rockDeposit(o.x,o.y);
       else if(o.type==='ruin')ruins(o.x,o.y);
        else if(o.type==='bush')bush(o.x,o.y,(o.x*3+o.y*7)%11);
       else if(o.type==='villager'){
@@ -1192,12 +1414,16 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.3-cobblestone',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.4-visual-depth',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
         plan.arms.reduce((sum,arm)=>sum+arm.stones.length,0)};
-    },roadSpritesCached:roadSpriteCache.size,stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
+    },roadSpritesCached:roadSpriteCache.size,
+    stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},
+    constructionArtAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionVisualPhase(site):null;},
+    millRotorState:(id)=>({angle:millRotors.get(id)?.angle??null,blades:4,bakedSprite:false}),
+    rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
     spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
