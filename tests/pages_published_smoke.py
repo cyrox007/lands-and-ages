@@ -73,9 +73,16 @@ with sync_playwright() as pw:
         assert metrics["questCollapsed"]=="false" and metrics["questContentsDisplay"]=="none",(name,metrics)
         assert metrics["stats"]["top"]<metrics["dockRect"]["top"],(name,metrics)
         assert metrics["dockRect"]["top"]>=height*.75,(name,metrics)
+        if width<=750 and height>510:
+            gap=page.evaluate("""() => document.querySelector('.panel-head').getBoundingClientRect().left -
+              document.querySelector('.mission-card').getBoundingClientRect().right""")
+            assert gap>=3,(name,"overlapping upper controls",gap)
+
         assert metrics["pageScroll"][0]<=width+1 and metrics["pageScroll"][1]<=height+1,(name,metrics)
         page.locator('#missionToggle').click()
         assert page.locator('#missionContents').is_visible(),name
+        if width<=750 and height>510:
+            assert not page.locator('.panel-head').is_visible(),name
         page.locator('#missionToggle').click()
         page.locator('[data-hud-panel="build"]').click()
         assert page.locator(".sidebar").is_visible(),(name,metrics)
