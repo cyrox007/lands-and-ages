@@ -38,6 +38,40 @@
   // Растр главного здания закреплён за фундаментом, а не за соседней дорогой.
   const hqSprite=new Image();
   hqSprite.src=window.StrategyHQSprite||'assets/buildings/headquarters/headquarters-level1.webp';
+  // Утверждённые изображения жителей и профессий в компактном WebP-атласе.
+  const PAINTED_W=96,PAINTED_H=144;
+  const PAINTED_ROLES=['villager-man-1','villager-man-2','villager-woman-1',
+    'villager-young-1','villager-elder-man','villager-elder-woman',
+    'porter','builder','logger','quarry','farmer'];
+  const paintedPeople=new Image();
+  paintedPeople.src=window.StrategyPaintedPeople||'assets/characters/painted-people.webp';
+  function paintedReady(){
+    return paintedPeople.naturalWidth===PAINTED_ROLES.length*PAINTED_W&&
+      paintedPeople.naturalHeight===PAINTED_H;
+  }
+  function paintedSprite(role,x,y,size,seed=0){
+    const index=PAINTED_ROLES.indexOf(role);
+    if(index<0||!paintedReady())return false;
+    const sway=Math.sin(animationClock*.9+seed*1.7)*.014;
+    ctx.save();ctx.translate(x,y);ctx.rotate(sway);
+    ctx.drawImage(paintedPeople,index*PAINTED_W,0,PAINTED_W,PAINTED_H,
+      -size/2,-size*PAINTED_H/PAINTED_W,size,
+      size*PAINTED_H/PAINTED_W);
+    ctx.restore();return true;
+  }
+  const paintedPortraits=new Map();
+  function paintedPortrait(role){
+    if(!paintedReady()||!PAINTED_ROLES.includes(role))return null;
+    if(!paintedPortraits.has(role)){
+      const image=document.createElement('canvas'),index=PAINTED_ROLES.indexOf(role);
+      image.width=PAINTED_W;image.height=PAINTED_H;
+      image.getContext('2d').drawImage(paintedPeople,index*PAINTED_W,0,
+        PAINTED_W,PAINTED_H,0,0,PAINTED_W,PAINTED_H);
+      paintedPortraits.set(role,image.toDataURL('image/png'));
+    }
+    return paintedPortraits.get(role);
+  }
+  // Для движения сохраняем настоящие покадровые циклы, не скользящие статичные рисунки.
   // Внешний вид профессий. Анимированные 4×8-атласы пока остаются прежними.
   const WORKER_PORTRAITS={builder:'builder',porter:'porter',logger:'logger',
     quarry:'quarry-worker',farm:'farmer'};
@@ -190,7 +224,12 @@
       state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
   }
   function workerSprite(entity,role,px,py,size){
-    const pose=workerState(entity,role),img=pose.art||(role==='porter'||role==='builder'?workerSheets[pose.sheet]:null);
+    const pose=workerState(entity,role);
+    // Носильщик с нарисованным мешком не используется на карте:
+    // настоящий груз уже отрисовывается независимым слоем.
+    if(role!=='porter'&&pose.state==='idle'&&
+      paintedSprite(role,px,py,size,entity.id||entity.buildingId||0))return true;
+    const img=pose.art||(role==='porter'||role==='builder'?workerSheets[pose.sheet]:null);
     if(!img?.naturalWidth)return false;
     // Character feet stay locked to the simulation tile; only drawn limbs change.
     ctx.drawImage(img,pose.frame*WORKER_FRAME_W,pose.row*WORKER_FRAME_H,
@@ -900,12 +939,14 @@
     return slots.slice(0,Math.min(slots.length,game.availableWorkers()))
       .map(([dx,dy],id)=>({
         id,x:home.x+dx,y:home.y+dy,direction:directions[id],
-        variant:villagerRoles[id%Math.max(1,villagerRoles.length)]||null
+        variant:PAINTED_ROLES[id%6]
       }));
   }
   function drawVillager(person){
     const p=screen(person.x,person.y),t=tileSize(),h=tileHeight();
-    const image=illustratedSheet(person.variant,'idle');
+    if(paintedSprite(person.variant,p.x,p.y+h*.24,t*.49,person.id))return;
+    const fallback=villagerRoles[person.id%Math.max(1,villagerRoles.length)];
+    const image=illustratedSheet(fallback,'idle');
     if(!image?.naturalWidth){
       drawCitizen(p.x,p.y+h*.24,t,false,'idle');
       return;
@@ -1533,11 +1574,33 @@
       const p=document.createElement('p');
       p.textContent='Главное здание I уровня. Оно определяет границы строительства и обеспечивает первых жителей. Улучшения до управы, крепости и цитадели появятся позднее.';
       $('tileInfo').append(p);
+      // Носильщики носят реальные ресурсы отдельным слоем на карте.
+      // Детализированный образ со статичным мешком показываем только здесь.
+      if(paintedReady()){
+        const group=document.createElement('div');
+        group.style.cssText='display:flex;gap:14px;margin:8px 0;align-items:center';
+        for(const [role,name] of [['porter','Носильщики'],['builder','Строители']]){
+          const portrait=paintedPortrait(role);
+          if(!portrait)continue;
+          const item=document.createElement('div');
+          item.style.cssText='display:flex;flex-direction:column;align-items:center;gap:4px';
+          const image=document.createElement('img');
+          image.src=portrait;image.alt=name;image.width=68;image.height=72;
+          image.style.cssText='object-fit:contain';
+          const label=document.createElement('span');
+          label.textContent=name;label.style.fontSize='11px';
+          item.append(image,label);group.append(item);
+        }
+        $('tileInfo').append(group);
+      }
     }
     if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
+      const profession=WORKER_PORTRAITS[b.type]==='quarry-worker'?'quarry':
+        WORKER_PORTRAITS[b.type]==='farmer'?'farmer':WORKER_PORTRAITS[b.type];
       const portrait=workerPortraits[WORKER_PORTRAITS[b.type]];
-      if(portrait?.naturalWidth){
-        const icon=document.createElement('img');icon.src=portrait.src;
+      const painted=paintedPortrait(profession);
+      if(painted||portrait?.naturalWidth){
+        const icon=document.createElement('img');icon.src=painted||portrait.src;
         icon.alt='Работник: '+DEF[b.type].name;icon.width=64;icon.height=64;
         icon.style.cssText='float:right;object-fit:contain';
         $('tileInfo').append(icon);
@@ -1739,5 +1802,5 @@
     rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
-    spritesReady,workerSheetsReady,animationClock,villagers:()=>villagerPositions(),villagerRoles,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
+    spritesReady,workerSheetsReady,animationClock,villagers:()=>villagerPositions(),villagerRoles,paintedRoles:PAINTED_ROLES,paintedReady:()=>paintedReady(),paintedSize:()=>({width:paintedPeople.naturalWidth,height:paintedPeople.naturalHeight}),productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();

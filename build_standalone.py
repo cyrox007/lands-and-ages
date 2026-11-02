@@ -21,9 +21,12 @@ resources='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii')
 hq_sprite='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/buildings/headquarters/headquarters-level1.webp').read_bytes()).decode('ascii')
+painted_people='data:image/webp;base64,'+base64.b64encode(
+    (root/'assets/characters/painted-people.webp').read_bytes()).decode('ascii')
 worker_portraits={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
                   for p in sorted((root/'assets/workers').glob('*.webp')) if p.stem!='walk-reference-se'}
 scripts=('window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
+         'window.StrategyPaintedPeople='+json.dumps(painted_people)+';\n'+
          'window.StrategyWorkerPortraits='+json.dumps(worker_portraits)+';\n'+
          'window.StrategyResourceAtlas='+json.dumps(resources)+';\n'+
          'window.StrategyAssets='+json.dumps(assets,separators=(',',':'))+';\n'+
