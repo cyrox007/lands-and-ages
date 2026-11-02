@@ -38,12 +38,20 @@
   // Four atlas sheets contain 8 independently drawn poses x 4 directions.
   // Loaded separately to keep the eight legacy buildings and their selection masks intact.
   // Подлинные растровые слои из утверждённых спрайт-листов.
-  const millAtlases={},millAngles=new Map();
-  if(M)for(const [name,file] of Object.entries(M.atlases)){
-    const img=new Image();
-    img.onerror=()=>{millAtlases[name]=null;};
-    img.src=(window.StrategyMillAtlases?.[name])||(M.path+file);
-    millAtlases[name]=img;
+  const millAtlases={},millDetailed={},millAngles=new Map();
+  if(M){
+    for(const [name,file] of Object.entries(M.atlases)){
+      const img=new Image();
+      img.onerror=()=>{millAtlases[name]=null;};
+      img.src=(window.StrategyMillAtlases?.[name])||(M.path+file);
+      millAtlases[name]=img;
+    }
+    for(const name of ['body','rotor']){
+      const img=new Image();
+      img.onerror=()=>{millDetailed[name]=null;};
+      img.src=(window.StrategyMillDetailAssets?.[name])||(M.path+M.detailed[name]);
+      millDetailed[name]=img;
+    }
   }
   const WORKER_FRAME_W=96,WORKER_FRAME_H=128;
   const WORKER_SHEETS=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
@@ -798,20 +806,17 @@
     return paintMillSprite(ctx,name,p.x,p.y+h*.12-size*.36,size);
   }
   function drawMillRotor(b,p,t,h,working){
-    const region=M?.sprites.rotor,img=region&&millAtlases[region.atlas];
+    const img=millDetailed.rotor;
     if(!img?.naturalWidth)return;
-    const size=t*2.08,cy=p.y+h*.12-size*.36;
-    const anchor=M.rotorPivot,now=animationClock;
-    const state=millAngles.get(b.id)||{angle:0,clock:now};
+    const layout=M.layout(t,h);
+    const now=animationClock,state=millAngles.get(b.id)||{angle:0,clock:now};
     if(working)state.angle+=Math.min(.1,Math.max(0,now-state.clock))*2.1;
     state.clock=now;millAngles.set(b.id,state);
-    const rotorSize=size*anchor.size;
     ctx.save();
-    ctx.translate(p.x+size*anchor.x,cy+size*(anchor.y-.5));
+    ctx.translate(p.x+layout.hubX,p.y+layout.hubY);
     ctx.rotate(state.angle);
-    ctx.drawImage(img,region.x,region.y,region.w,region.h,
-      -rotorSize/2,-rotorSize/2+rotorSize*anchor.hubOffsetY,
-      rotorSize,rotorSize);
+    ctx.drawImage(img,-layout.rotorWidth/2,-layout.rotorHeight/2,
+      layout.rotorWidth,layout.rotorHeight);
     ctx.restore();
   }
   function drawMillBuilding(b,p,t,h){
@@ -826,7 +831,11 @@
     if(['fresh_ruins','old_ruins','overgrown_ruins'].includes(state.phase))
       return millArt(M.stateSprite(state.phase),p,t,h);
     if(state.phase==='damaged')return millArt('damaged',p,t,h);
-    millArt('body_assembled',p,t,h);
+    // Детальный корпус без лишней плиточной подложки.
+    const body=millDetailed.body;
+    if(!body?.naturalWidth)return false;
+    const layout=M.layout(t,h);
+    ctx.drawImage(body,p.x+layout.left,p.y+layout.top,layout.width,layout.height);
     drawMillRotor(b,p,t,h,interior.working);
     if(interior.working){
       const f=(animationClock*.34+b.id*.21)%1;
@@ -1499,7 +1508,7 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.6-approved-raster',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.6-refined-mill',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
@@ -1512,6 +1521,8 @@
     millPackage:()=>({version:M?.version??null,
       loaded:Object.values(millAtlases).filter(i=>i?.naturalWidth).length,
       total:Object.keys(M?.atlases||{}).length,
+      detailedLoaded:Object.values(millDetailed).filter(i=>i?.naturalWidth).length,
+      detailedTotal:2,layout:M?.layout(tileSize(),tileHeight())||null,
       source:'approved-imagegen-sheets',raster:true}),
     millState:(id)=>{const b=game.buildings.find(v=>v.id===id);return b?.type==='mill'?game.millInterior(b):null;},
     rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
