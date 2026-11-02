@@ -93,7 +93,7 @@ with sync_playwright() as pw:
 
         assert metrics["pageScroll"][0]<=width+1 and metrics["pageScroll"][1]<=height+1,(name,metrics)
         page.locator('#missionToggle').click()
-        assert page.locator('#missionContents').is_visible(),name
+        page.locator('#missionContents').wait_for(state="visible",timeout=3000)
         if width<=750 and height>510:
             assert not page.locator('.panel-head').is_visible(),name
         page.locator('#missionToggle').click()
