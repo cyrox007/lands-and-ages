@@ -119,3 +119,17 @@ test('grain, vegetables, lumber and stone flow to the warehouse and on to second
   assert.ok(g.stats.baked>=3,'flour + wood physically delivered to bakery; bread baked');
   assert.ok(g.buildings.length===7,'headquarters and six independent production buildings');
 });
+
+test('stone-dependent building remains foundation until a porter brings stone',()=>{
+  const g=new Game(1729,'settlement');
+  assert.equal(g.build('mill',15,9).ok,true);
+  const site=g.siteAt(15,9);assert.equal(site.required.stone,1);
+  run(g,60);
+  assert.ok(g.siteAt(15,9),'mill cannot appear without stone');
+  assert.equal(site.progress,0,'builders may not work with missing stone');
+  assert.equal(site.goods.stone,0);
+  assert.equal(site.goods.boards,2,'boards arrive separately');
+  const copy=Game.restore(g.save());assert.ok(copy);
+  assert.equal(copy.siteAt(15,9).required.stone,1);
+  assert.equal(copy.siteAt(15,9).progress,0);
+});
