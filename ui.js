@@ -99,7 +99,7 @@
   function notify(s){$('toast').textContent=s;$('toast').classList.add('visible');toastUntil=performance.now()+2800;}
   function selectTool(type){
     mode=type;
-    if(innerWidth<=750&&type!=='inspect'){
+    if(innerWidth<=750&&type!=='inspect'&&type!=='field'){
       const container=document.querySelector('.shell');
       if(container)container.dataset.panel='none';
       document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded','false'));
@@ -660,6 +660,7 @@
     selectedCrop=b.dataset.crop;
     document.querySelectorAll('[data-crop]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));
     selectTool('field');
+    if(innerWidth<=750)shell.dataset.panel='none';
   }));
   document.querySelectorAll('[data-pan]').forEach(b=>b.addEventListener('click',()=>{
     const delta={left:[-2,0],right:[2,0],up:[0,-2],down:[0,2]}[b.dataset.pan];
