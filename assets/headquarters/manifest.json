@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "status": "draft",
+  "source": "source/headquarters-concept.png",
+  "ready": "headquarters-level1.webp",
+  "construction": [
+    "headquarters-foundation.webp",
+    "headquarters-frame.webp",
+    "headquarters-walls.webp",
+    "headquarters-roof.webp",
+    "headquarters-complete.webp"
+  ],
+  "damage": [
+    "headquarters-light-damage.webp",
+    "headquarters-heavy-damage.webp",
+    "headquarters-fresh-ruins.webp",
+    "headquarters-old-ruins.webp"
+  ],
+  "modules": [
+    "headquarters-module-core.webp",
+    "headquarters-module-wing.webp",
+    "headquarters-module-cupola.webp",
+    "headquarters-module-roof.webp",
+    "headquarters-module-flag.webp",
+    "headquarters-module-gate.webp",
+    "headquarters-module-loading.webp"
+  ],
+  "note": "Вырезки из концепт-листа; до подключения в рендер нужно зачистить края, определить маску выбора и выровнять фундамент с реальным footprint."
+}

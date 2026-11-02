@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "status": "design-draft",
+  "source": "source/workers-concept.png",
+  "roles": {
+    "builder": "builder.webp",
+    "porter": "porter.webp",
+    "logger": "logger.webp",
+    "quarry": "quarry-worker.webp",
+    "farmer": "farmer.webp"
+  },
+  "prototypeWalk": {
+    "path": "walk-reference-se.webp",
+    "frame": {
+      "w": 96,
+      "h": 128
+    },
+    "directions": [
+      "se"
+    ],
+    "frames": 8,
+    "productionReady": false
+  },
+  "animationContract": {
+    "directions": [
+      "se",
+      "sw",
+      "ne",
+      "nw"
+    ],
+    "walkFrames": 8,
+    "workFrames": 8,
+    "idleFrames": 4,
+    "carryOverlay": true,
+    "anchor": "feet",
+    "frameProgression": "distance"
+  },
+  "note": "Статические образы профессий не заменяют действующие анимации до готовности всех направлений и очистки кадров."
+}
