@@ -99,6 +99,11 @@
   function notify(s){$('toast').textContent=s;$('toast').classList.add('visible');toastUntil=performance.now()+2800;}
   function selectTool(type){
     mode=type;
+    if(innerWidth<=750&&type!=='inspect'){
+      const container=document.querySelector('.shell');
+      if(container)container.dataset.panel='none';
+      document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded','false'));
+    }
     for(const b of document.querySelectorAll('[data-tool]')){
       const active=b.dataset.tool===type;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));
     }
@@ -358,6 +363,7 @@
   function drawSite(site){
     const pos=screen(site.x+.5,site.y+.5),t=tileSize(),h=tileHeight();
     const need=site.required.boards||0,have=site.goods.boards||0;
+    const requiredStone=site.required.stone||0,deliveredStone=site.goods.stone||0,materialsReady=have>=need&&deliveredStone>=requiredStone;
     const ratio=clamp(site.progress/site.duration,0,1),stage=V.constructionStage(site);
     const isRoad=site.type==='road';
     diamond(pos.x,pos.y,.89,'#705b46','#d7b98a',1.4);
@@ -367,7 +373,7 @@
       diamond(pos.x,pos.y,width,'#be9d73','#ead2a8',1);
       line(pos.x-t*.18,pos.y-h*.03,pos.x+t*.18,pos.y+h*.03,'#7e6448',Math.max(1.4,2.1*zoom));
       for(let i=0;i<3;i++)blob(pos.x-t*.11+i*t*.09,pos.y+h*(.02+i*.01),t*.025,h*.015,'#735b41',.45);
-      if(have<need){line(pos.x-t*.24,pos.y-h*.14,pos.x+t*.12,pos.y-h*.02,'#d9be91',1.4);}
+      if(!materialsReady){line(pos.x-t*.24,pos.y-h*.14,pos.x+t*.12,pos.y-h*.02,'#d9be91',1.4);}
     }else{
       const rect=buildingRect({type:site.type,x:site.x,y:site.y});
       const [wall,roof,shadow]=(MATERIAL_COLORS[site.type]||MATERIAL_COLORS.generic);
@@ -404,15 +410,15 @@
     if(have>0){const count=Math.min(4,have);
       for(let k=0;k<count;k++)line(pos.x-t*.34,pos.y+h*(.17+k*.035),pos.x-t*.12,pos.y+h*(.06+k*.035),'#e0bd7a',Math.max(2,3*zoom));
     }
-    const label=have<need?`▥ ${have}/${need}`:`⚒ ${Math.floor(ratio*100)}%`;
+    const label=have<need?`▥ ${have}/${need}`:deliveredStone<requiredStone?`◆ ${deliveredStone}/${requiredStone}`:`⚒ ${Math.floor(ratio*100)}%`;
     ctx.save();ctx.textAlign='center';ctx.font=`bold ${Math.max(10,12.5*zoom)}px sans-serif`;
     ctx.lineWidth=3;ctx.strokeStyle='#29261d';ctx.fillStyle='#fff4cf';
     ctx.strokeText(label,pos.x,pos.y-tileHeight()*(isRoad?.75:2.0));
     ctx.fillText(label,pos.x,pos.y-tileHeight()*(isRoad?.75:2.0));ctx.restore();
     const bw=Math.max(26,t*.72),by=pos.y+h*(isRoad?.46:.22);
     ctx.fillStyle='#24332b';ctx.fillRect(pos.x-bw/2,by,bw,Math.max(3,5*zoom));
-    ctx.fillStyle=have<need?'#c5a369':'#a5df9a';
-    ctx.fillRect(pos.x-bw/2,by,bw*(have<need?Math.min(1,have/Math.max(1,need))*.32:.32+.68*ratio),Math.max(3,5*zoom));
+    ctx.fillStyle=!materialsReady?'#c5a369':'#a5df9a';
+    ctx.fillRect(pos.x-bw/2,by,bw*(!materialsReady?Math.min(1,(have+deliveredStone)/Math.max(1,need+requiredStone))*.32:.32+.68*ratio),Math.max(3,5*zoom));
   }
   function drawBuilder(b){
     const p=screen(b.x+.5,b.y+.5),t=tileSize(),h=tileHeight();
@@ -555,9 +561,9 @@
       const where=document.createElement('span');where.textContent=`(${site.x},${site.y}) · ${site.state}`;
       const progress=document.createElement('div');progress.className='site-meter';
       const fill=document.createElement('span');
-      fill.style.width=`${Math.round(site.delivered<site.boards?site.delivered/Math.max(1,site.boards)*30:30+70*site.progress/site.duration)}%`;
+      fill.style.width=`${Math.round(site.delivered<site.boards||site.deliveredStone<site.stone?(site.delivered+site.deliveredStone)/Math.max(1,site.boards+site.stone)*30:30+70*site.progress/site.duration)}%`;
       progress.append(fill);
-      const details=document.createElement('small');details.textContent=`Доски ${site.delivered}/${site.boards} · работа ${Math.floor(site.progress/site.duration*100)}%`;
+      const details=document.createElement('small');details.textContent=`Доски ${site.delivered}/${site.boards}${site.stone?' · Камень '+site.deliveredStone+'/'+site.stone:''} · работа ${Math.floor(site.progress/site.duration*100)}%`;
       row.append(name,where,progress,details);sites.append(row);
     }
     $('dayStat').textContent=hud.day;$('coinStat').textContent=hud.coins;
@@ -575,7 +581,11 @@
   }
   function inspectAt(x,y){const data=game.inspect(x,y);$('tileInfo').replaceChildren();
     const title=document.createElement('strong'),desc=document.createElement('span');
-    title.textContent=data.title;desc.textContent=data.desc;$('tileInfo').append(title,desc);
+     title.textContent=data.title;desc.textContent=data.desc;$('tileInfo').append(title,desc);
+     if(game.scenario==='settlement'){
+       shell.dataset.panel='news';
+       document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded',String(btn.dataset.hudPanel==='news')));
+     }
      const b=game.buildingAt(x,y);
      if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
        const row=document.createElement('div');row.className='staff-controls';
