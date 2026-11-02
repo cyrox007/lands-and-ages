@@ -843,36 +843,120 @@
       for(let i=0;i<3;i++)blob(pos.x-t*.11+i*t*.09,pos.y+h*(.02+i*.01),t*.025,h*.015,'#735b41',.45);
       if(!materialsReady){line(pos.x-t*.24,pos.y-h*.14,pos.x+t*.12,pos.y-h*.02,'#d9be91',1.4);}
     }else{
-      const rect=buildingRect({type:site.type,x:site.x,y:site.y});
-      const [wall,roof,shadow]=(MATERIAL_COLORS[site.type]||MATERIAL_COLORS.generic);
-      // stage 1: foundation and marked corners
-      diamond(pos.x,pos.y,.70,'#8e7154','#e0c494',1);
-      line(pos.x-t*.24,pos.y-h*.08,pos.x-t*.10,pos.y-h*.22,'#d8be8e',1.5);
-      line(pos.x+t*.24,pos.y-h*.08,pos.x+t*.10,pos.y-h*.22,'#d8be8e',1.5);
-      line(pos.x-t*.24,pos.y+h*.08,pos.x-t*.10,pos.y+h*.22,'#d8be8e',1.5);
-      line(pos.x+t*.24,pos.y+h*.08,pos.x+t*.10,pos.y+h*.22,'#d8be8e',1.5);
-      if(stage==='frame'||stage==='walls'||stage==='roof'){
-        const wallH=rect.h*(ratio<.45?.14:ratio<.72?.28:.40);
-        ctx.fillStyle=wall;ctx.fillRect(rect.x+rect.w*.20,rect.y+rect.h*.62-wallH,rect.w*.44,wallH);
-        ctx.fillStyle=shadow;ctx.fillRect(rect.x+rect.w*.64,rect.y+rect.h*.66-wallH,rect.w*.16,wallH*.92);
+      const phase=V.constructionVisualPhase(site),palette=MATERIAL_COLORS[site.type]||MATERIAL_COLORS.generic;
+      const [wall,roof,dark]=palette;
+      const x=pos.x,y=pos.y+t*.06,half=t*.34,depth=h*.26;
+      castShadow(x,y,t,h,1.16,.30);
+      // The stakes, measured ropes and material piles are present first,
+      // before any builder can begin erecting walls.
+      diamond(x,y,.78,'#6d5c4599','#bea078');
+      for(const side of [-1,1]){
+        const sx=x+side*half;
+        line(sx,y-depth*.35,sx,y-depth*.35-h*.20,'#dbb584',2*zoom);
+        line(sx,y-depth*.35-h*.17,sx-side*t*.12,y-depth*.65-h*.16,
+          '#f0d8a5',.9*zoom);
       }
-      if(stage==='frame'||stage==='walls'||stage==='roof'){
-        // frame and scaffolding
-        for(const s of [-1,1]){
-          const x=pos.x+s*t*.20;
-          line(x,pos.y+h*.16,x,pos.y-h*.72,'#b9854a',Math.max(2,3*zoom));
-          line(x,pos.y-h*.52,x-s*t*.11,pos.y-h*.30,'#d3a563',Math.max(1.5,2.4*zoom));
+      if(phase==='survey'){
+        poly([[x-half,y],[x,y-depth],[x+half,y],[x,y+depth]],
+          '#77674f66','#e2c597',1*zoom);
+        for(let k=0;k<3;k++){
+          const yy=y+h*(.16+k*.045);
+          line(x-t*.36,yy,x-t*.19,yy-h*.035,'#a27b4c',2.2*zoom);
         }
-        line(pos.x-t*.20,pos.y-h*.62,pos.x+t*.20,pos.y-h*.62,'#d7af73',Math.max(1.6,2.8*zoom));
-        line(pos.x-t*.20,pos.y-h*.35,pos.x+t*.20,pos.y-h*.35,'#d7af73',Math.max(1.6,2.8*zoom));
+      }else{
+        // Stone foundation: three visible masonry faces and a raised sill.
+        poly([[x-half,y],[x,y-depth],[x+half,y],[x,y+depth]],
+          '#c0b29a','#6e675a',1.2*zoom);
+        poly([[x-half,y],[x,y+depth],[x,y+depth+h*.16],[x-half,y+h*.14]],
+          '#9d927d','#60594f',1.05*zoom);
+        poly([[x,y+depth],[x+half,y],[x+half,y+h*.14],[x,y+depth+h*.16]],
+          '#756f64','#514c44',1.05*zoom);
+        for(let k=0;k<4;k++)
+          line(x-half*.9+k*t*.14,y+h*.11,x-half*.8+(k+.34)*t*.14,y+h*.14,
+            '#ddd3bc',.75*zoom);
+        const height=phase==='foundation'?0:phase==='frame'?h*.92:phase==='walls'?h*1.48:h*1.66;
+        if(height>0){
+          // Timber corner posts and progressive cross braces.
+          const corners=[[x-half,y],[x,y-depth],[x+half,y],[x,y+depth]];
+          for(const [px,py] of corners){
+            line(px,py,px,py-height,'#69482f',Math.max(2.2,4.2*zoom));
+            line(px-t*.006,py-height,px+t*.012,py-height,'#d3a16b',1.8*zoom);
+          }
+          poly(corners.slice(0,3).map(([px,py])=>[px,py-height]),
+            '#b9926199','#7b5b42',.8*zoom);
+          line(x-half,y-height,x,y-depth-height,'#c39a63',3*zoom);
+          line(x,y-depth-height,x+half,y-height,'#c39a63',3*zoom);
+          if(phase==='frame'){
+            for(const side of [-1,1])
+              line(x+side*half,y-height*.12,x,y-depth-height*.74,
+                '#d1a475',2.0*zoom);
+          }
+          if(phase==='walls'||phase==='roof'){
+            // Lit front and shaded side walls; openings remain dark windows.
+            poly([[x-half,y],[x-half,y-height],[x,y-depth-height],[x,y-depth]],
+              wall,'#574a39',1*zoom);
+            poly([[x,y-depth],[x,y-depth-height],[x+half,y-height],[x+half,y]],
+              dark,'#3f382f',1*zoom);
+            for(let row=0;row<5;row++){
+              const y0=y-height*(.15+row*.16);
+              line(x-half+t*.018,y0,x-t*.015,y0-h*.13,'#d4b389',.65*zoom);
+              line(x+t*.015,y0-h*.13,x+half-t*.01,y0,'#3e392f',.65*zoom);
+            }
+            poly([[x-t*.12,y-h*.20],[x-t*.12,y-height*.52],[x+t*.005,y-height*.60],
+              [x+t*.005,y-h*.22]],'#362e27','#dac5a4',1*zoom);
+            poly([[x+t*.13,y-height*.58],[x+t*.23,y-height*.62],
+              [x+t*.23,y-height*.86],[x+t*.13,y-height*.82]],
+              '#283a35','#d0b17f',1*zoom);
+          }
+          if(phase==='roof'){
+            const peak=y-height-h*.48;
+            const completion=clamp((ratio-.77)/.23,0,1);
+            // The gable frame appears before tiles cover it.
+            line(x-half-t*.03,y-height,x,peak,'#b7814a',3*zoom);
+            line(x,peak,x+half+t*.05,y-height,'#b7814a',3*zoom);
+            line(x,peak,x,y-depth-height-h*.33,'#e1b585',2*zoom);
+            poly([[x-half-t*.05,y-height],[x,peak],[x,y-depth-height-h*.33],
+              [x-half*.20,y-depth-height]],'#7a5539','#4c352a',1*zoom);
+            poly([[x,peak],[x+half+t*.05,y-height],[x+half*.23,y-depth-height],
+              [x,y-depth-height-h*.33]],'#4c3e35','#332d27',1*zoom);
+            // Shingle courses are added as the LAST phase advances.
+            const courses=Math.max(1,Math.ceil(completion*5));
+            for(let row=0;row<courses;row++){
+              const f=(row+1)/6;
+              line(x-half*(1-f),y-height-h*.44*(1-f),
+                x+t*.025,y-depth-height-h*.31*(1-f),'#aa7b54',1.2*zoom);
+              line(x+t*.03,y-depth-height-h*.31*(1-f),
+                x+half*f,y-height-h*.04*(1-f),'#8b6545',1.1*zoom);
+            }
+          }
+          // Scaffolding changes height with the actual build stage.
+          const scaffTop=y-height-h*.12;
+          for(const side of [-1,1]){
+            const sx=x+side*half*1.24;
+            line(sx,y+h*.15,sx,scaffTop,'#bd915d',2.3*zoom);
+            line(sx-side*t*.09,y+h*.11,sx,scaffTop,'#947247',1.6*zoom);
+          }
+          line(x-half*1.24,y-height*.47,x+half*1.24,y-height*.47,
+            '#d5ae79',2.1*zoom);
+        }
       }
-      if(stage==='roof'){
-        poly([[rect.x+rect.w*.18,rect.y+rect.h*.56],[rect.x+rect.w*.47,rect.y+rect.h*.36],[rect.x+rect.w*.80,rect.y+rect.h*.54],[rect.x+rect.w*.51,rect.y+rect.h*.69]],roof,'#f1ddbb',1);
+      // Physical deliveries must be visible in the builder's work area.
+      for(let k=0;k<Math.min(5,have);k++){
+        const xx=x-t*.53+t*(k%3)*.09,yy=y+h*(.29+Math.floor(k/3)*.10);
+        line(xx,yy,xx+t*.20,yy-h*.06,'#b88754',Math.max(2,3.6*zoom));
+        line(xx,yy-h*.028,xx+t*.20,yy-h*.087,'#e3bc82',.85*zoom);
       }
-      if(stage==='roof'&&ratio>.94&&sprites[site.type]?.naturalWidth){
-        ctx.save();ctx.globalAlpha=.55+.35*(ratio-.86)/.14;
-        sprite(site.type,rect.p.x,rect.p.y+h*.33,rect.w,rect.h);
-        ctx.restore();
+      for(let k=0;k<Math.min(5,deliveredStone);k++){
+        const xx=x+t*(.35+(k%3)*.075),yy=y+h*(.23+Math.floor(k/3)*.10);
+        poly([[xx-t*.04,yy],[xx,yy-h*.11],[xx+t*.06,yy-h*.05],
+          [xx+t*.07,yy+h*.035]],k%2?'#92938a':'#c1b8a6','#595a53',.7*zoom);
+      }
+      if(materialsReady&&ratio>0){
+        const f=(animationClock*.7+site.id*.13)%1;
+        for(let k=0;k<4;k++){
+          blob(x+t*(.04+k*.11),y-h*(.35+f*.19),t*.01,h*.016,
+            '#dbd0aa',.28*(1-f));
+        }
       }
     }
     if(have>0){const count=Math.min(4,have);
