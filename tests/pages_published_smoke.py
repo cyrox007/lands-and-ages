@@ -61,7 +61,10 @@ with sync_playwright() as pw:
         assert page.evaluate("window.__strategyDebug().groundTextureHeight")==902
         assert page.evaluate("window.__strategyDebug().groundMaterialMode")=="nonperiodic-world-raster"
         paving=page.evaluate('window.__strategyDebug().roadPaving(15,10)')
-        assert paving['stones']>=24 and paving['kind']=='straight',(name,paving)
+        # The published default is a new settlement, not the older mission:
+        # do not hardcode the road topology at a specific coordinate.
+        assert paving['stones']==9+15*paving['mask'].bit_count(),(name,paving)
+        assert paving['kind'] in ('isolated','end','straight','corner','junction','crossroads'),(name,paving)
         assert page.evaluate("window.__strategyDebug().roadSpritesCached")>0
 
         samples=page.evaluate('''() => [500,884,1268].map(x=>window.__strategyDebug().groundSample(x,450))''')
