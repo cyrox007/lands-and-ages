@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="living-world-20261102-v4"
+EXPECTED="ecology-world-20261102-v5"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -50,6 +50,9 @@ with sync_playwright() as pw:
         response=page.goto(URL+"?viewport-check="+name,wait_until="domcontentloaded",timeout=30000)
         try:
             page.wait_for_function("Boolean(window.__strategyDebug)",timeout=20000)
+        assert page.evaluate("window.__strategyDebug().groundTextureWidth")==384
+        assert page.evaluate("window.__strategyDebug().treeArtCount")>0
+        assert page.evaluate("window.__strategyDebug().waterGroupCount")>0
         except Exception:
             print("Live game boot failure",name,
                   "HTTP",response.status if response else None,
