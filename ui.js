@@ -246,20 +246,99 @@
             ['#9d9386','#bdad94','#817d76'][k],null);
           line(p.x+dx-r*.16,p.y+dy-h*.13,p.x+dx-r*.03,p.y+dy-h*.19,'#e1d0b6',.9*zoom);
         }
-      }else if(tile.terrain==='water'){
-        // Overlapping banks connect neighboring water cells organically.
-        blob(p.x,p.y,t*.68,h*.54,'#426b60',.55);
-        blob(p.x,p.y,t*.57,h*.47,'#34839a',.90);
-        blob(p.x-t*.05,p.y-h*.04,t*.39,h*.29,'#68a6a8',.43);
-        for(let k=0;k<3;k++){
-          const sway=Math.sin(animationClock*1.6+k*2+v)*t*.012;
-          line(p.x-t*(.26-k*.10)+sway,p.y+h*(k*.07-.10),
-             p.x+t*(.09+k*.08)+sway,p.y+h*(k*.07-.10)-h*.025,
-             '#c1e0cb',Math.max(.7,1.05*zoom));
+
+      }
+    }
+  }
+  const waterGroupCache=new WeakMap();
+  function waterGroups(){
+    if(waterGroupCache.has(game))return waterGroupCache.get(game);
+    const seen=new Set(),groups=[];
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const start=id(x,y);
+      if(seen.has(start)||game.tiles[start].terrain!=='water')continue;
+      const cells=[],queue=[[x,y]];seen.add(start);
+      for(let k=0;k<queue.length;k++){
+        const [cx,cy]=queue[k];cells.push([cx,cy]);
+        for(const [nx,ny] of [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]]){
+          if(nx<0||ny<0||nx>=W||ny>=H||seen.has(id(nx,ny))||
+            game.tiles[id(nx,ny)].terrain!=='water')continue;
+          seen.add(id(nx,ny));queue.push([nx,ny]);
         }
+      }
+      groups.push(cells);
+    }
+    waterGroupCache.set(game,groups);return groups;
+  }
+  function waterOutline(cells,t,h,spread=1){
+    const candidates=[];
+    for(const [x,y] of cells){
+      const p=screen(x+.5,y+.5);
+      for(let i=0;i<16;i++){
+        const theta=i*Math.PI/8;
+        const irregular=1+.045*Math.sin(theta*3+x*4+y*6);
+        candidates.push({x:p.x+Math.cos(theta)*t*.54*spread*irregular,
+          y:p.y+Math.sin(theta)*h*.57*spread*irregular});
+      }
+    }
+    candidates.sort((a,b)=>a.x-b.x||a.y-b.y);
+    const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+    const hull=[];
+    for(const p of candidates){
+      while(hull.length>=2&&cross(hull[hull.length-2],hull[hull.length-1],p)<=0)hull.pop();
+      hull.push(p);
+    }
+    const n=hull.length;hull.pop();const lower=n-1;
+    for(let k=candidates.length-2;k>=0;k--){
+      const p=candidates[k];
+      while(hull.length>=lower+2&&cross(hull[hull.length-2],hull[hull.length-1],p)<=0)hull.pop();
+      hull.push(p);
+    }
+    hull.pop();return hull;
+  }
+  function waterPath(outline){
+    if(outline.length<3)return;
+    ctx.beginPath();
+    const mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+    const start=mid(outline[outline.length-1],outline[0]);
+    ctx.moveTo(start.x,start.y);
+    for(let i=0;i<outline.length;i++){
+      const p=outline[i],next=outline[(i+1)%outline.length],m=mid(p,next);
+      ctx.quadraticCurveTo(p.x,p.y,m.x,m.y);
+    }
+    ctx.closePath();
+  }
+  function drawWaterBodies(){
+    const t=tileSize(),h=tileHeight();
+    for(const cells of waterGroups()){
+      const outer=waterOutline(cells,t,h,1.20);
+      waterPath(outer);ctx.fillStyle='#846f53';ctx.globalAlpha=.42;ctx.fill();ctx.globalAlpha=1;
+      const outline=waterOutline(cells,t,h,1.04);
+      waterPath(outline);
+      const minY=Math.min(...outline.map(p=>p.y)),maxY=Math.max(...outline.map(p=>p.y));
+      const grad=ctx.createLinearGradient(0,minY,0,maxY);
+      grad.addColorStop(0,'#4d9ca2');grad.addColorStop(.5,'#367f8f');grad.addColorStop(1,'#215d72');
+      ctx.fillStyle=grad;ctx.fill();ctx.strokeStyle='#b2b38a';ctx.lineWidth=Math.max(2,4*zoom);ctx.stroke();
+      ctx.save();waterPath(outline);ctx.clip();
+      for(const [x,y] of cells){
+        const p=screen(x+.5,y+.5),phase=animationClock*1.9+(x*13+y*7);
         for(let k=0;k<3;k++){
-          const dx=t*((k-1)*.38),dy=h*.28;
-          line(p.x+dx,p.y+dy,p.x+dx+t*.035,p.y+dy-h*(.19+.025*k),'#b2ba78',1.1*zoom);
+          const sx=p.x-t*.33+k*t*.17+Math.sin(phase+k)*t*.027;
+          const sy=p.y+h*(k-1)*.20+Math.sin(phase*.7+k)*h*.05;
+          line(sx,sy,sx+t*(.14+.04*(k%2)),sy-h*.036,'#b9e3d6',
+             Math.max(.65,(1.4+.15*k)*zoom));
+        }
+        blob(p.x-t*.12+Math.sin(phase)*t*.025,p.y+h*.04,t*.32,h*.19,'#9ac4b9',.06);
+      }
+      ctx.restore();
+      for(let i=0;i<outline.length;i+=Math.max(3,Math.floor(outline.length/13))){
+        const p=outline[i],v=i+cells.length;
+        if(v%3===0)continue;
+        // Reeds and shoreline stones belong to the shoreline, not a square tile.
+        blob(p.x,p.y+h*.01,t*.045,h*.027,v%4?'#b0a58c':'#5c675b',.9);
+        for(let k=0;k<3;k++){
+          const dx=(k-1)*t*.012,offset=Math.sin(v+k*2)*t*.012;
+          line(p.x+dx,p.y,p.x+dx+offset,p.y-h*(.23+k*.03),'#8da66f',Math.max(.8,1.4*zoom));
         }
       }
     }
@@ -722,7 +801,7 @@
     const margin=tileSize()*2.6;
     const visible=(p)=>p.x>-margin&&p.y>-margin*1.5&&p.x<width+margin&&p.y<height+margin;
     drawGround();
-    ctx.save();clipWorld();landscapePatches();ctx.restore();
+    ctx.save();clipWorld();landscapePatches();drawWaterBodies();ctx.restore();
     for(const field of game.fields||[])if(visible(screen(field.x+.5,field.y+.5)))drawField(field);
     for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(game.roads[id(x,y)]){
       if(visible(screen(x+.5,y+.5)))road(x,y);
