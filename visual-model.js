@@ -22,6 +22,33 @@
     if(bits===2)return mask===(N|S)||mask===(E|W)?'straight':'corner';
     return bits===3?'junction':'crossroads';
   }
+  // Isometric paving layout: every finished road arm meets its neighbour
+  // precisely at the shared half-cell boundary. Stones have no simulation state.
+  function cobblestonePlan(mask){
+    const directions=[[N,0,-1],[E,1,0],[S,0,1],[W,-1,0]];
+    const arms=[];
+    for(const [bit,dx,dy] of directions){
+      if(!(mask&bit))continue;
+      const stones=[];
+      for(let row=0;row<5;row++)for(let col=0;col<3;col++){
+        stones.push({
+          row,col,
+          u0:.14+row*.072,u1:.14+(row+1)*.072,
+          v0:-.22+col*(.44/3),v1:-.22+(col+1)*(.44/3)
+        });
+      }
+      arms.push({bit,dx,dy,stones});
+    }
+    const center=[];
+    for(let row=0;row<3;row++)for(let col=0;col<3;col++){
+      center.push({
+        row,col,
+        x0:-.22+row*(.44/3),x1:-.22+(row+1)*(.44/3),
+        y0:-.22+col*(.44/3),y1:-.22+(col+1)*(.44/3)
+      });
+    }
+    return {arms,center};
+  }
   // Only actual completed construction work determines visual stages.
   function constructionStage(site){
     const need=site.required?.boards||0,have=site.goods?.boards||0;
@@ -68,5 +95,5 @@
     return Boolean(building && connected && ready && Number.isFinite(building.progress) && building.progress>0 &&
       ['logger','quarry','sawmill','farm','mill','bakery'].includes(building.type));
   }
-  return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame,gaitFrame,productionActive,porterAppearance};
+  return {N,E,S,W,roadMask,roadKind,cobblestonePlan,constructionStage,facing,animationFrame,gaitFrame,productionActive,porterAppearance};
 });
