@@ -1,43 +1,63 @@
 {
-  "schema": 1,
+  "schema": 2,
   "building": "mill",
   "name": "Мельница",
-  "coordinateSystem": {
-    "size": [
-      320,
-      320
-    ],
-    "floorAnchor": [
-      160,
-      270
-    ],
-    "rotorPivot": [
-      128,
-      106
-    ]
-  },
   "source": {
-    "concept": "Концепт-лист мельницы из рабочего диалога от 2026-11-02",
-    "status": "Векторная реконструкция по утверждённому концепту; исходный растровый лист сохранён в материалах беседы, не является игровым спрайтом."
+    "kind": "approved-generated-raster-sheets",
+    "date": "2026-11-02",
+    "originals": [
+      {
+        "name": "изометрический_набор_деталей_средневековой_мельниц.png",
+        "sha256": "16ccd81cf1649e92662f9bc07ba0bd634a65afe95dd5bf8e82c870f580ef3bf8"
+      },
+      {
+        "name": "изометрический_спрайт_лист_средневековой_мельницы.png",
+        "sha256": "eee8fa7e2a81679a9b8b499508d8428cf54a09e3d69d23116e2ac24adeec71e1"
+      }
+    ],
+    "processing": "Разрезание, удаление низкоальфа-шумов, сборка отдельного корпуса без статичных лопастей, WebP."
   },
-  "layers": {
-    "foundation": "layers/foundation.svg",
-    "body": "layers/body.svg",
-    "roof": "layers/roof.svg",
-    "rotor": "layers/rotor.svg",
-    "props": "layers/props.svg",
-    "input": "layers/input.svg",
-    "output": "layers/output.svg",
-    "worker": "layers/worker.svg",
-    "stone": "layers/stone.svg",
-    "frame": "layers/frame.svg",
-    "walls": "layers/walls.svg",
-    "damage": "layers/damage.svg",
-    "heavy": "layers/heavy.svg",
-    "ruins": "layers/ruins.svg",
-    "fresh": "layers/fresh.svg",
-    "old": "layers/old.svg",
-    "scaffold": "layers/scaffold.svg"
+  "activeGraphics": {
+    "format": "image/webp",
+    "cell": 176,
+    "atlasWidth": 704,
+    "atlasHeight": 352,
+    "atlases": [
+      "mill-states-start.webp",
+      "mill-states-end.webp",
+      "mill-parts.webp"
+    ],
+    "sprites": [
+      "survey",
+      "frame",
+      "walls",
+      "almost",
+      "finished",
+      "idle",
+      "active",
+      "grain",
+      "flour",
+      "damaged",
+      "fresh_ruins",
+      "old_ruins",
+      "overgrown_ruins",
+      "restoring",
+      "body_assembled",
+      "rotor",
+      "grain_sacks",
+      "flour_sacks",
+      "millstone",
+      "miller",
+      "working_miller",
+      "crates"
+    ],
+    "outdoor": "Корпус и отдельный вращающийся ротор; рабочий и жернова не рисуются снаружи.",
+    "indoor": "Жернова, мельник, входящий и выходящий склад отображаются в панели осмотра."
+  },
+  "legacyVectorLayers": {
+    "status": "не используются игровым рендером; оставлены для истории",
+    "path": "layers/",
+    "count": 17
   },
   "states": {
     "construction": [
