@@ -55,12 +55,16 @@ def mount(page,prior=None,boot="mission"):
     }''')
     page.add_script_tag(content=ui)
 
-def tap_cell(page,x,y,mobile):
+def tap_cell(page,x,y,mobile,confirm=True):
     page.evaluate("document.querySelector('#gameMap').scrollIntoView({block:'start'})")
     p=page.evaluate("([x,y]) => {\n      const r=document.querySelector('#gameMap').getBoundingClientRect();\n      const s=window.__strategyDebug().screen(x,y);\n      return {x:r.left+s.x,y:r.top+s.y};\n    }",[x,y])
     assert p['x']>=0 and p['y']>=0,p
-    if mobile: page.touchscreen.tap(p['x'],p['y'])
-    else:page.mouse.click(p['x'],p['y'])
+    if mobile:
+        page.touchscreen.tap(p['x'],p['y'])
+        if confirm and page.evaluate('window.__strategyDebug().mode') not in ('inspect','excavate'):
+            page.touchscreen.tap(p['x'],p['y'])
+    else:
+        page.mouse.click(p['x'],p['y'])
 
 def check(browser,name,w,h,mobile):
     context=browser.new_context(viewport={'width':w,'height':h},is_mobile=mobile,has_touch=mobile)
@@ -111,7 +115,13 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.6-refined-mill'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.7-placement'
+    assert page.evaluate("window.__strategyDebug().placement('mill',14,9).size")=={'w':2,'h':2}
+    blocked=page.evaluate("window.__strategyDebug().placement('mill',14,9)")
+    assert blocked['ok'] is False
+    assert any('дорог' in (cell['error'] or '') for cell in blocked['cells'])
+    free=page.evaluate("window.__strategyDebug().placement('mill',14,8)")
+    assert len(free['cells'])==4
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
@@ -197,7 +207,13 @@ def check(browser,name,w,h,mobile):
 
     page.locator('#missionTool').click()
     assert page.locator('.game-dock [data-tool="road"]').get_attribute('aria-pressed')=='true'
-    tap_cell(page,17,10,mobile)
+    if mobile:
+        tap_cell(page,17,10,mobile,confirm=False)
+        assert page.evaluate('window.__strategyDebug().sites.length')==0
+        assert page.evaluate('window.__strategyDebug().touchPlacement')=={'x':17,'y':10,'mode':'road'}
+        tap_cell(page,17,10,mobile,confirm=False)
+    else:
+        tap_cell(page,17,10,mobile)
     page.wait_for_function('window.__strategyDebug().sites.length===1')
     assert page.evaluate('window.__strategyDebug().stageAt(17,10)')=='foundation'
     assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
