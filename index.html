@@ -189,6 +189,10 @@ dialog{max-height:85dvh}
       .game-dock button,.header-actions button,.hud-close,.build-categories button,
       .tool,.mission-toggle,.panel-head button{transition:none!important;animation:none!important}
     }
+    /* Allow map taps immediately while a quest panel animates closed. */
+    .mission-card{pointer-events:none!important}
+    .mission-card .mission-toggle{pointer-events:auto!important}
+    .mission-card.expanded .mission-contents{pointer-events:auto!important}
   </style>
   <script defer src="engine.js"></script>
   <script defer src="visual-model.js"></script>
