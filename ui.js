@@ -1,7 +1,7 @@
 /* Strategy 0.4.4 — distance-driven gait, persistent facing and live production effects. */
 (function(){
   'use strict';
-  const E=window.StrategyEngine,V=window.StrategyVisual,M=window.StrategyMillPack;
+  const E=window.StrategyEngine,V=window.StrategyVisual,M=window.StrategyMillPack,Resource=window.StrategyResources;
   if(!E||!V){document.body.textContent='Ошибка: игровые модули не загрузились.';return;}
   const {Game,W,H,DEF,COLORS,id}=E;
   const $=x=>document.getElementById(x);
@@ -51,6 +51,31 @@
       img.onerror=()=>{millDetailed[name]=null;};
       img.src=(window.StrategyMillDetailAssets?.[name])||(M.path+M.detailed[name]);
       millDetailed[name]=img;
+    }
+  }
+  const resourceAtlas=new Image();
+  resourceAtlas.src=window.StrategyResourceAtlas||(Resource?.atlas||'');
+  function drawResourceSprite(resource,count,x,y,size){
+    const part=Resource?.sprite(resource,count);
+    if(!part||!resourceAtlas.naturalWidth)return false;
+    ctx.drawImage(resourceAtlas,part.x,part.y,part.w,part.h,
+      x-size/2,y-size,size,size);
+    return true;
+  }
+  // На стройке лежат только действительно доставленные материалы.
+  // По мере работы строителей материалы встраиваются в здание.
+  function drawConstructionResources(site,p,t,h){
+    if(!Resource)return;
+    const mill=site.type==='mill';
+    const base=p.y+(mill?M.groundLevel(h)+h*.12:h*.34);
+    for(const group of Resource.visibleMaterials(site)){
+      const sign=group.resource==='boards'?-1:1;
+      const count=Math.min(group.visible,4),size=t*(mill?.43:.30);
+      for(let k=0;k<count;k++){
+        const x=p.x+sign*t*(mill?.49:.26)+(k%2)*t*.13*sign;
+        const y=base+Math.floor(k/2)*h*.12;
+        drawResourceSprite(group.resource,1,x,y,size);
+      }
     }
   }
   const WORKER_FRAME_W=96,WORKER_FRAME_H=128;
@@ -855,6 +880,7 @@
     castShadow(pos.x,pos.y+h*.3,t,h,1.60,.28);
     const phase=V.constructionVisualPhase(site);
     millArt(M.constructionSprite(phase),pos,t,h);
+    drawConstructionResources(site,pos,t,h);
     const ready=Object.entries(site.required).every(([k,n])=>(site.goods[k]||0)>=n);
     const progress=Math.floor(site.progress/site.duration*100);
     const label=ready?'⚒ '+progress+'%':
@@ -1046,17 +1072,6 @@
             '#d5ae79',2.1*zoom);
         }
       }
-      // Physical deliveries must be visible in the builder's work area.
-      for(let k=0;k<Math.min(5,have);k++){
-        const xx=x-t*.53+t*(k%3)*.09,yy=y+h*(.29+Math.floor(k/3)*.10);
-        line(xx,yy,xx+t*.20,yy-h*.06,'#b88754',Math.max(2,3.6*zoom));
-        line(xx,yy-h*.028,xx+t*.20,yy-h*.087,'#e3bc82',.85*zoom);
-      }
-      for(let k=0;k<Math.min(5,deliveredStone);k++){
-        const xx=x+t*(.35+(k%3)*.075),yy=y+h*(.23+Math.floor(k/3)*.10);
-        poly([[xx-t*.04,yy],[xx,yy-h*.11],[xx+t*.06,yy-h*.05],
-          [xx+t*.07,yy+h*.035]],k%2?'#92938a':'#c1b8a6','#595a53',.7*zoom);
-      }
       if(materialsReady&&ratio>0){
         const f=(animationClock*.7+site.id*.13)%1;
         for(let k=0;k<4;k++){
@@ -1065,9 +1080,7 @@
         }
       }
     }
-    if(have>0){const count=Math.min(4,have);
-      for(let k=0;k<count;k++)line(pos.x-t*.34,pos.y+h*(.17+k*.035),pos.x-t*.12,pos.y+h*(.06+k*.035),'#e0bd7a',Math.max(2,3*zoom));
-    }
+    drawConstructionResources(site,pos,t,h);
     const label=have<need?`▥ ${have}/${need}`:deliveredStone<requiredStone?`◆ ${deliveredStone}/${requiredStone}`:`⚒ ${Math.floor(ratio*100)}%`;
     ctx.save();ctx.textAlign='center';ctx.font=`bold ${Math.max(10,12.5*zoom)}px sans-serif`;
     ctx.lineWidth=3;ctx.strokeStyle='#29261d';ctx.fillStyle='#fff4cf';
@@ -1090,6 +1103,7 @@
   function drawCargo(cargo,x,y,t,h){
     if(!cargo)return;
     const n=cargo.amount;
+    if(drawResourceSprite(cargo.res,n,x,y+h*.11,t*.46))return;
     ctx.save();ctx.lineCap='round';
     if(cargo.res==='logs'||cargo.res==='boards'){
       for(let i=0;i<Math.min(n,3);i++){
@@ -1577,9 +1591,13 @@
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
     culture:game.culture,diplomacy:game.diplomacy,military:game.military,
     placement:(type,x,y)=>({...game.placement(type,x,y),check:game.canBuild(type,x,y)}),
+    resourcePack:()=>({loaded:resourceAtlas.naturalWidth===1600,
+      count:Resource?Object.keys(Resource.variants).length*2:0,
+      atlasWidth:resourceAtlas.naturalWidth,
+      construction:game.construction.map(site=>({id:site.id,materials:Resource?.visibleMaterials(site)}))}),
     millGroundLayout:(name)=>name==='body'?M.layout(tileSize(),tileHeight()):
       M.stageLayout(name,tileSize(),tileHeight()),
-    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.7-mill-ground-anchor',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.8-resource-sprites',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
