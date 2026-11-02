@@ -6,13 +6,69 @@
   <meta name="theme-color" content="#121e1c">
   <meta name="description" content="Играбельная версия 0.5 оригинальной экономической стратегии с перевозкой товаров по дорогам, производственными цепочками и развитием цивилизации.">
   <title>Земли и эпохи — Поселение 0.5</title>
-  <link rel="stylesheet" href="style.css">
+
+  <meta name="strategy-pages-layout" content="viewport-hud-20261102-v2">
+  <!-- Critical game geometry is embedded deliberately: a cached old style.css
+       must NEVER turn the game back into a scrolling web page. -->
+  <link rel="stylesheet" href="style.css?v=0.5.0-rc.1-viewport-hud">
+  <style id="game-viewport-guard">
+    html,body{width:100%!important;height:100%!important;margin:0!important;overflow:hidden!important;overscroll-behavior:none}
+    .shell{position:fixed!important;inset:0!important;width:100%!important;max-width:none!important;height:100dvh!important;margin:0!important;padding:0!important;overflow:hidden!important;isolation:isolate}
+    .main-grid{position:absolute!important;inset:0!important;display:block!important;pointer-events:none}
+    .map-panel{position:absolute!important;inset:0!important;margin:0!important;border:0!important;border-radius:0!important;overflow:hidden!important;pointer-events:none}
+    .map-container{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;border:0!important;border-radius:0!important;pointer-events:auto}
+    .map-container canvas{display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;touch-action:none}
+    .masthead{position:absolute!important;z-index:18!important;top:0!important;left:0!important;right:0!important;padding:7px 12px!important;background:#14271ff2!important;pointer-events:auto}
+    .top-stats{position:absolute!important;z-index:17!important;top:58px!important;left:12px!important;right:12px!important;display:flex!important;gap:5px!important;margin:0!important;pointer-events:none}
+    .top-stats .stat{flex:0 1 auto!important;min-width:55px!important;padding:5px 10px!important;background:#152a22ed!important}
+    .top-stats .stat>strong{font-size:16px!important}
+    .top-stats .stats-progress{display:none!important}
+    .mission-card{position:absolute!important;z-index:12!important;top:119px!important;left:12px!important;width:min(320px,calc(100vw - 24px))!important;max-height:142px!important;overflow:auto!important;margin:0!important;padding:10px 12px!important;background:#172c25ef!important;pointer-events:auto}
+    .mission-card>strong{font-size:13px!important}
+    .mission-card p{font-size:10px!important}
+    .mission-detail{font-size:9px!important}
+    .panel-head{position:absolute!important;z-index:14!important;top:117px!important;right:12px!important;padding:7px!important;background:#172b25ed!important;border:1px solid #647b61!important;border-radius:8px!important;pointer-events:auto}
+    .panel-head>div:first-child{display:none!important}
+    .map-bottom{position:absolute!important;z-index:14!important;bottom:68px!important;left:12px!important;max-width:min(400px,calc(100vw - 24px))!important;min-height:0!important;padding:5px!important;background:#142820ed!important;border-radius:8px!important;pointer-events:none}
+    .map-bottom .map-arrows{pointer-events:auto}
+    .map-watermark{display:none!important}
+    .shell .sidebar,.shell .stocks,.shell .news,.shell .footer{display:none!important}
+    .shell[data-panel="build"] .sidebar{display:block!important}
+    .shell[data-panel="stocks"] .stocks{display:block!important}
+    .shell[data-panel="news"] .news{display:block!important}
+    .shell[data-panel="settings"] .footer{display:flex!important}
+    .sidebar,.stocks,.news{position:absolute!important;z-index:25!important;right:12px!important;top:171px!important;bottom:69px!important;width:min(350px,calc(100vw - 24px))!important;height:auto!important;max-height:none!important;overflow:auto!important;margin:0!important;background:#172c25f5!important;pointer-events:auto}
+    .bottom-grid{position:static!important;display:block!important}
+    .game-dock{position:absolute!important;z-index:35!important;left:50%!important;bottom:0!important;transform:translateX(-50%)!important;display:flex!important;gap:6px!important;max-width:calc(100vw - 12px)!important;width:max-content!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom))!important;background:#142820f7!important;border:1px solid #617a5e!important;border-bottom:0!important;border-radius:10px 10px 0 0!important}
+    .game-dock button{min-height:38px!important;padding:7px 11px!important;white-space:nowrap}
+    .footer{position:absolute!important;z-index:28!important;right:12px!important;bottom:66px!important;width:min(350px,calc(100vw - 24px))!important;margin:0!important;padding:12px!important;background:#172c25f5!important;border:1px solid #617a5e!important;border-radius:10px!important;pointer-events:auto}
+    .toast{z-index:50!important;bottom:72px!important}
+    @media(max-width:750px){
+      .masthead{min-height:48px!important;padding:5px 7px!important}
+      .brand-emblem,.eyebrow,.version{display:none!important}
+      .brand h1{font-size:12px!important}
+      .header-actions button{padding:6px!important;font-size:9px!important}
+      .top-stats{top:50px!important;left:5px!important;right:5px!important;gap:3px!important}
+      .top-stats .stat{flex:1 1 0!important;min-width:0!important;padding:5px 3px!important;text-align:center}
+      .top-stats .stat>span{font-size:7px!important}
+      .top-stats .stat>strong{font-size:13px!important}
+      .mission-card{top:100px!important;left:6px!important;max-height:120px!important;width:min(260px,calc(100vw - 12px))!important}
+      .panel-head{top:230px!important;right:6px!important;padding:5px!important}
+      .map-bottom{left:6px!important;bottom:63px!important;max-width:calc(100vw - 12px)!important}
+      .map-bottom #mapHint{font-size:9px!important}
+      .sidebar,.stocks,.news{right:6px!important;top:230px!important;bottom:66px!important;width:min(330px,calc(100vw - 12px))!important}
+      .game-dock{left:0!important;right:0!important;transform:none!important;max-width:none!important;width:100%!important;border-radius:0!important;padding:5px 5px calc(5px + env(safe-area-inset-bottom))!important;gap:3px!important}
+      .game-dock button{flex:1 1 0!important;min-width:0!important;min-height:42px!important;padding:5px 2px!important;font-size:10px!important}
+      .footer{right:6px!important;bottom:61px!important}
+    }
+    @media(max-height:500px){.mission-card{top:92px!important;max-height:70px!important}.panel-head{top:96px!important}.sidebar,.stocks,.news{top:145px!important}.map-bottom #mapHint{display:none!important}}
+  </style>
   <script defer src="engine.js"></script>
   <script defer src="visual-model.js"></script>
-  <script defer src="ui.js"></script>
+  <script defer src="ui.js?v=0.5.0-rc.1-viewport-hud"></script>
 </head>
 <body>
-  <div class="shell" data-panel="none">
+  <div class="shell" data-panel="none" data-layout="viewport-hud-v2">
     <header class="masthead">
       <div class="brand"><span class="brand-emblem" aria-hidden="true">✥</span><div><div class="eyebrow">ИГРОВАЯ МАСТЕРСКАЯ · ИГРА 0.5 · ПОСЕЛЕНИЕ</div><h1>ЗЕМЛИ И ЭПОХИ <span class="version">/ рабочее название</span></h1></div></div>
       <div class="header-actions"><button id="pauseBtn" title="Пауза" type="button">Ⅱ ПАУЗА</button><button id="speedBtn" title="Скорость симуляции" type="button">×1</button><button id="saveBtn" title="Сохранить игру" type="button">▣ СОХРАНИТЬ</button></div>
