@@ -50,14 +50,19 @@
       paintedPeople.naturalHeight===PAINTED_H;
   }
   const PaintedMotion=window.StrategyPaintedMotion;
+  const Profession=window.StrategyProfessionActions;
   const paintedCounters={idle:0,walk:0,work:0,carry:0};
-  function paintedSprite(role,x,y,size,seed=0,state='idle',frame=0,direction='se'){
-    const visualRole=PaintedMotion?.characterRole(role)||role;
+  const professionCounters={};
+  function paintedSprite(role,x,y,size,seed=0,state='idle',frame=0,direction='se',action=''){
+    const visualRole=Profession?.artRole(role)||PaintedMotion?.characterRole(role)||role;
     const index=PAINTED_ROLES.indexOf(visualRole);
     if(index<0||!paintedReady()||!PaintedMotion)return false;
     const ok=PaintedMotion.draw(ctx,paintedPeople,index,state,frame,
-      direction,x,y,size,seed);
-    if(ok)paintedCounters[state]++;
+      direction,x,y,size,seed,action);
+    if(ok){
+      paintedCounters[state]++;
+      if(action)professionCounters[action]=(professionCounters[action]||0)+1;
+    }
     return ok;
   }
   const paintedPortraits=new Map();
@@ -212,26 +217,28 @@
         Boolean(entity.job)&&face.moving);
     const working=agent?entity.phase==='work':
       role==='builder'&&entity.phase==='work'&&entity.site!==null;
-    const action=role==='porter'&&entity.carrying?'carry':working?'work':moving?'walk':'idle';
+    const site=role==='builder'?game.construction.find(s=>s.id===entity.site):null;
+    const progress=site?site.progress/Math.max(1,site.duration):0;
+    const activity=Profession?.resolve(role,{phase:entity.phase,carrying:entity.carrying,
+      job:entity.job,moving,progress});
+    const state=activity?.state||(working?'work':moving?'walk':'idle');
     const fallback=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
       V.porterAppearance(entity.carrying).bodySheet;
-    const state=working?'work':moving?'walk':'idle';
     const seed=entity.id||entity.buildingId||0;
-    const frame=state==='walk'?V.gaitFrame(previous?.distance??0):
+    const frame=state==='walk'||state==='carry'?V.gaitFrame(previous?.distance??0):
       state==='idle'?Math.floor(animationClock*1.7+seed*1.91)%8:
       V.animationFrame(state,animationClock,seed);
     const direction=face?.moving?face.direction:(previous?.direction||'se');
-    return {sheet:fallback,art:illustratedSheet(role,action),
-      state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
+    return {sheet:fallback,art:illustratedSheet(role,state),
+      activity:activity?.id||state,state,frame,row:facingRow[direction]??0,
+      direction,travelled:previous?.distance||0};
   }
   function workerSprite(entity,role,px,py,size){
     const pose=workerState(entity,role);
     // Рендер на основе утверждённой графики работает при ходьбе и производстве.
     // Никаких дополнительных мешков в теле носильщика нет.
-    const paintedState=pose.state==='walk'&&role==='porter'&&entity.carrying?
-      'carry':pose.state;
     if(paintedSprite(role,px,py,size,entity.id||entity.buildingId||0,
-      paintedState,pose.frame,pose.direction))return true;
+      pose.state,pose.frame,pose.direction,pose.activity))return true;
     const img=pose.art||(role==='porter'||role==='builder'?workerSheets[pose.sheet]:null);
     if(!img?.naturalWidth)return false;
     // Character feet stay locked to the simulation tile; only drawn limbs change.
@@ -1091,7 +1098,11 @@
     if(active&&!['logger','quarry','farm','mill'].includes(b.type))drawProductionEffect(b,p,t,h);
     if(game.scenario==='settlement'&&(game.staff[b.id]||0)>0&&!['logger','quarry','farm','mill'].includes(b.type)){
       const pos=screen(b.x+.91,b.y+.79);
-      drawCitizen(pos.x,pos.y+h*.06,t,active,b.type);
+      const activity=Profession?.resolve(b.type,{active,staffed:true});
+      const frame=Math.floor(animationClock*8.5+b.id*1.3)%8;
+      if(!activity||!paintedSprite(b.type,pos.x,pos.y+h*.06,t*.36,b.id,
+        activity.state,frame,'se',activity.id))
+        drawCitizen(pos.x,pos.y+h*.06,t,active,b.type);
     }
     if(!connected){
       ctx.textAlign='center';ctx.font=`bold ${Math.max(14,t*.28)}px sans-serif`;
@@ -1809,5 +1820,9 @@
     spritesReady,workerSheetsReady,animationClock,villagers:()=>villagerPositions(),villagerRoles,
     paintedRoles:PAINTED_ROLES,paintedReady:()=>paintedReady(),
     paintedCounts:()=>({...paintedCounters}),
-    paintedSize:()=>({width:paintedPeople.naturalWidth,height:paintedPeople.naturalHeight}),productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
+    paintedSize:()=>({width:paintedPeople.naturalWidth,height:paintedPeople.naturalHeight}),
+    professionPacks:Profession?.PACKS||{},
+    professionCounts:()=>({...professionCounters}),
+    professionAction:(role,context)=>Profession?.resolve(role,context),
+    productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();
