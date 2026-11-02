@@ -387,6 +387,39 @@ with sync_playwright() as pw:
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
+        # Проверяем настоящие отдельные изображения кадров по всем пяти профессиям.
+        sheet_pixels=page.evaluate("""async () => {
+          const Frames=window.StrategyProfessionFrames;
+          const image=new Image();image.src=window.StrategyPaintedPeople;
+          await image.decode();
+          const examples=[
+            ['porter','carry'],['builder','assemble_frame'],
+            ['logger','fell_tree'],['quarry','mine_stone'],
+            ['farmer','harvest_crop']
+          ];
+          return examples.map(([role,action])=>{
+            const sheet=Frames.create(image,role,action);
+            const g=sheet.getContext('2d',{willReadFrequently:true});
+            const frame=(row,col)=>g.getImageData(col*96,row*144,96,144).data;
+            const pixels=(a,b)=>{
+              let different=0;
+              for(let k=0;k<a.length;k+=4)
+                if(a[k]!==b[k]||a[k+1]!==b[k+1]||
+                   a[k+2]!==b[k+2]||a[k+3]!==b[k+3])different++;
+              return different;
+            };
+            const a=frame(0,0),b=frame(0,2),back=frame(2,0);
+            const centre=g.getImageData(0*96+48,0*144+30,1,1).data[3];
+            return {role,action,width:sheet.width,height:sheet.height,
+              different:pixels(a,b),differentBack:pixels(a,back),alpha:centre};
+          });
+        }""")
+        assert len(sheet_pixels)==5,(name,sheet_pixels)
+        for item in sheet_pixels:
+            assert item['width']==768 and item['height']==576,(name,item)
+            assert item['different']>80,(name,item)
+            assert item['differentBack']>150,(name,item)
+            assert item['alpha']>0,(name,item)
         # Реестр профессий доступен игре, а состояния выбираются по данным движка.
         catalogue=page.evaluate("""() => {
           const d=window.__strategyDebug();
