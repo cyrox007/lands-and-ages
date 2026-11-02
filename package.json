@@ -1,6 +1,6 @@
 {
   "name": "lands-and-ages-prototype",
-  "version": "0.5.2-rc.1",
+  "version": "0.5.2-rc.2",
   "private": true,
   "description": "Playable settlement: assigned workers, physical logistics, forest lifecycle, seamless terrain, lakes, pause-safe construction and fullscreen HUD",
   "scripts": {
