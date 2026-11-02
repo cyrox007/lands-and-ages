@@ -89,6 +89,23 @@
       }
     }
   }
+  const Art=window.StrategyWorkerArt;
+  const illustratedSheets=new Map();
+  function illustratedSheet(role,action){
+    if(!Art||!Art.roles.includes(role))return null;
+    const key=role+':'+action;
+    if(!illustratedSheets.has(key)){
+      const img=new Image();
+      illustratedSheets.set(key,img);
+      const url=URL.createObjectURL(new Blob([Art.atlas(role,action)],
+        {type:'image/svg+xml'}));
+      img.onload=()=>URL.revokeObjectURL(url);
+      img.onerror=()=>{illustratedSheets.set(key,null);URL.revokeObjectURL(url);};
+      img.src=url;
+    }
+    const img=illustratedSheets.get(key);
+    return img?.naturalWidth===Art.WIDTH*Art.FRAMES?img:null;
+  }
   const WORKER_FRAME_W=96,WORKER_FRAME_H=128;
   const WORKER_SHEETS=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
   const workerSheets={};let workerSheetsReady=0;
@@ -102,21 +119,48 @@
   let animationClock=0;
   // Transient rendering data, derived from real simulated displacement. Never saved.
   const motion=new Map();
+  function trackMotion(key,x,y,walking,direction,working=false){
+    const prior=motion.get(key)||{x,y,distance:0,workTime:0,direction:direction||'se'};
+    const dx=x-prior.x,dy=y-prior.y;
+    const travelled=Math.hypot(dx,dy);
+    const valid=travelled>.0001&&travelled<1.51;
+    prior.moving=Boolean(walking&&valid);
+    if(prior.moving){
+      prior.distance+=travelled;
+      prior.direction=direction||prior.direction;
+    }
+    if(working)prior.workTime=animationClock;
+    prior.x=x;prior.y=y;
+    motion.set(key,prior);
+  }
+  function movementDirection(dx,dy){
+    const sx=dx-dy,sy=dx+dy;
+    return (sy<0?'n':'s')+(sx<0?'w':'e');
+  }
   function updateMotion(){
     const active=new Set();
-    for(const [role,people] of [['porter',game.carriers],['builder',game.builders]])for(const e of people){
-      const key=role+':'+e.id;active.add(key);
-      const prior=motion.get(key)||{x:e.x,y:e.y,distance:0,workTime:0,direction:'se'};
-      const distance=Math.hypot(e.x-prior.x,e.y-prior.y);
-      const facing=V.facing(e);
-      const moving=(role==='porter'?Boolean(e.job):e.phase==='travel')&&facing.moving;
-      if(moving&&distance>0&&distance<1.51){
-        prior.distance+=distance;
-        prior.direction=facing.direction;
-      }else if(facing.moving){prior.direction=facing.direction;}
-      if(role==='builder'&&e.phase==='work'&&e.site!==null)prior.workTime=animationClock;
-      prior.x=e.x;prior.y=e.y;
-      motion.set(key,prior);
+    for(const [role,people] of [['porter',game.carriers],['builder',game.builders]])
+      for(const e of people){
+        const key=role+':'+e.id;
+        active.add(key);
+        const face=V.facing(e);
+        const walking=role==='porter'?Boolean(e.job)&&face.moving:
+          e.phase==='travel'&&face.moving;
+        trackMotion(key,e.x,e.y,walking,face.moving?face.direction:null,
+          role==='builder'&&e.phase==='work'&&e.site!==null);
+      }
+    // Добытчики перемещаются без массива path: направление вычисляется по смещению.
+    for(const a of game.workAgents||[]){
+      const building=game.buildings.find(b=>b.id===a.buildingId);
+      if(!building)continue;
+      const role=building.type==='farm'?'farmer':building.type;
+      const key=role+':'+a.buildingId;
+      active.add(key);
+      const prior=motion.get(key);
+      const dx=prior?a.x-prior.x:0,dy=prior?a.y-prior.y:0;
+      const walking=['arrive','out','return'].includes(a.phase);
+      const facing=Math.hypot(dx,dy)>.0001?movementDirection(dx,dy):null;
+      trackMotion(key,a.x,a.y,walking,facing,a.phase==='work');
     }
     for(const key of motion.keys())if(!active.has(key))motion.delete(key);
   }
@@ -124,22 +168,26 @@
 
   const facingRow={se:0,sw:1,ne:2,nw:3};
   function workerState(entity,role){
-    const face=V.facing(entity);
-    const moving=role==='builder'?entity.phase==='travel'&&face.moving:!!entity.job&&face.moving;
-    const working=role==='builder'&&entity.phase==='work'&&entity.site!==null;
-    const sheet=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
+    const agent=role!=='porter'&&role!=='builder';
+    const face=agent?null:V.facing(entity);
+    const previous=motion.get(role+':'+(agent?entity.buildingId:entity.id));
+    const moving=agent?Boolean(previous?.moving):
+      (role==='builder'?entity.phase==='travel'&&face.moving:
+        Boolean(entity.job)&&face.moving);
+    const working=agent?entity.phase==='work':
+      role==='builder'&&entity.phase==='work'&&entity.site!==null;
+    const action=role==='porter'&&entity.carrying?'carry':working?'work':'walk';
+    const fallback=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
       V.porterAppearance(entity.carrying).bodySheet;
     const state=working?'work':moving?'walk':'idle';
-    const previous=motion.get(role+':'+entity.id);
-    // One 8-pose walking cycle per 0.68 grid cells, matching stride to distance.
-    // A worker can no longer march in place or glide with a wall-clock animation.
     const frame=state==='walk'?V.gaitFrame(previous?.distance??0):
-      V.animationFrame(state,animationClock,entity.id);
-    const direction=face.moving?face.direction:(previous?.direction||'se');
-    return {sheet,state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
+      V.animationFrame(state,animationClock,entity.id||entity.buildingId||0);
+    const direction=face?.moving?face.direction:(previous?.direction||'se');
+    return {sheet:fallback,art:illustratedSheet(role,action),
+      state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
   }
   function workerSprite(entity,role,px,py,size){
-    const pose=workerState(entity,role),img=workerSheets[pose.sheet];
+    const pose=workerState(entity,role),img=pose.art||workerSheets[pose.sheet];
     if(!img?.naturalWidth)return false;
     // Character feet stay locked to the simulation tile; only drawn limbs change.
     ctx.drawImage(img,pose.frame*WORKER_FRAME_W,pose.row*WORKER_FRAME_H,
@@ -1164,10 +1212,14 @@
     const b=game.buildings.find(v=>v.id===a.buildingId);if(!b)return;
     const p=screen(a.x,a.y),t=tileSize(),h=tileHeight();
     castShadow(p.x,p.y+h*.20,t,h,.3,.19);
-    const moving=a.phase==='arrive'||a.phase==='out'||a.phase==='return';
-    drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
+    const role=b.type==='farm'?'farmer':b.type;
+    const animated=workerSprite(a,role,p.x,p.y+h*.19,t*.44);
+    if(!animated){
+      const moving=['arrive','out','return'].includes(a.phase);
+      drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
+    }
     if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
-    if(a.phase==='work'){
+    if(!animated&&a.phase==='work'){
       const wave=Math.sin(animationClock*9+a.buildingId);
       if(b.type==='logger'){
         line(p.x+t*.045,p.y-h*.11,p.x+t*(.17+.06*wave),p.y-h*(.40+.05*wave),'#94673b',2.5*zoom);
