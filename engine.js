@@ -52,6 +52,8 @@
         if(edge&&r<.55)terrain='forest';
         if(y>=7&&y<=12&&x>=3&&x<=20)terrain='grass';
         if(y===6&&x>=6&&x<=9)terrain='forest';
+        if(y===7&&(x===11||x===12))terrain='forest';
+        if(x===16&&y===9)terrain='hills';
         if(x===21&&y>=3&&y<=6)terrain='hills';
         if((x===22&&y===4)||(x===2&&y===14))terrain='ruin';
         this.tiles.push({terrain,wood:terrain==='forest'?40:0,stone:terrain==='hills'?55:0});
@@ -192,7 +194,13 @@
     connected(building){return Boolean(this.route(this.entrance(this.warehouse()),this.entrance(building)));}
     canBuild(type,x,y){
       if(!inside(x,y))return {ok:false,error:'За пределами карты'};
-      if(type==='field')return this.scenario==='settlement'?{ok:true}:{ok:false,error:'Поля недоступны'};
+      if(type==='field'){
+        if(this.scenario!=='settlement')return {ok:false,error:'Поля недоступны'};
+        if(!inside(x,y)||this.tiles[id(x,y)].terrain!=='grass'||this.roads[id(x,y)]||
+          this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return {ok:false,error:'Нужен свободный луг'};
+        if(!this.nearbyFarm(x,y))return {ok:false,error:'Нужна ферма рядом'};
+        return this.coins>=4?{ok:true}:{ok:false,error:'Не хватает монет'};
+      }
       if(type==='road'){
         if(this.roads[id(x,y)])return {ok:false,error:'Дорога уже проложена'};
         if(this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return {ok:false,error:'Клетка уже занята'};
@@ -497,6 +505,12 @@
       try{
         if(typeof raw!=='string'||raw.length>300000)return null;
         const s=JSON.parse(raw);
+        // v1/v2 persisted before stone was introduced; migrate on load.
+        if(s&&[1,2].includes(s.version)&&Array.isArray(s.buildings)&&Array.isArray(s.tiles)){
+          for(const b of s.buildings)if(b.goods&&b.goods.stone===undefined)b.goods.stone=0;
+          for(const c of s.construction||[])if(c.goods&&c.goods.stone===undefined)c.goods.stone=0;
+          for(const t of s.tiles)if(t.stone===undefined)t.stone=t.terrain==='hills'?55:0;
+        }
         if(![1,2,3].includes(s.version)||!Array.isArray(s.tiles)||s.tiles.length!==W*H||
           !Array.isArray(s.roads)||s.roads.length!==W*H||!Array.isArray(s.buildings)||
           !s.buildings.length||s.buildings.length>W*H||!Array.isArray(s.carriers)||(s.version===3?(s.carriers.length<1||s.carriers.length>6):s.carriers.length!==3)||
