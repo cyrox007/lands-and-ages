@@ -180,6 +180,7 @@ def test_complete_campaign(browser,mobile=False):
     assert page.evaluate('window.__strategyDebug().mission.stage')==2
     page.evaluate('window.__strategyDebug().step(45)')
     page.wait_for_function('window.__strategyDebug().mission.stage===3')
+    page.locator('#missionToggle').click()
     page.locator('#missionChoices button').first.click()
     page.locator('#missionTool').click()
     tap_cell(page,12,11,mobile)
