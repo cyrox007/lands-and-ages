@@ -862,10 +862,16 @@
     const preview=document.createElement('canvas');preview.width=318;preview.height=112;
     preview.setAttribute('aria-label','Мельник, жернова, входящий и выходящий склад');
     const g=preview.getContext('2d');g.fillStyle='#243a31';g.fillRect(0,0,318,112);
-    paintMillSprite(g,'grain_sacks',45,49,88,.52+Math.min(1,info.input.grain/12)*.48);
-    paintMillSprite(g,'millstone',150,50,96,1);
-    paintMillSprite(g,info.working?'working_miller':'miller',215,48,100,1);
-    paintMillSprite(g,'flour_sacks',274,61,83,.52+Math.min(1,info.output.flour/12)*.48);
+    if(info.input.grain>0)
+      paintMillSprite(g,'grain_sacks',45,49,88,.52+Math.min(1,info.input.grain/12)*.48);
+    if(info.working)
+      paintMillSprite(g,'working_miller',171,54,133,1);
+    else{
+      paintMillSprite(g,'millstone',151,52,96,1);
+      if(info.worker)paintMillSprite(g,'miller',220,49,93,1);
+    }
+    if(info.output.flour>0)
+      paintMillSprite(g,'flour_sacks',274,61,83,.52+Math.min(1,info.output.flour/12)*.48);
     wrapper.append(heading,preview,counts);$('tileInfo').append(wrapper);
   }
   function drawBuilding(b){
