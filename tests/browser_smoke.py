@@ -47,6 +47,9 @@ def mount(page,prior=None,boot="mission"):
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
+    page.evaluate('(uri) => { window.StrategyPaintedPeople=uri; }',
+        'data:image/webp;base64,'+base64.b64encode(
+          (root/'assets/characters/painted-people.webp').read_bytes()).decode('ascii'))
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
     page.evaluate('(assets) => { window.StrategyMillAtlases=assets; }',mill_assets)
     page.evaluate('(assets) => { window.StrategyMillDetailAssets=assets; }',detail_assets)
@@ -54,9 +57,12 @@ def mount(page,prior=None,boot="mission"):
     page.evaluate('''() => {
       const draw=CanvasRenderingContext2D.prototype.drawImage;
       window.__obsoleteMillDrawCount=0;
+      window.__paintedDrawCount=0;
       CanvasRenderingContext2D.prototype.drawImage=function(image,...args){
         if(this.canvas?.id==='gameMap' && image instanceof HTMLImageElement && image.src===window.StrategyAssets?.mill)
           window.__obsoleteMillDrawCount++;
+        if(this.canvas?.id==='gameMap' && image instanceof HTMLImageElement && image.src===window.StrategyPaintedPeople)
+          window.__paintedDrawCount++;
         return draw.call(this,image,...args);
       };
     }''')
@@ -371,6 +377,12 @@ with sync_playwright() as pw:
         residents=page.evaluate('window.__strategyDebug().villagers()')
         assert len(residents)==4,(name,residents)
         assert len(set(r['variant'] for r in residents))==4
+        page.wait_for_function('window.__strategyDebug().paintedReady()',timeout=20000)
+        size=page.evaluate('window.__strategyDebug().paintedSize()')
+        assert size=={'width':1056,'height':144},(name,size)
+        assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
+        page.wait_for_function('window.__paintedDrawCount>=4',timeout=20000)
+        assert all(r['variant'].startswith('villager-') for r in residents)
         assert all(r['y']>=10.5 for r in residents),(name,residents)
         assert all(not(10<=r['x']<12 and 8<=r['y']<10) for r in residents)
         page.wait_for_function("""() => {
