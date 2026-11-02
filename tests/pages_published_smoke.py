@@ -5,10 +5,14 @@ because the static-site deployment may lag behind the Git commit.
 """
 import time
 import os
+import re
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="resource-atlas-20261102-v16"
+# Версию берём из собранной страницы, а не оставляем устаревший маркер в тесте.
+html=(Path(__file__).resolve().parents[1]/"index.html").read_text("utf8")
+EXPECTED=re.search(r'<meta name="strategy-pages-layout" content="([^"]+)"',html).group(1)
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
