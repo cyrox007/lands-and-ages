@@ -50,9 +50,6 @@ with sync_playwright() as pw:
         response=page.goto(URL+"?viewport-check="+name,wait_until="domcontentloaded",timeout=30000)
         try:
             page.wait_for_function("Boolean(window.__strategyDebug)",timeout=20000)
-        assert page.evaluate("window.__strategyDebug().groundTextureWidth")==384
-        assert page.evaluate("window.__strategyDebug().treeArtCount")>0
-        assert page.evaluate("window.__strategyDebug().waterGroupCount")>0
         except Exception:
             print("Live game boot failure",name,
                   "HTTP",response.status if response else None,
@@ -60,6 +57,9 @@ with sync_playwright() as pw:
                   "scripts",page.eval_on_selector_all('script[src]','els=>els.map(el=>el.src)'),
                   "body",page.locator('body').inner_text()[:350],flush=True)
             raise
+        assert page.evaluate("window.__strategyDebug().groundTextureWidth")==384
+        assert page.evaluate("window.__strategyDebug().treeArtCount")>0
+        assert page.evaluate("window.__strategyDebug().waterGroupCount")>0
         metrics=page.evaluate("""() => {
           const c=document.querySelector('#gameMap').getBoundingClientRect();
           const shell=document.querySelector('.shell');
