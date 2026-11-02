@@ -37,14 +37,13 @@
   }
   // Four atlas sheets contain 8 independently drawn poses x 4 directions.
   // Loaded separately to keep the eight legacy buildings and their selection masks intact.
-  // Каждый слой мельницы — самостоятельный прозрачный игровой SVG.
-  const millSprites={},millAngles=new Map();
-  if(M)for(const [key,file] of Object.entries(M.layers)){
+  // Подлинные растровые слои из утверждённых спрайт-листов.
+  const millAtlases={},millAngles=new Map();
+  if(M)for(const [name,file] of Object.entries(M.atlases)){
     const img=new Image();
-    img.onload=()=>{};
-    img.onerror=()=>{millSprites[key]=null;};
-    img.src=(window.StrategyMillAssets?.[key])||(M.path+file);
-    millSprites[key]=img;
+    img.onerror=()=>{millAtlases[name]=null;};
+    img.src=(window.StrategyMillAtlases?.[name])||(M.path+file);
+    millAtlases[name]=img;
   }
   const WORKER_FRAME_W=96,WORKER_FRAME_H=128;
   const WORKER_SHEETS=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
@@ -786,70 +785,88 @@
     line(x-t*.04,y-t*.16,x-t*.065+sway,y-t*.09,'#d5ac84',Math.max(.8,1.3*zoom));
     line(x+t*.04,y-t*.16,x+t*.07-sway,y-t*(active?.12:.10),'#d5ac84',Math.max(.8,1.3*zoom));
   }
-  function millLayer(name,p,t,h,opacity=1){
-    const img=millSprites[name];
-    if(!img?.complete||!img.naturalWidth)return false;
-    const size=t*2.36,top=p.y+h*.24-size*(270/320);
-    ctx.save();ctx.globalAlpha=opacity;
-    ctx.drawImage(img,p.x-size*.5,top,size,size);
-    ctx.restore();
-    return true;
+  function paintMillSprite(target,name,x,y,size,opacity=1){
+    const rect=M?.sprites[name],img=rect&&millAtlases[rect.atlas];
+    if(!img?.naturalWidth)return false;
+    target.save();target.globalAlpha=opacity;
+    target.drawImage(img,rect.x,rect.y,rect.w,rect.h,
+      x-size/2,y-size/2,size,size);
+    target.restore();return true;
+  }
+  function millArt(name,p,t,h){
+    const size=t*2.08;
+    return paintMillSprite(ctx,name,p.x,p.y+h*.12-size*.36,size);
   }
   function drawMillRotor(b,p,t,h,working){
-    const img=millSprites.rotor;if(!img?.naturalWidth)return;
-    const size=t*2.36,top=p.y+h*.24-size*(270/320);
-    const cx=p.x+size*(128/320-.5),cy=top+size*106/320;
-    const now=animationClock,prior=millAngles.get(b.id)||{angle:0,clock:now};
-    if(working)prior.angle+=Math.min(.1,Math.max(0,now-prior.clock))*2.1;
-    prior.clock=now;millAngles.set(b.id,prior);
-    const bladeSize=size*(180/320);
-    ctx.save();ctx.translate(cx,cy);ctx.rotate(prior.angle);
-    ctx.drawImage(img,-bladeSize/2,-bladeSize/2,bladeSize,bladeSize);
+    const region=M?.sprites.rotor,img=region&&millAtlases[region.atlas];
+    if(!img?.naturalWidth)return;
+    const size=t*2.08,cy=p.y+h*.12-size*.36;
+    const anchor=M.rotorPivot,now=animationClock;
+    const state=millAngles.get(b.id)||{angle:0,clock:now};
+    if(working)state.angle+=Math.min(.1,Math.max(0,now-state.clock))*2.1;
+    state.clock=now;millAngles.set(b.id,state);
+    const rotorSize=size*anchor.size;
+    ctx.save();
+    ctx.translate(p.x+size*anchor.x,cy+size*(anchor.y-.5));
+    ctx.rotate(state.angle);
+    ctx.drawImage(img,region.x,region.y,region.w,region.h,
+      -rotorSize/2,-rotorSize/2+rotorSize*anchor.hubOffsetY,
+      rotorSize,rotorSize);
     ctx.restore();
   }
   function drawMillBuilding(b,p,t,h){
-    if(!M||!millSprites.body?.naturalWidth||!millSprites.roof?.naturalWidth){
-      diamond(p.x,p.y,.70,'#907c61','#e3c69d');
-      return false;
-    }
+    if(!M||!millAtlases.parts?.naturalWidth)return false;
     const state=game.millState(b),interior=game.millInterior(b);
     if(state.phase==='restoring'){
-      const phase=state.repairProgress<.2?'foundation':
-        state.repairProgress<.5?'frame':state.repairProgress<.8?'walls':'roof';
-      for(const name of M.constructionLayers(phase))millLayer(name,p,t,h);
-      return true;
+      const phase=state.repairProgress<.20?'survey':
+        state.repairProgress<.48?'frame':
+        state.repairProgress<.79?'walls':'restoring';
+      return millArt(phase,p,t,h);
     }
-    if(['fresh_ruins','old_ruins','overgrown_ruins'].includes(state.phase)){
-      for(const name of M.stateLayers(state.phase))millLayer(name,p,t,h);
-      return true;
-    }
-    for(const name of M.stateLayers(state.phase))millLayer(name,p,t,h);
-    if(interior.input.grain>0)millLayer('input',p,t,h,Math.min(1,.45+interior.input.grain*.09));
-    if(interior.output.flour>0)millLayer('output',p,t,h,Math.min(1,.45+interior.output.flour*.09));
-    if(interior.working){
-      millLayer('stone',p,t,h);
-      const shift=Math.sin(animationClock*6+b.id)*h*.022;
-      const avatar=millSprites.worker;
-      if(avatar?.naturalWidth){
-        const size=t*2.36,top=p.y+h*.24-size*(270/320);
-        ctx.drawImage(avatar,p.x-size*.5,top+shift,size,size);
-      }
-    }
-    if(state.phase==='damaged')millLayer('damage',p,t,h);
-    if(state.integrity<40)millLayer('heavy',p,t,h);
+    if(['fresh_ruins','old_ruins','overgrown_ruins'].includes(state.phase))
+      return millArt(M.stateSprite(state.phase),p,t,h);
+    if(state.phase==='damaged')return millArt('damaged',p,t,h);
+    millArt('body_assembled',p,t,h);
     drawMillRotor(b,p,t,h,interior.working);
+    if(interior.working){
+      const f=(animationClock*.34+b.id*.21)%1;
+      blob(p.x+t*.18+f*t*.12,p.y-h*(.86+f*.18),
+        t*.045,h*.048,'#d8cbb8',.12*(1-f));
+    }
     return true;
   }
   function drawMillConstruction(site,pos,t,h){
     const phase=V.constructionVisualPhase(site);
-    for(const name of M.constructionLayers(phase))millLayer(name,pos,t,h);
+    millArt(M.constructionSprite(phase),pos,t,h);
     const ready=Object.entries(site.required).every(([k,n])=>(site.goods[k]||0)>=n);
     const progress=Math.floor(site.progress/site.duration*100);
-    const text=ready?'⚒ '+progress+'%':'▥ '+(site.goods.boards||0)+'/'+site.required.boards+' ◆ '+(site.goods.stone||0)+'/'+site.required.stone;
-    ctx.save();ctx.textAlign='center';ctx.font='bold '+Math.max(10,12*zoom)+'px sans-serif';
+    const label=ready?'⚒ '+progress+'%':
+      '▥ '+(site.goods.boards||0)+'/'+site.required.boards+
+      ' ◆ '+(site.goods.stone||0)+'/'+site.required.stone;
+    ctx.save();ctx.textAlign='center';
+    ctx.font='bold '+Math.max(10,12*zoom)+'px sans-serif';
     ctx.lineWidth=3;ctx.strokeStyle='#302a20';ctx.fillStyle='#fff0d0';
-    const yy=pos.y-h*2.72;ctx.strokeText(text,pos.x,yy);ctx.fillText(text,pos.x,yy);
+    const y=pos.y-h*2.72;ctx.strokeText(label,pos.x,y);ctx.fillText(label,pos.x,y);
     ctx.restore();
+  }
+  function showMillInterior(building){
+    if(!M)return;
+    const info=game.millInterior(building);
+    if(!info)return;
+    const wrapper=document.createElement('div');wrapper.className='mill-interior';
+    const heading=document.createElement('strong');heading.textContent='Внутренняя мастерская';
+    const counts=document.createElement('span');
+    counts.textContent='Зерно: '+info.input.grain+' · Мука: '+info.output.flour+
+      ' · Мельник: '+(info.worker?'назначен':'не назначен')+
+      ' · '+(info.working?'Идёт помол':'Производство простаивает');
+    const preview=document.createElement('canvas');preview.width=318;preview.height=112;
+    preview.setAttribute('aria-label','Мельник, жернова, входящий и выходящий склад');
+    const g=preview.getContext('2d');g.fillStyle='#243a31';g.fillRect(0,0,318,112);
+    paintMillSprite(g,'grain_sacks',45,49,88,.52+Math.min(1,info.input.grain/12)*.48);
+    paintMillSprite(g,'millstone',150,50,96,1);
+    paintMillSprite(g,info.working?'working_miller':'miller',215,48,100,1);
+    paintMillSprite(g,'flour_sacks',274,61,83,.52+Math.min(1,info.output.flour/12)*.48);
+    wrapper.append(heading,preview,counts);$('tileInfo').append(wrapper);
   }
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
@@ -1301,6 +1318,7 @@
      if(game.scenario==='settlement')setPanel('news');
      const b=game.buildingAt(x,y);
      if(b?.type==='mill'){
+       showMillInterior(b);
        const mill=game.millInterior(b),state=mill.phase;
        if(['fresh_ruins','old_ruins','overgrown_ruins'].includes(state)){
          const restore=document.createElement('button');restore.type='button';
@@ -1475,7 +1493,7 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.5-mill-package',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.6-approved-raster',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
@@ -1484,9 +1502,11 @@
     stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},
     constructionArtAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionVisualPhase(site):null;},
     millRotorState:(id)=>({angle:millAngles.get(id)?.angle??null,blades:4,
-      bakedSprite:false,mode:'segmented-svg'}),
-    millPackage:()=>({version:M?.version??null,loaded:Object.values(millSprites).filter(i=>i?.naturalWidth).length,
-      total:Object.keys(M?.layers||{}).length}),
+      bakedSprite:false,mode:'approved-raster-atlas'}),
+    millPackage:()=>({version:M?.version??null,
+      loaded:Object.values(millAtlases).filter(i=>i?.naturalWidth).length,
+      total:Object.keys(M?.atlases||{}).length,
+      source:'approved-imagegen-sheets',raster:true}),
     millState:(id)=>{const b=game.buildings.find(v=>v.id===id);return b?.type==='mill'?game.millInterior(b):null;},
     rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
