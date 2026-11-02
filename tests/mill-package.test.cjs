@@ -24,7 +24,7 @@ test('мельник работает только при доступном з�
   assert.equal(i.worker,true);assert.equal(i.working,false);
   mill.goods.grain=4;
   assert.equal(g.millInterior(mill).working,true);
-  run(g,6.2);
+  g.produce(mill,6.2);
   assert.equal(mill.goods.grain,2);
   assert.equal(mill.goods.flour,1);
   assert.equal(g.millInterior(mill).output.flour,1);
