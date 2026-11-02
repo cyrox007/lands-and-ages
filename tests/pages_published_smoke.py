@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="refined-mill-composition-20261102-v13"
+EXPECTED="placement-footprint-20261102-v14"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -80,6 +80,13 @@ with sync_playwright() as pw:
         assert layout["rotorWidth"]<layout["width"]*.55
         assert page.evaluate("window.__strategyDebug().millPackage().raster")==True
         assert page.evaluate("window.__strategyDebug().millPackage().source")=="approved-imagegen-sheets"
+        # 2×2 preview and the geometry of adjacent completed roads.
+        blocked=page.evaluate("window.__strategyDebug().placement('mill',14,9)")
+        assert blocked["size"]=={"w":2,"h":2}
+        assert len(blocked["cells"])==4
+        assert blocked["ok"]==False
+        assert any("дорог" in (c["error"] or "") for c in blocked["cells"])
+        assert page.evaluate("window.__strategyDebug().placement('mill',14,8).size")=={"w":2,"h":2}
 
         assert page.evaluate("window.__strategyDebug().waterGroupCount")>0
         for res in ['logs','bread','flour','stone','grain','boards','vegetables']:

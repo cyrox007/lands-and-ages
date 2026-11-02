@@ -23,6 +23,20 @@
     embassy:{name:'Посольство',symbol:'◆',cost:80,boards:4,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'diplomacy',gain:3,time:10}},
     barracks:{name:'Казармы',symbol:'⚑',cost:65,boards:3,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'military',gain:3,time:10}}
   };
+  // Площадь застройки можно расширять для следующих зданий.
+  const FOOTPRINT={
+    warehouse:[1,1],logger:[1,1],quarry:[1,1],sawmill:[1,1],
+    farm:[1,1],mill:[2,2],bakery:[1,1],house:[1,1],
+    academy:[1,1],theatre:[1,1],market:[1,1],embassy:[1,1],barracks:[1,1],
+    road:[1,1],field:[1,1]
+  };
+  const footprintFor=type=>{
+    const [w,h]=FOOTPRINT[type]||[1,1];return {w,h};
+  };
+  const occupied=(object,x,y)=>{
+    const {w,h}=object.size||{w:1,h:1};
+    return x>=object.x&&y>=object.y&&x<object.x+w&&y<object.y+h;
+  };
   const COLORS={warehouse:'#ffc671',quarry:'#a8a2a0',logger:'#5eae79',sawmill:'#c79057',farm:'#8bbb61',mill:'#e4b76c',bakery:'#e49c65',house:'#96b4dc',academy:'#9f9ee8',theatre:'#e6a7ce',market:'#e8bc76',embassy:'#a1c8e6',barracks:'#df9593'};
   const inside=(x,y)=>x>=0&&x<W&&y>=0&&y<H;
   const id=(x,y)=>y*W+x;
@@ -198,8 +212,28 @@
       return {active:true,stage:4,done:true,target:null,progress:1,chosen:key};
     }
     note(message){this.log.unshift({day:this.day,text:message});this.log.length=Math.min(this.log.length,35);}
-    buildingAt(x,y){return this.buildings.find(b=>b.x===x&&b.y===y)||null;}
-    siteAt(x,y){return this.construction.find(s=>s.x===x&&s.y===y)||null;}
+    buildingAt(x,y){return this.buildings.find(b=>occupied(b,x,y))||null;}
+    siteAt(x,y){return this.construction.find(s=>occupied(s,x,y))||null;}
+    // Существующие старые здания без size занимают только исходную клетку.
+    footprint(type){return footprintFor(type);}
+    placement(type,x,y){
+      const {w,h}=footprintFor(type),cells=[];
+      for(let dy=0;dy<h;dy++)for(let dx=0;dx<w;dx++){
+        const tx=x+dx,ty=y+dy;
+        let error=null;
+        if(!inside(tx,ty))error='За пределами карты';
+        else if(this.roads[id(tx,ty)])error='Занято дорогой';
+        else if(this.buildingAt(tx,ty))error='Занято зданием или руинами';
+        else if(this.siteAt(tx,ty))error='Занято строительством';
+        else if(this.fieldAt(tx,ty))error='Занято полем';
+        else if(this.tiles[id(tx,ty)].terrain!=='grass'&&
+          !(type==='quarry'&&this.tiles[id(tx,ty)].terrain==='hills'))
+          error='Неподходящий рельеф';
+        cells.push({x:tx,y:ty,ok:!error,error});
+      }
+      const blocked=cells.find(c=>!c.ok);
+      return {ok:!blocked,error:blocked?.error||null,size:{w,h},cells};
+    }
     siteById(siteId){return this.construction.find(s=>s.id===siteId)||null;}
     siteMaterials(site){return site.required.boards||0;}
     siteStage(site){
@@ -208,8 +242,9 @@
       const workers=this.builders.filter(b=>b.site===site.id&&b.phase==='work').length;
       return workers?'Работают строители':'Ожидание строителей';
     }
-    addBuilding(type,x,y,goods={}){
+    addBuilding(type,x,y,goods={},size=null){
       const b={id:this.nextBuilding++,type,x,y,goods:{...dict(),...goods},progress:0};
+      if(size)b.size={...size};
       if(type==='mill')b.mill={phase:'operational',integrity:100,ruinAge:0,repairProgress:0};
       this.buildings.push(b);return b;
     }
@@ -292,7 +327,13 @@
     }
     entrance(building){
       if(!building)return null;
-      const opts=adj(building.x,building.y).filter(([x,y])=>this.roads[id(x,y)]);
+      // Дорога подходит к любому краю площадки.
+      const {w,h}=building.size||{w:1,h:1};
+      const perimeter=new Set();
+      for(let dy=0;dy<h;dy++)for(let dx=0;dx<w;dx++)
+        for(const [x,y] of adj(building.x+dx,building.y+dy))
+          if(!occupied(building,x,y)&&this.roads[id(x,y)])perimeter.add(id(x,y));
+      const opts=[...perimeter].map(n=>[n%W,Math.floor(n/W)]);
       // A broken road may leave two opposite entrances: a construction site
       // must use the warehouse-reachable side, never the disconnected side.
       if(building.id<0){const home=this.buildings.find(b=>b.type==='warehouse');
@@ -342,8 +383,8 @@
         return {ok:true};
       }
       if(!DEF[type]||type==='warehouse')return {ok:false,error:'Недоступное сооружение'};
-      if(this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y)||this.roads[id(x,y)])return {ok:false,error:'Клетка занята'};
-      if(this.tiles[id(x,y)].terrain!=='grass'&&!(type==='quarry'&&this.tiles[id(x,y)].terrain==='hills'))return {ok:false,error:'Неподходящий участок для этого здания'};
+      const area=this.placement(type,x,y);
+      if(!area.ok)return {ok:false,error:area.error,area};
       if(type==='quarry'&&!this.findDeposit({x,y}))return {ok:false,error:'Каменоломне нужно месторождение рядом'};
       const w=this.warehouse();
       if(this.coins<DEF[type].cost)return {ok:false,error:'Не хватает монет'};
@@ -366,6 +407,7 @@
       this.coins-=price; // Coin cost is paid on order, not the construction time.
       const site={id:-(this.nextSite++),type,x,y,goods:dict(),required:{boards,stone},
         progress:0,duration:isRoad?3.5:Math.max(8,10+DEF[type].boards*2.5),price};
+      if(!isRoad)site.size=footprintFor(type);
       this.construction.push(site);
       this.note((isRoad?'Участок дороги':DEF[type].name)+': заложена стройка. Материалы: доски '+boards+(stone?', камень '+stone:'')+'; нужны строители.');
       return {ok:true,site};
@@ -374,7 +416,7 @@
       const i=this.construction.indexOf(site);if(i<0)return;
       this.construction.splice(i,1);
       if(site.type==='road'){this.roads[id(site.x,site.y)]=true;this.note('Дорога завершена и открыта для движения.');}
-      else {const b=this.addBuilding(site.type,site.x,site.y);
+      else {const b=this.addBuilding(site.type,site.x,site.y,{},site.size||null);
         // A completed workshop hires one waiting villager automatically.
         if(this.scenario==='settlement'&&DEF[b.type].recipe){
           if(this.availableWorkers()>0){
@@ -788,6 +830,14 @@
           !s.buildings.some(b=>b.type==='warehouse')||!Number.isFinite(s.coins)||
           !Number.isInteger(s.day)||s.day<1||!Number.isFinite(s.population)||
           !s.buildings.every(b=>DEF[b.type]&&inside(b.x,b.y)&&b.goods&&RES.every(k=>Number.isFinite(b.goods[k])&&b.goods[k]>=0)))return null;
+        // Размеры в сохранениях проверяются, чтобы повреждённый файл
+        // не занимал произвольные области карты.
+        const safeSize=o=>!o.size||
+          (Number.isInteger(o.size.w)&&Number.isInteger(o.size.h)&&
+           o.size.w>=1&&o.size.w<=3&&o.size.h>=1&&o.size.h<=3&&
+           o.x+o.size.w<=W&&o.y+o.size.h<=H);
+        if(!s.buildings.every(safeSize)||
+          !(s.construction||[]).every(safeSize))return null;
         // Старые сохранения автоматически получают рабочий пакет мельницы.
         for(const b of s.buildings)if(b.type==='mill'){
           if(!b.mill)b.mill={phase:'operational',integrity:100,ruinAge:0,repairProgress:0};
