@@ -33,7 +33,7 @@
   function makeRng(seed){return function(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
   class Game {
     constructor(seed=1729,scenario='legacy'){
-      this.version=3;this.scenario=scenario;this.fields=[];this.staff={};this.seed=seed|0;this.w=W;this.h=H;this.randomSeed=seed>>>0;
+      this.version=3;this.scenario=scenario;this.fields=[];this.staff={};this.workforce=[];this.seed=seed|0;this.w=W;this.h=H;this.randomSeed=seed>>>0;
       this.tiles=[];this.roads=[];this.buildings=[];this.construction=[];this.carriers=[];this.builders=[];this.nextBuilding=1;this.nextSite=1;
       this.coins=175;this.population=8;this.morale=73;this.tax=14;this.day=1;
       this.science=0;this.culture=0;this.diplomacy=0;this.military=0;
@@ -88,8 +88,95 @@
       const previous=this.staff[b.id]||0,cap=DEF[b.type].workers||1;
       if(!Number.isInteger(count)||count<0||count>cap)return {ok:false,error:'Превышено число рабочих мест'};
       if(count-previous>this.availableWorkers())return {ok:false,error:'Нет свободных жителей'};
-      this.staff[b.id]=count;this.note(DEF[b.type].name+': занято '+count+'/'+cap+' рабочих мест.');
+      this.staff[b.id]=count;this.syncWorkforce();this.note(DEF[b.type].name+': занято '+count+'/'+cap+' рабочих мест.');
       return {ok:true};
+    }
+    syncWorkforce(){
+      if(this.scenario!=='settlement')return;
+      // People are simulation agents, not decorative markers. Worker count
+      // is constrained by assigned places and their physical home building.
+      const valid=new Set(this.buildings.filter(b=>DEF[b.type].recipe).map(b=>b.id));
+      this.workforce=this.workforce.filter(w=>valid.has(w.buildingId)&&(this.staff[w.buildingId]||0)>0);
+      for(const b of this.buildings){
+        if(!DEF[b.type].recipe)continue;
+        const assigned=this.staff[b.id]||0;
+        for(let slot=0;slot<assigned;slot++){
+          if(!this.workforce.some(w=>w.buildingId===b.id&&w.slot===slot)){
+            this.workforce.push({buildingId:b.id,slot,x:b.x+.5,y:b.y+.5,phase:'idle',
+              target:null,carry:null,workProgress:0});
+          }
+        }
+      }
+    }
+    workTarget(b){
+      if(!this.connected(b))return null;
+      let found=null,min=Infinity;
+      if(b.type==='farm'){
+        for(const f of this.fields){
+          const d=distance(f,b),res=f.crop==='vegetables'?'vegetables':'grain';
+          if(f.stage==='ripe'&&d<=3&&b.goods[res]+(f.crop==='barley'?3:2)<=DEF[b.type].max&&d<min){
+            min=d;found={x:f.x,y:f.y,kind:'field',crop:f.crop};
+          }
+        }
+      }else if(b.type==='logger'||b.type==='quarry'){
+        const kind=b.type==='logger'?'forest':'hills',res=b.type==='logger'?'logs':'stone';
+        if(b.goods[res]+2>DEF[b.type].max)return null;
+        for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++){
+          for(let x=Math.max(0,b.x-3);x<=Math.min(W-1,b.x+3);x++){
+            const t=this.tiles[id(x,y)],d=distance({x,y},b);
+            if(t.terrain===kind&&(kind==='forest'?t.wood:t.stone)>=2&&d<min){
+              min=d;found={x,y,kind:kind==='forest'?'forest':'stone'};
+            }
+          }
+        }
+      }
+      return found;
+    }
+    advanceWorkforce(dt){
+      if(this.scenario!=='settlement')return;
+      this.syncWorkforce();
+      for(const w of this.workforce){
+        const b=this.buildings.find(b=>b.id===w.buildingId);
+        if(!b)continue;
+        if(w.phase==='idle'){
+          if(!['logger','quarry','farm'].includes(b.type))continue;
+          w.target=this.workTarget(b);
+          if(w.target){w.phase='outbound';w.workProgress=0;}
+          continue;
+        }
+        if(w.phase==='work'){
+          // A tree is not consumed until the axe swing is complete.
+          w.workProgress+=dt;
+          const duration=b.type==='quarry'?3:b.type==='farm'?2.2:2.4;
+          if(w.workProgress<duration)continue;
+          const t=w.target,land=this.tiles[id(t.x,t.y)];
+          if(t.kind==='forest'&&land.wood>=2){land.wood-=2;w.carry={res:'logs',amount:2};}
+          else if(t.kind==='stone'&&land.stone>=2){land.stone-=2;w.carry={res:'stone',amount:2};}
+          else if(t.kind==='field'){
+            const field=this.fieldAt(t.x,t.y);
+            if(field&&field.stage==='ripe'){
+              w.carry={res:field.crop==='vegetables'?'vegetables':'grain',amount:field.crop==='barley'?3:2};
+              field.stage='sown';field.progress=0;field.harvests++;
+            }
+          }
+          w.phase='inbound';w.workProgress=0;
+          continue;
+        }
+        const goal=w.phase==='outbound'
+          ?{x:w.target.x+.5,y:w.target.y+.5}
+          :{x:b.x+.5,y:b.y+.5};
+        const dx=goal.x-w.x,dy=goal.y-w.y,d=Math.hypot(dx,dy),dist=dt*1.45;
+        if(d>dist+.000001){w.x+=dx*dist/d;w.y+=dy*dist/d;continue;}
+        w.x=goal.x;w.y=goal.y;
+        if(w.phase==='outbound'){w.phase='work';w.workProgress=0;}
+        else{
+          if(w.carry){
+            b.goods[w.carry.res]+=w.carry.amount;
+            b.progress=0;
+          }
+          w.carry=null;w.target=null;w.workProgress=0;w.phase='idle';
+        }
+      }
     }
     fieldAt(x,y){return this.fields.find(f=>f.x===x&&f.y===y)||null;}
     nearbyFarm(x,y){return this.buildings.find(b=>b.type==='farm'&&distance(b,{x,y})<=3)||null;}
@@ -242,6 +329,8 @@
       this.construction.splice(i,1);
       if(site.type==='road'){this.roads[id(site.x,site.y)]=true;this.note('Дорога завершена и открыта для движения.');}
       else {const b=this.addBuilding(site.type,site.x,site.y);
+        // Newly finished workplaces recruit one free resident automatically.
+        if(this.scenario==='settlement'&&DEF[b.type].recipe&&this.availableWorkers()>0)this.assignWorkers(b.id,1);
         this.note(DEF[b.type].name+': строительство завершено. '+(this.connected(b)?'Предприятие подключено.':'Для работы нужна дорога.'));}
       for(const worker of this.builders)if(worker.site===site.id){worker.site=null;worker.phase='idle';worker.path=[];worker.segment=0;}
     }
@@ -344,6 +433,8 @@
     produce(b,dt){
       const r=DEF[b.type].recipe;
       if(!r)return;
+      // Primary resources only appear when their physical worker returns home.
+      if(this.scenario==='settlement'&&['logger','quarry','farm'].includes(b.type))return;
       if(!this.readyToProduce(b)){b.progress=0;return;}
       b.progress+=dt;
       if(b.progress<r.time)return;
@@ -506,6 +597,7 @@
         const sub=Math.min(.1,remain);remain-=sub;
         this.clock+=sub;this.dayClock+=sub;this.dispatchClock+=sub;
         this.advanceFields(sub);
+        this.advanceWorkforce(sub);
         for(const b of this.buildings)this.produce(b,sub);
         for(const c of this.carriers)this.moveCarrier(c,sub);
         this.advanceConstruction(sub);
@@ -518,10 +610,10 @@
         tax:this.tax,science:this.science,culture:this.culture,diplomacy:this.diplomacy,military:this.military,
         goods:{...w.goods},carriers:this.carriers.map(c=>({x:c.x,y:c.y,res:c.carrying?.res||null})),
         connected:this.buildings.filter(b=>this.connected(b)).length,total:this.buildings.length,
-        scenario:this.scenario,freeWorkers:this.availableWorkers(),staff:{...this.staff},fields:this.fields.map(f=>({...f})),
+        scenario:this.scenario,freeWorkers:this.availableWorkers(),staff:{...this.staff},fields:this.fields.map(f=>({...f})),workforce:this.workforce.map(w=>({...w})),
         sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,boards:s.required.boards,deliveredStone:s.goods.stone||0,stone:s.required.stone||0,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
     }
-    save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,fields:this.fields,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
+    save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,fields:this.fields,workforce:this.workforce,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
       construction:this.construction,builders:this.builders,nextSite:this.nextSite,
       carriers:this.carriers,nextBuilding:this.nextBuilding,coins:this.coins,population:this.population,morale:this.morale,
       tax:this.tax,day:this.day,science:this.science,culture:this.culture,diplomacy:this.diplomacy,
@@ -544,7 +636,7 @@
           !Number.isInteger(s.day)||s.day<1||!Number.isFinite(s.population)||
           !s.buildings.every(b=>DEF[b.type]&&inside(b.x,b.y)&&b.goods&&RES.every(k=>Number.isFinite(b.goods[k])&&b.goods[k]>=0)))return null;
         const game=new Game(s.seed,s.scenario==='settlement'?'settlement':'legacy');
-        const fields=['scenario','staff','fields','tiles','roads','buildings','construction','builders','nextSite','carriers','nextBuilding','coins','population','morale','tax','day',
+        const fields=['scenario','staff','fields','workforce','tiles','roads','buildings','construction','builders','nextSite','carriers','nextBuilding','coins','population','morale','tax','day',
           'science','culture','diplomacy','military','mission','stats','clock','dayClock','dispatchClock','log','excavated'];
         for(const f of fields)if(Object.prototype.hasOwnProperty.call(s,f))game[f]=s[f];
         // Existing v0.1 / 0.2 saves did not have a mission; preserve free play.
@@ -567,6 +659,15 @@
             !s.fields.every(f=>inside(f.x,f.y)&&['wheat','barley','vegetables'].includes(f.crop)&&
               ['clearing','sown','growing','ripe'].includes(f.stage)&&Number.isFinite(f.progress)&&f.progress>=0))return null;
         }
+        if(s.version===3&&Object.prototype.hasOwnProperty.call(s,'workforce')){
+          if(!Array.isArray(s.workforce)||s.workforce.length>W*H||
+            !s.workforce.every(w=>Number.isInteger(w.buildingId)&&Number.isInteger(w.slot)&&w.slot>=0&&
+              Number.isFinite(w.x)&&Number.isFinite(w.y)&&w.x>=0&&w.y>=0&&w.x<=W&&w.y<=H&&
+              ['idle','outbound','work','inbound'].includes(w.phase)&&Number.isFinite(w.workProgress)&&w.workProgress>=0))
+            return null;
+        }
+        if(!Array.isArray(game.workforce))game.workforce=[];
+        game.syncWorkforce();
         game.version=3;
         return game;
       }catch(_){return null;}
