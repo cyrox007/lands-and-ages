@@ -5,7 +5,7 @@ const {Game}=require('../engine.js'),M=require('../mill-pack.js');
 function run(g,seconds){for(let k=0;k<Math.ceil(seconds*10);k++)g.step(.1);}
 test('игра загружает утверждённые растровые атласы вместо SVG',()=>{
   assert.equal(M.id,'mill');
-  assert.equal(M.version,3);
+  assert.equal(M.version,4);
   assert.equal(Object.keys(M.atlases).length,3);
   assert.equal(Object.keys(M.sprites).length,22);
   assert.deepEqual(M.states.destruction,['fresh_ruins','old_ruins','overgrown_ruins']);
@@ -21,12 +21,25 @@ test('игра загружает утверждённые растровые а
     assert.ok(bytes.length>25000,'детализированный спрайт не должен быть пустым');
   }
   const art=M.layout(82,41);
-  assert.equal(art.width,82*2.28);
+  assert.equal(art.width,82*2.18);
   assert.ok(Math.abs(art.hubX+art.width*.125)<1e-7);
   assert.ok(art.rotorWidth<art.width*.55);
   assert.ok(art.hubY<0);
   assert.equal(M.detailed.bodySize.w,360);
   assert.equal(M.detailed.hub.y,148);
+  // Привязка всех визуальных стадий к одному уровню земли.
+  const floor=M.groundLevel(41);
+  assert.ok(Math.abs(art.top+art.height*284/316-floor)<1e-8);
+  for(const [state,bottom] of Object.entries({
+    survey:135,frame:157,walls:156,almost:172,
+    fresh_ruins:162,old_ruins:148,overgrown_ruins:151,restoring:142
+  })){
+    const stage=M.stageLayout(state,82,41);
+    assert.ok(Math.abs(stage.top+stage.size*bottom/176-floor)<1e-8,state);
+    assert.ok(stage.size*168/176<82*2,'площадка помещается в 2×2');
+  }
+  assert.ok(Math.abs(M.layout(82,41).top-M.stageLayout('almost',82,41).top)<82,
+    'смена строительства на здание без скачка по высоте');
   for(const name of ['body_assembled','rotor','grain_sacks','flour_sacks','millstone',
     'working_miller','survey','frame','walls','almost',
     'damaged','fresh_ruins','old_ruins','overgrown_ruins','restoring'])
