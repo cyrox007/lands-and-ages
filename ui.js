@@ -35,6 +35,17 @@
     img.onerror=()=>{sprites[name]=null;};
     img.src=(window.StrategyAssets&&window.StrategyAssets[name])||('assets/'+name+'.webp');
   }
+  // Растр главного здания закреплён за фундаментом, а не за соседней дорогой.
+  const hqSprite=new Image();
+  hqSprite.src=window.StrategyHQSprite||'assets/buildings/headquarters/headquarters-level1.webp';
+  // Внешний вид профессий. Анимированные 4×8-атласы пока остаются прежними.
+  const WORKER_PORTRAITS={builder:'builder',porter:'porter',logger:'logger',
+    quarry:'quarry-worker',farm:'farmer'};
+  const workerPortraits={};
+  for(const name of [...new Set(Object.values(WORKER_PORTRAITS))]){
+    const img=new Image();workerPortraits[name]=img;
+    img.src=window.StrategyWorkerPortraits?.[name]||('assets/workers/'+name+'.webp');
+  }
   // Four atlas sheets contain 8 independently drawn poses x 4 directions.
   // Loaded separately to keep the eight legacy buildings and their selection masks intact.
   // Подлинные растровые слои из утверждённых спрайт-листов.
@@ -733,7 +744,8 @@
   }
   function buildingRect(b){
     const p=buildingCenter(b),t=tileSize(),h=tileHeight();
-    const w=t*(BUILDING_SCALES[b.type]||1.60),img=sprites[b.type];
+    const isHQ=b.type==='warehouse'&&b.headquarters?.level===1&&hqSprite.naturalWidth;
+    const w=t*(isHQ?2.08:BUILDING_SCALES[b.type]||1.60),img=isHQ?hqSprite:sprites[b.type];
     const height=img&&img.naturalWidth?w*img.naturalHeight/img.naturalWidth:t*1.4;
     return {x:p.x-w/2,y:p.y+h*.33-height,w,h:height,p};
   }
@@ -744,7 +756,7 @@
       if(u<0||u>=1||v<0||v>=1)continue;
       // The new windmill has one procedural rotor, not the baked-in-blades
       // transparency mask of the obsolete artwork.
-      if(b.type==='mill'){
+      if(b.type==='mill'||(b.type==='warehouse'&&b.headquarters)){
         if(u>.17&&u<.83&&v>.13)return b;
         continue;
       }
@@ -923,6 +935,9 @@
     diamond(p.x,p.y,.75,'#263d3133');
     if(b.type==='mill'){
       drawMillBuilding(b,p,t,h);
+    }else if(b.type==='warehouse'&&b.headquarters&&hqSprite.naturalWidth){
+      const rect=buildingRect(b);
+      ctx.drawImage(hqSprite,rect.x,rect.y,rect.w,rect.h);
     }else if(b.type==='quarry'){
       // A working quarry remains visibly industrial even once its nearby
       // stone outcrops have been depleted.
@@ -1225,6 +1240,20 @@
     const visible=(p)=>p.x>-margin&&p.y>-margin*1.5&&p.x<width+margin&&p.y<height+margin;
     drawGround();
     ctx.save();clipWorld();landscapePatches();drawWaterBodies();ctx.restore();
+    if(game.scenario==='settlement'){
+      // Граница рисуется только по внешним рёбрам клеток территории.
+      ctx.save();ctx.strokeStyle='rgba(241,204,122,.60)';
+      ctx.lineWidth=Math.max(1,1.5*zoom);ctx.setLineDash([5*zoom,4*zoom]);
+      const edge=(ax,ay,bx,by)=>{const a=screen(ax,ay),b=screen(bx,by);
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();};
+      for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(game.territoryAt(x,y)){
+        if(!game.territoryAt(x,y-1))edge(x,y,x+1,y);
+        if(!game.territoryAt(x+1,y))edge(x+1,y,x+1,y+1);
+        if(!game.territoryAt(x,y+1))edge(x+1,y+1,x,y+1);
+        if(!game.territoryAt(x-1,y))edge(x,y+1,x,y);
+      }
+      ctx.restore();
+    }
     for(const field of game.fields||[])if(visible(screen(field.x+.5,field.y+.5)))drawField(field);
     for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(game.roads[id(x,y)]){
       if(visible(screen(x+.5,y+.5)))road(x,y);
@@ -1366,6 +1395,10 @@
   $('missionTool').addEventListener('click',()=>{selectTool($('missionTool').dataset.actionTool);if(game.missionProgress().stage!==3)focusMission();setMissionExpanded(false);});
   function updateHUD(){
     const hud=game.hud();updateMission();
+    const centerLabel=$('centerStatus');
+    if(centerLabel)centerLabel.textContent=hud.scenario==='settlement'?
+      'Центр поселения · жителей '+hud.population+'/'+hud.populationCapacity+
+      ' · радиус: '+hud.territoryRadius+' клеток':'Общий склад · тестовое испытание';
     const sites=$('constructionList');sites.replaceChildren();
     if(!hud.sites.length){const p=document.createElement('p');p.textContent='Пока нет строек. Выбери дорогу или здание на карте.';sites.append(p);}
     for(const site of hud.sites){
@@ -1419,7 +1452,19 @@
          }
        }
      }
-     if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
+     if(b?.type==='warehouse'&&game.scenario==='settlement'){
+      const p=document.createElement('p');
+      p.textContent='Главное здание I уровня. Оно определяет границы строительства и обеспечивает первых жителей. Улучшения до управы, крепости и цитадели появятся позднее.';
+      $('tileInfo').append(p);
+    }
+    if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
+      const portrait=workerPortraits[WORKER_PORTRAITS[b.type]];
+      if(portrait?.naturalWidth){
+        const icon=document.createElement('img');icon.src=portrait.src;
+        icon.alt='Работник: '+DEF[b.type].name;icon.width=64;icon.height=64;
+        icon.style.cssText='float:right;object-fit:contain';
+        $('tileInfo').append(icon);
+      }
        const row=document.createElement('div');row.className='staff-controls';
        const label=document.createElement('span');label.textContent='Рабочие: '+(game.staff[b.id]||0)+' / '+DEF[b.type].workers;
        const minus=document.createElement('button');minus.type='button';minus.textContent='−';minus.setAttribute('aria-label','Снять работника');
