@@ -20,7 +20,12 @@ ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 mill_assets={p.stem.replace('mill-','').replace('states-','').replace('-',''):'data:image/webp;base64,'+
              base64.b64encode(p.read_bytes()).decode('ascii')
-             for p in (root/'assets/buildings/mill').glob('mill-*.webp')}
+             for p in (root/'assets/buildings/mill').glob('mill-states-*.webp')]+[
+             (root/'assets/buildings/mill/mill-parts.webp')
+
+detail_assets={name:'data:image/webp;base64,'+base64.b64encode(
+    (root/'assets/buildings/mill'/file).read_bytes()).decode('ascii')
+    for name,file in {'body':'mill-detailed-body.webp','rotor':'mill-detailed-rotor.webp'}.items()}
 
 def mount(page,prior=None,boot="mission"):
     page.set_content(html)
@@ -37,6 +42,7 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=mill_pack)
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
     page.evaluate('(assets) => { window.StrategyMillAtlases=assets; }',mill_assets)
+    page.evaluate('(assets) => { window.StrategyMillDetailAssets=assets; }',detail_assets)
     page.evaluate('(scenario) => { window.__strategyBoot=scenario; }',boot)
     page.evaluate('''() => {
       const draw=CanvasRenderingContext2D.prototype.drawImage;
@@ -71,6 +77,11 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().rockDeposits')>0
     page.wait_for_function('window.__strategyDebug().millPackage().loaded===3',timeout=20000)
     assert page.evaluate('window.__strategyDebug().millPackage().total')==3
+    page.wait_for_function('window.__strategyDebug().millPackage().detailedLoaded===2',timeout=20000)
+    layout=page.evaluate('window.__strategyDebug().millPackage().layout')
+    assert layout['width']>0
+    assert layout['hubX']<0 and layout['hubY']<0
+    assert layout['rotorWidth']<layout['width']*.55
     assert page.evaluate('window.__strategyDebug().millPackage().raster') is True
     assert page.evaluate('window.__strategyDebug().millPackage().source')=='approved-imagegen-sheets'
     assert page.evaluate('window.__strategyDebug().millRotorState(5).blades')==4
@@ -100,7 +111,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.6-approved-raster'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.6-refined-mill'
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
