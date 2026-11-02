@@ -982,6 +982,7 @@
      }
   }
   function act(cell){
+    if(paused&&mode!=='inspect'){notify('Снимите игру с паузы, чтобы строить и исследовать.');return;}
     const {x,y}=cell;if(x<0||x>=W||y<0||y>=H){notify('За пределами карты');return;}
     if(mode==='inspect'){inspectAt(x,y);return;}
     if(mode==='excavate'){
@@ -1071,7 +1072,13 @@
   }));
   $('zoomIn').addEventListener('click',()=>zoomBy(.2));$('zoomOut').addEventListener('click',()=>zoomBy(-.2));
   $('taxSlider').addEventListener('input',e=>{game.setTax(Number(e.target.value));$('taxValue').textContent=game.tax+'%';persist();});
-  function setPaused(value){paused=value;$('pauseBtn').textContent=paused?'▶ ПРОДОЛЖИТЬ':'Ⅱ ПАУЗА';$('mapOverlay').hidden=!paused;}
+  function setPaused(value){
+    paused=Boolean(value);
+    game.setPaused(paused);
+    $('pauseBtn').textContent=paused?'▶ ПРОДОЛЖИТЬ':'Ⅱ ПАУЗА';
+    $('mapOverlay').hidden=!paused;
+    if(paused)notify('Пауза: камера и осмотр доступны, строительство и работа остановлены.');
+  }
   $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
   $('speedBtn').addEventListener('click',()=>{speed=speed===1?2:speed===2?4:1;$('speedBtn').textContent='×'+speed;});
   $('saveBtn').addEventListener('click',()=>notify(persist()?'Игра сохранена в этом браузере.':'Сохранение недоступно: проверь разрешения браузера.'));
@@ -1114,6 +1121,6 @@
   }
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
-    buildings:game.buildings.length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.0-dev',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){game.step(.1);animationClock+=.1;updateMotion();}updateHUD();draw();}});
+    buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.2-ecology',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();
