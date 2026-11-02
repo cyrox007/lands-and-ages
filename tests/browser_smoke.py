@@ -11,11 +11,12 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
 mill_pack=(root/'mill-pack.js').read_text('utf8')
+resource_pack=(root/'resource-pack.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 mill_files={'start':'mill-states-start.webp',
@@ -40,6 +41,10 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=engine)
     page.add_script_tag(content=visual)
     page.add_script_tag(content=mill_pack)
+    page.add_script_tag(content=resource_pack)
+    page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
+        'data:image/webp;base64,'+base64.b64encode(
+          (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
     page.evaluate('(assets) => { window.StrategyMillAtlases=assets; }',mill_assets)
     page.evaluate('(assets) => { window.StrategyMillDetailAssets=assets; }',detail_assets)
@@ -79,6 +84,12 @@ def check(browser,name,w,h,mobile):
     page.wait_for_function('window.__strategyDebug().workerSheetsReady===4',timeout=20000)
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
     assert page.evaluate('window.__strategyDebug().rockDeposits')>0
+    page.wait_for_function('window.__strategyDebug().resourcePack().loaded',timeout=20000)
+    assert page.evaluate('window.__strategyDebug().resourcePack().count')==10
+    # При отсутствии доставки игровые запасы на стройке равны нулю.
+    items=page.evaluate('window.__strategyDebug().resourcePack().construction')
+    assert all(all(m['visible']==0 for m in site['materials']) for site in items)
+
     page.wait_for_function('window.__strategyDebug().millPackage().loaded===3',timeout=20000)
     assert page.evaluate('window.__strategyDebug().millPackage().total')==3
     page.wait_for_function('window.__strategyDebug().millPackage().detailedLoaded===2',timeout=20000)
@@ -124,7 +135,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.7-mill-ground-anchor'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.8-resource-sprites'
     assert page.evaluate("window.__strategyDebug().placement('mill',14,9).size")=={'w':2,'h':2}
     blocked=page.evaluate("window.__strategyDebug().placement('mill',14,9)")
     assert blocked['ok'] is False
