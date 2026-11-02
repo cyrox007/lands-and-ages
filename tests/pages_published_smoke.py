@@ -61,7 +61,8 @@ with sync_playwright() as pw:
             stats:document.querySelector('.top-stats').getBoundingClientRect().toJSON(),
             dockRect:dock.getBoundingClientRect().toJSON(),
             questCollapsed:document.querySelector('#missionToggle').getAttribute('aria-expanded'),
-            questContentsDisplay:getComputedStyle(document.querySelector('#missionContents')).display,
+            questContentsMaxHeight:getComputedStyle(document.querySelector('#missionContents')).maxHeight,
+            questContentsPointerEvents:getComputedStyle(document.querySelector('#missionContents')).pointerEvents,
             cssHref:document.querySelector('link[rel="stylesheet"]').href
           };
         }""")
@@ -70,7 +71,8 @@ with sync_playwright() as pw:
         assert abs(metrics["canvas"][3]-height)<2,(name,metrics)
         assert metrics["shellPosition"]=="fixed",(name,metrics)
         assert metrics["dockDisplay"]=="flex" and metrics["sidebarDisplay"]=="hidden",(name,metrics)
-        assert metrics["questCollapsed"]=="false" and metrics["questContentsDisplay"]=="none",(name,metrics)
+        assert metrics["questCollapsed"]=="false",(name,metrics)
+        assert metrics["questContentsMaxHeight"]=="0px" and metrics["questContentsPointerEvents"]=="none",(name,metrics)
         assert metrics["stats"]["top"]<metrics["dockRect"]["top"],(name,metrics)
         assert metrics["dockRect"]["top"]>=height*.75,(name,metrics)
         if width<=750 and height>510:
