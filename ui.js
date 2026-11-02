@@ -150,17 +150,24 @@
   function rectIso(cx,cy,w,hgt,fill,stroke=null){poly([[cx-w/2,cy],[cx,cy-hgt/2],[cx+w/2,cy],[cx,cy+hgt/2]],fill,stroke,.8);}
   // All elevated sprites cast light from the upper-left towards lower-right.
   // Transparent layered gradients add volume without expensive canvas filters.
+  const shadowTexture=document.createElement('canvas');
+  shadowTexture.width=160;shadowTexture.height=88;
+  (function paintShadow(){
+    const g=shadowTexture.getContext('2d');
+    g.save();g.translate(80,44);g.scale(1,.54);
+    const shade=g.createRadialGradient(0,0,1,0,0,77);
+    shade.addColorStop(0,'rgba(12,27,20,1)');
+    shade.addColorStop(.55,'rgba(12,27,20,.55)');
+    shade.addColorStop(1,'rgba(12,27,20,0)');
+    g.fillStyle=shade;g.beginPath();g.arc(0,0,77,0,Math.PI*2);g.fill();
+    g.restore();
+  })();
   function castShadow(x,y,t,h,scale=1,strength=.3){
-    ctx.save();
-    ctx.translate(x+t*.23*scale,y+h*.33*scale);
-    ctx.rotate(-.15);
-    const rx=t*.55*scale,ry=h*.27*scale;
-    const g=ctx.createRadialGradient(0,0,1,0,0,rx);
-    g.addColorStop(0,'rgba(15,30,24,'+strength+')');
-    g.addColorStop(.53,'rgba(17,35,26,'+(strength*.55)+')');
-    g.addColorStop(1,'rgba(17,35,26,0)');
-    ctx.fillStyle=g;ctx.scale(1,ry/rx);
-    ctx.beginPath();ctx.ellipse(0,0,rx,rx,0,0,Math.PI*2);ctx.fill();
+    // Pre-rasterized shadow avoids hundreds of gradients per frame on mobile.
+    const w=t*1.1*scale,height=h*.57*scale;
+    ctx.save();ctx.translate(x+t*.23*scale,y+h*.33*scale);
+    ctx.rotate(-.15);ctx.globalAlpha=strength;
+    ctx.drawImage(shadowTexture,-w/2,-height/2,w,height);
     ctx.restore();
   }
   // Natural ground is rendered ONCE as a single world-sized raster.
