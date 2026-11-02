@@ -707,14 +707,36 @@
   canvas.addEventListener('lostpointercapture',()=>{pointer=null;});
   canvas.addEventListener('pointerleave',()=>{if(!pointer)hover=null;});
   canvas.addEventListener('wheel',e=>{if(e.cancelable)e.preventDefault();zoomBy(e.deltaY<0?.12:-.12);},{passive:false});
-  document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>selectTool(b.dataset.tool)));
+  document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>{
+    selectTool(b.dataset.tool);
+    if(b.closest('.game-dock'))setPanel('none');
+  }));
   $('surveyBtn').addEventListener('click',()=>selectTool('excavate'));
   const shell=document.querySelector('.shell');
-  document.querySelectorAll('[data-hud-panel]').forEach(b=>b.addEventListener('click',()=>{
-    const panel=b.dataset.hudPanel;
-    shell.dataset.panel=shell.dataset.panel===panel?'none':panel;
-    document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded',String(shell.dataset.panel===btn.dataset.hudPanel)));
+  function setPanel(panel){
+    shell.dataset.panel=panel;
+    document.querySelectorAll('[data-hud-panel]').forEach(btn=>
+      btn.setAttribute('aria-expanded',String(panel===btn.dataset.hudPanel)));
+  }
+  document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.addEventListener('click',()=>{
+    setPanel(shell.dataset.panel===btn.dataset.hudPanel?'none':btn.dataset.hudPanel);
   }));
+  document.querySelectorAll('[data-close-panel]').forEach(btn=>btn.addEventListener('click',()=>setPanel('none')));
+  const buildPanel=$('buildPanel');
+  document.querySelectorAll('[data-build-category]').forEach(btn=>btn.addEventListener('click',()=>{
+    buildPanel.dataset.category=btn.dataset.buildCategory;
+    document.querySelectorAll('[data-build-category]').forEach(tab=>
+      tab.setAttribute('aria-pressed',String(tab===btn)));
+  }));
+  const missionCard=$('missionCard'),missionToggle=$('missionToggle');
+  function setMissionExpanded(expanded){
+    missionCard.classList.toggle('expanded',expanded);
+    missionToggle.setAttribute('aria-expanded',String(expanded));
+    missionToggle.title=expanded?'Свернуть задание':'Развернуть задание';
+    missionToggle.querySelector('.sr-only').textContent=missionToggle.title;
+  }
+  missionToggle.addEventListener('click',()=>setMissionExpanded(!missionCard.classList.contains('expanded')));
+  canvas.addEventListener('pointerdown',()=>{if(shell.dataset.panel!=='none')setPanel('none');});
   document.querySelectorAll('[data-crop]').forEach(b=>b.addEventListener('click',()=>{
     selectedCrop=b.dataset.crop;
     document.querySelectorAll('[data-crop]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));
