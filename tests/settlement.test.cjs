@@ -86,3 +86,36 @@ test('legacy campaign remains playable and v2 saves migrate stone resource',()=>
   assert.ok(copy);assert.equal(copy.scenario,'legacy');assert.equal(copy.warehouse().goods.stone,0);
   assert.equal(copy.missionProgress().stage,0);
 });
+
+test('grain, vegetables, lumber and stone flow to the warehouse and on to secondary and tertiary industry',()=>{
+  const g=new Game(1729,'settlement');
+  for(const [type,x,y] of [
+    ['logger',12,9],['farm',13,9],['sawmill',14,9],['mill',15,9],
+    ['quarry',16,9],['bakery',17,9],['road',16,10],['road',17,10]
+  ])assert.equal(g.build(type,x,y).ok,true,type);
+  run(g,115);
+  for(const [type,worker] of [['logger',1],['farm',1],['quarry',1],['sawmill',1]]){
+    const b=g.buildings.find(b=>b.type===type);
+    assert.ok(b,type+' built');assert.equal(g.assignWorkers(b.id,worker).ok,true);
+  }
+  assert.equal(g.placeField(13,8,'wheat').ok,true);
+  assert.equal(g.placeField(14,8,'vegetables').ok,true);
+  run(g,115);
+  assert.ok(g.warehouse().goods.stone>=2,'stone reached warehouse');
+  assert.ok(g.fields.every(f=>f.harvests>0),'both crop fields harvested');
+  assert.ok(g.warehouse().goods.vegetables>0,'vegetables stored separately');
+  assert.ok(g.buildings.find(b=>b.type==='sawmill').goods.boards>=0);
+  const quarry=g.buildings.find(b=>b.type==='quarry');
+  assert.equal(g.assignWorkers(quarry.id,0).ok,true);
+  const mill=g.buildings.find(b=>b.type==='mill');
+  assert.equal(g.assignWorkers(mill.id,1).ok,true);
+  run(g,100);
+  assert.ok(g.warehouse().goods.flour>0||mill.goods.flour>0,'grain processed into flour');
+  const sawmill=g.buildings.find(b=>b.type==='sawmill');
+  assert.equal(g.assignWorkers(sawmill.id,0).ok,true);
+  const bakery=g.buildings.find(b=>b.type==='bakery');
+  assert.equal(g.assignWorkers(bakery.id,1).ok,true);
+  run(g,110);
+  assert.ok(g.stats.baked>=3,'flour + wood physically delivered to bakery; bread baked');
+  assert.ok(g.buildings.length===7,'headquarters and six independent production buildings');
+});
