@@ -101,12 +101,12 @@ def check(browser,name,w,h,mobile):
       const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]};
       return {header:box('.masthead'),stats:box('.top-stats'),dock:box('.game-dock'),
         quest:box('.mission-card'),map:box('#gameMap'),
-        sidebar:getComputedStyle(document.querySelector('#buildPanel')).display,
+        sidebar:getComputedStyle(document.querySelector('#buildPanel')).visibility,
         missionOpen:document.querySelector('#missionToggle').getAttribute('aria-expanded')}
     }''')
     assert abs(hud['map'][2]-w)<2 and abs(hud['map'][3]-h)<2,(name,hud)
     assert hud['dock'][1] > h*.75,(name,hud)
-    assert hud['sidebar']=='none' and hud['missionOpen']=='false',(name,hud)
+    assert hud['sidebar']=='hidden' and hud['missionOpen']=='false',(name,hud)
     assert hud['quest'][1]>hud['header'][1],(name,hud)
     if w<=750 and h>510:
         horizontal_gap=page.evaluate('''() => {
