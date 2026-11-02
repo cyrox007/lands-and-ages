@@ -385,6 +385,50 @@ with sync_playwright() as pw:
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
+        # Реестр профессий доступен игре, а состояния выбираются по данным движка.
+        catalogue=page.evaluate("""() => {
+          const d=window.__strategyDebug();
+          return {
+            names:Object.keys(d.professionPacks),
+            chop:d.professionAction('logger',{phase:'work'}),
+            mine:d.professionAction('quarry',{phase:'work'}),
+            harvest:d.professionAction('farmer',{phase:'work'}),
+            idle:d.professionAction('logger',{phase:'idle'}),
+            building:d.professionAction('builder',{phase:'work',progress:.9}),
+            saw:d.professionAction('sawmill',{active:true}),
+            noSaw:d.professionAction('sawmill',{active:false})
+          };
+        }""")
+        assert len(catalogue['names'])==13,(name,catalogue)
+        for field,action in [('chop','fell_tree'),('mine','mine_stone'),
+                             ('harvest','harvest_crop'),('building','finish_roof'),
+                             ('saw','saw_boards')]:
+            assert catalogue[field]['id']==action,(name,field,catalogue)
+        assert catalogue['idle']['id']=='idle'
+        assert catalogue['noSaw']['id']=='idle'
+
+        # У профессий различаются не только названия, но и реальные пиксели действия.
+        effects=page.evaluate("""async () => {
+          const mod=window.StrategyPaintedMotion;
+          const image=new Image();
+          image.src=window.StrategyPaintedPeople;await image.decode();
+          const render=action=>{
+            const c=document.createElement('canvas');c.width=160;c.height=180;
+            const g=c.getContext('2d',{willReadFrequently:true});
+            mod.draw(g,image,8,'work',2,'se',80,170,75,0,action);
+            return g.getImageData(0,0,160,180).data;
+          };
+          const a=render('fell_tree'),b=render('mine_stone'),d=render('harvest_crop');
+          const diff=(a,b)=>{
+            let count=0;
+            for(let i=0;i<a.length;i+=4)
+              if(a[i]!==b[i]||a[i+1]!==b[i+1]||
+                 a[i+2]!==b[i+2]||a[i+3]!==b[i+3])count++;
+            return count;
+          };
+          return {woodStone:diff(a,b),stoneCrop:diff(b,d)};
+        }""")
+        assert effects['woodStone']>20 and effects['stoneCrop']>20,(name,effects)
         assert page.evaluate('window.__strategyDebug().paintedCounts().idle')>0
         page.wait_for_function('window.__paintedDrawCount>=4',timeout=20000)
         # Не ограничиваемся портретами: в Chromium реально рисуются все действия.
