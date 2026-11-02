@@ -325,6 +325,15 @@
       }
       const ring=.055+.016*Math.sin(clock*8);
       blob(p.x-t*.015,p.y-h*.21,t*ring,h*.035,'#ddbd8a',.42);
+    }else if(b.type==='quarry'){
+      const swing=Math.sin(clock*8+b.id);
+      const toolX=p.x+t*(.13+.055*swing),toolY=p.y-h*(.32+.065*Math.abs(swing));
+      line(p.x+t*.11,p.y-h*.06,toolX,toolY,'#a17643',Math.max(1.4,2.4*zoom));
+      line(toolX-t*.08,toolY-h*.04,toolX+t*.08,toolY+h*.01,'#e0e1d9',Math.max(1.3,2.2*zoom));
+      for(let i=0;i<3;i++){
+        const f=(clock*.75+i/3)%1;
+        blob(p.x+t*(.14+.03*i+f*.06),p.y-h*(.1+.10*f),t*.012,h*.022,'#c6ba9b',.55*(1-f));
+      }
     }else if(b.type==='farm'){
       const sway=Math.sin(clock*3+b.id);
       for(let i=0;i<5;i++){
