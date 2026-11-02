@@ -33,7 +33,7 @@
   function makeRng(seed){return function(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
   class Game {
     constructor(seed=1729,scenario='legacy'){
-      this.version=3;this.scenario=scenario;this.fields=[];this.staff={};this.seed=seed|0;this.w=W;this.h=H;this.randomSeed=seed>>>0;
+      this.version=3;this.scenario=scenario;this.fields=[];this.staff={};this.workAgents=[];this.seed=seed|0;this.w=W;this.h=H;this.randomSeed=seed>>>0;
       this.tiles=[];this.roads=[];this.buildings=[];this.construction=[];this.carriers=[];this.builders=[];this.nextBuilding=1;this.nextSite=1;
       this.coins=175;this.population=8;this.morale=73;this.tax=14;this.day=1;
       this.science=0;this.culture=0;this.diplomacy=0;this.military=0;
@@ -242,6 +242,13 @@
       this.construction.splice(i,1);
       if(site.type==='road'){this.roads[id(site.x,site.y)]=true;this.note('Дорога завершена и открыта для движения.');}
       else {const b=this.addBuilding(site.type,site.x,site.y);
+        // A completed workshop hires one waiting villager automatically.
+        if(this.scenario==='settlement'&&DEF[b.type].recipe){
+          if(this.availableWorkers()>0){
+            this.staff[b.id]=1;
+            this.note(DEF[b.type].name+': назначен один свободный житель.');
+          }else this.note(DEF[b.type].name+': пока нет свободного работника.');
+        }
         this.note(DEF[b.type].name+': строительство завершено. '+(this.connected(b)?'Предприятие подключено.':'Для работы нужна дорога.'));}
       for(const worker of this.builders)if(worker.site===site.id){worker.site=null;worker.phase='idle';worker.path=[];worker.segment=0;}
     }
@@ -344,6 +351,7 @@
     produce(b,dt){
       const r=DEF[b.type].recipe;
       if(!r)return;
+      if(this.scenario==='settlement'&&['logger','quarry','farm'].includes(b.type))return;
       if(!this.readyToProduce(b)){b.progress=0;return;}
       b.progress+=dt;
       if(b.progress<r.time)return;
@@ -366,6 +374,77 @@
       if(r.point){if(r.point==='wealth')this.coins+=r.gain;else this[r.point]+=r.gain;}
     }
     // Reservations exclude cargo/jobs already allocated to a carrier.
+    resourceCell(b,type){
+      let best=null,dist=Infinity;
+      for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++)
+        for(let x=Math.max(0,b.x-3);x<=Math.min(W-1,b.x+3);x++){
+          const tile=this.tiles[id(x,y)],d=distance({x,y},b);
+          if(((type==='logger'&&tile.terrain==='forest'&&tile.wood>=2)||
+              (type==='quarry'&&tile.terrain==='hills'&&tile.stone>=2)||
+              (type==='farm'&&this.fields.some(f=>f.x===x&&f.y===y&&f.stage==='ripe'))) &&
+             d<dist){best={x,y};dist=d;}
+        }
+      return best;
+    }
+    // Separate resident task from carrier logistics: residents walk from
+    // their workshop to the natural source, work, and return with a real load.
+    // Only arrival at the workshop deposits newly extracted resources.
+    advanceWorkAgents(dt){
+      if(this.scenario!=='settlement')return;
+      const primary=new Set(['logger','quarry','farm']);
+      this.workAgents=this.workAgents.filter(a=>{
+        const b=this.buildings.find(v=>v.id===a.buildingId);
+        return Boolean(b&&primary.has(b.type)&&((this.staff[b.id]||0)>0||a.carrying));
+      });
+      for(const b of this.buildings){
+        if(!primary.has(b.type)||(this.staff[b.id]||0)<1)continue;
+        if(!this.workAgents.some(a=>a.buildingId===b.id))
+          this.workAgents.push({buildingId:b.id,x:b.x+.5,y:b.y+.5,phase:'idle',target:null,progress:0,carrying:null});
+      }
+      for(const a of this.workAgents){
+        const b=this.buildings.find(v=>v.id===a.buildingId);
+        if(!b)continue;
+        if(a.phase==='idle'){
+          a.x=b.x+.5;a.y=b.y+.5;b.progress=0;
+          if(!this.readyToProduce(b))continue;
+          const cell=this.resourceCell(b,b.type);
+          if(!cell)continue;
+          a.target=cell;a.phase='out';a.progress=0;
+        }
+        if(a.phase==='out'||a.phase==='return'){
+          const destination=a.phase==='return'?{x:b.x+.5,y:b.y+.5}:{x:a.target.x+.5,y:a.target.y+.5};
+          const dx=destination.x-a.x,dy=destination.y-a.y,d=Math.hypot(dx,dy),travel=dt*1.65;
+          if(d>travel){a.x+=dx/d*travel;a.y+=dy/d*travel;}
+          else {
+            a.x=destination.x;a.y=destination.y;
+            if(a.phase==='out'){a.phase='work';a.progress=0;}
+            else {
+              if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
+              a.carrying=null;a.phase='idle';b.progress=0;
+            }
+          }
+        }else if(a.phase==='work'){
+          if((this.staff[b.id]||0)<1){a.phase='return';continue;}
+          a.progress+=dt;b.progress=a.progress;
+          const duration=b.type==='quarry'?2.3:b.type==='farm'?2:2.6;
+          if(a.progress<duration)continue;
+          const cell=a.target,tile=this.tiles[id(cell.x,cell.y)];
+          if(b.type==='logger'&&tile.wood>=2){
+            tile.wood-=2;a.carrying={res:'logs',amount:2};
+          }else if(b.type==='quarry'&&tile.stone>=2){
+            tile.stone-=2;a.carrying={res:'stone',amount:2};
+          }else if(b.type==='farm'){
+            const field=this.fieldAt(cell.x,cell.y);
+            if(field&&field.stage==='ripe'){
+              a.carrying=field.crop==='vegetables'?{res:'vegetables',amount:2}:
+                {res:'grain',amount:field.crop==='barley'?3:2};
+              field.stage='sown';field.progress=0;field.harvests++;
+            }
+          }
+          a.phase='return';a.progress=0;b.progress=0;
+        }
+      }
+    }
     reservedFrom(bId,k){return this.carriers.reduce((sum,c)=>sum+(c.job?.source===bId&&c.job.res===k&&!c.carrying?c.job.amount:0),0);}
     reservedTo(bId,k){return this.carriers.reduce((sum,c)=>sum+(c.job?.target===bId&&c.job.res===k?c.job.amount:0),0);}
     available(b,k){return Math.max(0,b.goods[k]-this.reservedFrom(b.id,k));}
@@ -506,6 +585,7 @@
         const sub=Math.min(.1,remain);remain-=sub;
         this.clock+=sub;this.dayClock+=sub;this.dispatchClock+=sub;
         this.advanceFields(sub);
+        this.advanceWorkAgents(sub);
         for(const b of this.buildings)this.produce(b,sub);
         for(const c of this.carriers)this.moveCarrier(c,sub);
         this.advanceConstruction(sub);
@@ -518,10 +598,10 @@
         tax:this.tax,science:this.science,culture:this.culture,diplomacy:this.diplomacy,military:this.military,
         goods:{...w.goods},carriers:this.carriers.map(c=>({x:c.x,y:c.y,res:c.carrying?.res||null})),
         connected:this.buildings.filter(b=>this.connected(b)).length,total:this.buildings.length,
-        scenario:this.scenario,freeWorkers:this.availableWorkers(),staff:{...this.staff},fields:this.fields.map(f=>({...f})),
+        scenario:this.scenario,freeWorkers:this.availableWorkers(),staff:{...this.staff},workAgents:this.workAgents.map(a=>({...a})),fields:this.fields.map(f=>({...f})),
         sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,boards:s.required.boards,deliveredStone:s.goods.stone||0,stone:s.required.stone||0,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
     }
-    save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,fields:this.fields,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
+    save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,workAgents:this.workAgents,fields:this.fields,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
       construction:this.construction,builders:this.builders,nextSite:this.nextSite,
       carriers:this.carriers,nextBuilding:this.nextBuilding,coins:this.coins,population:this.population,morale:this.morale,
       tax:this.tax,day:this.day,science:this.science,culture:this.culture,diplomacy:this.diplomacy,
@@ -544,7 +624,7 @@
           !Number.isInteger(s.day)||s.day<1||!Number.isFinite(s.population)||
           !s.buildings.every(b=>DEF[b.type]&&inside(b.x,b.y)&&b.goods&&RES.every(k=>Number.isFinite(b.goods[k])&&b.goods[k]>=0)))return null;
         const game=new Game(s.seed,s.scenario==='settlement'?'settlement':'legacy');
-        const fields=['scenario','staff','fields','tiles','roads','buildings','construction','builders','nextSite','carriers','nextBuilding','coins','population','morale','tax','day',
+        const fields=['scenario','staff','fields','workAgents','tiles','roads','buildings','construction','builders','nextSite','carriers','nextBuilding','coins','population','morale','tax','day',
           'science','culture','diplomacy','military','mission','stats','clock','dayClock','dispatchClock','log','excavated'];
         for(const f of fields)if(Object.prototype.hasOwnProperty.call(s,f))game[f]=s[f];
         // Existing v0.1 / 0.2 saves did not have a mission; preserve free play.
@@ -567,6 +647,11 @@
             !s.fields.every(f=>inside(f.x,f.y)&&['wheat','barley','vegetables'].includes(f.crop)&&
               ['clearing','sown','growing','ripe'].includes(f.stage)&&Number.isFinite(f.progress)&&f.progress>=0))return null;
         }
+        if(!Array.isArray(game.workAgents)||game.workAgents.length>W*H||
+          !game.workAgents.every(a=>Number.isInteger(a.buildingId)&&Number.isFinite(a.x)&&Number.isFinite(a.y)&&
+            ['idle','out','work','return'].includes(a.phase)&&Number.isFinite(a.progress)&&a.progress>=0&&
+            (!a.target||inside(a.target.x,a.target.y))&&
+            (!a.carrying||(RES.includes(a.carrying.res)&&Number.isFinite(a.carrying.amount)&&a.carrying.amount>0))))return null;
         game.version=3;
         return game;
       }catch(_){return null;}
