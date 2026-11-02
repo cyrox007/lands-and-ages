@@ -19,7 +19,13 @@ detail_assets={name:'data:image/webp;base64,'+base64.b64encode(
                           'rotor':'mill-detailed-rotor.webp'}.items()}
 resources='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii')
-scripts=('window.StrategyResourceAtlas='+json.dumps(resources)+';\n'+
+hq_sprite='data:image/webp;base64,'+base64.b64encode(
+    (root/'assets/buildings/headquarters/headquarters-level1.webp').read_bytes()).decode('ascii')
+worker_portraits={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
+                  for p in sorted((root/'assets/workers').glob('*.webp')) if p.stem!='walk-reference-se'}
+scripts=('window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
+         'window.StrategyWorkerPortraits='+json.dumps(worker_portraits)+';\n'+
+         'window.StrategyResourceAtlas='+json.dumps(resources)+';\n'+
          'window.StrategyAssets='+json.dumps(assets,separators=(',',':'))+';\n'+
          'window.StrategyMillAtlases='+json.dumps(mill_assets,separators=(',',':'))+';\n'+
          'window.StrategyMillDetailAssets='+json.dumps(detail_assets,separators=(',',':'))+';\n'+

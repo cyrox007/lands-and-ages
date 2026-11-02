@@ -5,11 +5,11 @@
   if(root)root.StrategyEngine=api;
 })(typeof globalThis==='object'?globalThis:this,function(){
   'use strict';
-  const W=26,H=18;
+  const W=26,H=18,SETTLEMENT_RADIUS=9;
   const RES=['logs','boards','stone','grain','vegetables','flour','bread'];
   const RES_NAME={logs:'Брёвна',boards:'Доски',stone:'Камень',grain:'Зерно',vegetables:'Овощи',flour:'Мука',bread:'Хлеб'};
   const DEF={
-    warehouse:{name:'Склад',symbol:'▣',cost:0,boards:0,max:100,recipe:null},
+    warehouse:{name:'Центр поселения',symbol:'▣',cost:0,boards:0,max:100,recipe:null},
     logger:{name:'Лесничество',symbol:'♣',cost:27,boards:1,max:12,workers:1,recipe:{out:{logs:2},time:4}},
     quarry:{name:'Каменоломня',symbol:'◆',cost:36,boards:2,max:12,workers:1,recipe:{out:{stone:2},time:6}},
     sawmill:{name:'Лесопилка',symbol:'▥',cost:38,boards:2,max:12,workers:1,recipe:{in:{logs:2},out:{boards:1},time:6}},
@@ -25,7 +25,7 @@
   };
   // Площадь застройки можно расширять для следующих зданий.
   const FOOTPRINT={
-    warehouse:[1,1],logger:[1,1],quarry:[1,1],sawmill:[1,1],
+    warehouse:[2,2],logger:[1,1],quarry:[1,1],sawmill:[1,1],
     farm:[1,1],mill:[2,2],bakery:[1,1],house:[1,1],
     academy:[1,1],theatre:[1,1],market:[1,1],embassy:[1,1],barracks:[1,1],
     road:[1,1],field:[1,1]
@@ -102,7 +102,8 @@
     initializeSettlement(){
       // A genuine new game: one headquarters, no pre-built industry.
       this.coins=420;this.population=8;this.morale=78;
-      const store=this.addBuilding('warehouse',11,9,{boards:18,logs:6,bread:32});
+      const store=this.addBuilding('warehouse',10,8,{boards:18,logs:6,bread:32},footprintFor('warehouse'));
+      store.headquarters={level:1};
       for(let x=10;x<=15;x++)this.roads[id(x,10)]=true;
       for(let i=0;i<2;i++)this.carriers.push({id:i+1,x:11,y:10,segment:0,path:[],job:null,carrying:null});
       for(let i=0;i<2;i++)this.builders.push({id:i+1,x:11,y:10,segment:0,path:[],site:null,phase:'idle'});
@@ -154,11 +155,29 @@
       this.staff[b.id]=count;this.note(DEF[b.type].name+': занято '+count+'/'+cap+' рабочих мест.');
       return {ok:true};
     }
+    // Граница считается от ближайшей клетки фундамента главного здания.
+    territoryAt(x,y){
+      if(this.scenario!=='settlement')return inside(x,y);
+      const core=this.warehouse();
+      if(!core||!inside(x,y))return false;
+      const {w,h}=core.size||{w:1,h:1};
+      const dx=Math.max(core.x-x,0,x-(core.x+w-1));
+      const dy=Math.max(core.y-y,0,y-(core.y+h-1));
+      return dx+dy<=SETTLEMENT_RADIUS;
+    }
+    territoryCovers(type,x,y){
+      const {w,h}=footprintFor(type);
+      for(let dy=0;dy<h;dy++)for(let dx=0;dx<w;dx++)
+        if(!this.territoryAt(x+dx,y+dy))return false;
+      return true;
+    }
+    populationCapacity(){return 8+this.count('house')*6;}
     fieldAt(x,y){return this.fields.find(f=>f.x===x&&f.y===y)||null;}
     nearbyFarm(x,y){return this.buildings.find(b=>b.type==='farm'&&distance(b,{x,y})<=3)||null;}
     placeField(x,y,crop='wheat'){
       if(this.paused)return this.blockedOnPause();
       if(this.scenario!=='settlement')return {ok:false,error:'Поля доступны в новой игре'};
+      if(!this.territoryAt(x,y))return {ok:false,error:'Поле вне границ поселения'};
       if(!inside(x,y)||this.tiles[id(x,y)].terrain!=='grass'||this.roads[id(x,y)]||
         this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return {ok:false,error:'Нужен свободный луг'};
       if(!['wheat','barley','vegetables'].includes(crop))return {ok:false,error:'Неизвестная культура'};
@@ -367,6 +386,9 @@
     canBuild(type,x,y){
       if(this.paused)return this.blockedOnPause();
       if(!inside(x,y))return {ok:false,error:'За пределами карты'};
+      if(type==='warehouse')return {ok:false,error:'В текущей версии разрешено только одно главное здание'};
+      if(this.scenario==='settlement'&&!this.territoryCovers(type,x,y))
+        return {ok:false,error:'Постройка выходит за границы поселения'};
       if(type==='field'){
         if(this.scenario!=='settlement')return {ok:false,error:'Поля недоступны'};
         if(!inside(x,y)||this.tiles[id(x,y)].terrain!=='grass'||this.roads[id(x,y)]||
@@ -768,7 +790,7 @@
         }
       }
       this.morale=Math.max(0,Math.min(100,this.morale-(this.tax>23?3:0)));
-      const capacity=8+this.count('house')*6;
+      const capacity=this.populationCapacity();
       if(eaten===need&&this.morale>=55&&this.population<capacity&&this.day%3===0)this.population++;
       if(this.morale<20&&this.day%2===0&&this.population>3)this.population--;
       if(this.scenario==='settlement'){
@@ -805,7 +827,9 @@
         tax:this.tax,science:this.science,culture:this.culture,diplomacy:this.diplomacy,military:this.military,
         goods:{...w.goods},carriers:this.carriers.map(c=>({x:c.x,y:c.y,res:c.carrying?.res||null})),
         connected:this.buildings.filter(b=>this.connected(b)).length,total:this.buildings.length,
-        scenario:this.scenario,paused:this.paused,freeWorkers:this.availableWorkers(),staff:{...this.staff},workAgents:this.workAgents.map(a=>({...a})),fields:this.fields.map(f=>({...f})),
+        scenario:this.scenario,paused:this.paused,freeWorkers:this.availableWorkers(),
+        populationCapacity:this.populationCapacity(),territoryRadius:this.scenario==='settlement'?SETTLEMENT_RADIUS:null,
+        staff:{...this.staff},workAgents:this.workAgents.map(a=>({...a})),fields:this.fields.map(f=>({...f})),
         sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,boards:s.required.boards,deliveredStone:s.goods.stone||0,stone:s.required.stone||0,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
     }
     save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,workAgents:this.workAgents,fields:this.fields,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
