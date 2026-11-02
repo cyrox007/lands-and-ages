@@ -51,12 +51,38 @@
   }
   const PaintedMotion=window.StrategyPaintedMotion;
   const Profession=window.StrategyProfessionActions;
+  const Frames=window.StrategyProfessionFrames;
+  const professionSheets=new Map();
   const paintedCounters={idle:0,walk:0,work:0,carry:0};
   const professionCounters={};
+  const frameCounters={};
+
+  function professionSheet(role,action){
+    if(!Frames?.ACTIONS[role]?.includes(action)||!paintedReady())return null;
+    const key=role+':'+action;
+    if(!professionSheets.has(key)){
+      try{professionSheets.set(key,Frames.create(paintedPeople,role,action));}
+      catch(_){professionSheets.set(key,null);}
+    }
+    return professionSheets.get(key);
+  }
   function paintedSprite(role,x,y,size,seed=0,state='idle',frame=0,direction='se',action=''){
+    if(!paintedReady())return false;
+    const atlas=professionSheet(role,action);
+    if(atlas){
+      const row=Frames.DIRECTIONS.indexOf(direction);
+      if(row>=0){
+        ctx.drawImage(atlas,(frame%Frames.FRAMES)*Frames.W,row*Frames.H,
+          Frames.W,Frames.H,x-size*.5,y-size*Frames.H/Frames.W,
+          size,size*Frames.H/Frames.W);
+        paintedCounters[state]++;
+        frameCounters[action]=(frameCounters[action]||0)+1;
+        return true;
+      }
+    }
     const visualRole=Profession?.artRole(role)||PaintedMotion?.characterRole(role)||role;
     const index=PAINTED_ROLES.indexOf(visualRole);
-    if(index<0||!paintedReady()||!PaintedMotion)return false;
+    if(index<0||!PaintedMotion)return false;
     const ok=PaintedMotion.draw(ctx,paintedPeople,index,state,frame,
       direction,x,y,size,seed,action);
     if(ok){
@@ -1823,6 +1849,9 @@
     paintedSize:()=>({width:paintedPeople.naturalWidth,height:paintedPeople.naturalHeight}),
     professionPacks:Profession?.PACKS||{},
     professionCounts:()=>({...professionCounters}),
+    frameCounts:()=>({...frameCounters}),
+    frameSheets:()=>Array.from(professionSheets.keys()),
+    framePose:(role,action,frame,direction)=>Frames?.pose(role,action,frame,direction),
     professionAction:(role,context)=>Profession?.resolve(role,context),
     productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();

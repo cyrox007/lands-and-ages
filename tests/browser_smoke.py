@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
@@ -20,6 +20,7 @@ resource_pack=(root/'resource-pack.js').read_text('utf8')
 worker_art=(root/'worker-art.js').read_text('utf8')
 painted_motion=(root/'painted-motion.js').read_text('utf8')
 profession_actions=(root/'profession-actions.js').read_text('utf8')
+profession_frames=(root/'profession-frames.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 mill_files={'start':'mill-states-start.webp',
@@ -48,6 +49,7 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=worker_art)
     page.add_script_tag(content=painted_motion)
     page.add_script_tag(content=profession_actions)
+    page.add_script_tag(content=profession_frames)
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
@@ -385,6 +387,39 @@ with sync_playwright() as pw:
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
+        # Проверяем настоящие отдельные изображения кадров по всем пяти профессиям.
+        sheet_pixels=page.evaluate("""async () => {
+          const Frames=window.StrategyProfessionFrames;
+          const image=new Image();image.src=window.StrategyPaintedPeople;
+          await image.decode();
+          const examples=[
+            ['porter','carry'],['builder','assemble_frame'],
+            ['logger','fell_tree'],['quarry','mine_stone'],
+            ['farmer','harvest_crop']
+          ];
+          return examples.map(([role,action])=>{
+            const sheet=Frames.create(image,role,action);
+            const g=sheet.getContext('2d',{willReadFrequently:true});
+            const frame=(row,col)=>g.getImageData(col*96,row*144,96,144).data;
+            const pixels=(a,b)=>{
+              let different=0;
+              for(let k=0;k<a.length;k+=4)
+                if(a[k]!==b[k]||a[k+1]!==b[k+1]||
+                   a[k+2]!==b[k+2]||a[k+3]!==b[k+3])different++;
+              return different;
+            };
+            const a=frame(0,0),b=frame(0,2),back=frame(2,0);
+            const centre=g.getImageData(0*96+48,0*144+30,1,1).data[3];
+            return {role,action,width:sheet.width,height:sheet.height,
+              different:pixels(a,b),differentBack:pixels(a,back),alpha:centre};
+          });
+        }""")
+        assert len(sheet_pixels)==5,(name,sheet_pixels)
+        for item in sheet_pixels:
+            assert item['width']==768 and item['height']==576,(name,item)
+            assert item['different']>80,(name,item)
+            assert item['differentBack']>150,(name,item)
+            assert item['alpha']>0,(name,item)
         # Реестр профессий доступен игре, а состояния выбираются по данным движка.
         catalogue=page.evaluate("""() => {
           const d=window.__strategyDebug();
