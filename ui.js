@@ -148,105 +148,110 @@
   function line(x,y,tx,ty,color,size){ctx.strokeStyle=color;ctx.lineWidth=size;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(tx,ty);ctx.stroke();}
   function blob(x,y,rx,ry,fill,alpha=1){ctx.save();ctx.globalAlpha=alpha;ctx.fillStyle=fill;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill();ctx.restore();}
   function rectIso(cx,cy,w,hgt,fill,stroke=null){poly([[cx-w/2,cy],[cx,cy-hgt/2],[cx+w/2,cy],[cx,cy+hgt/2]],fill,stroke,.8);}
-  // Static painterly tile atlases are created once per terrain variation, not every frame.
-  const tileArtCache=new Map();
-  function tileArt(type,variation){
-    const key=type+':'+variation;
-    if(tileArtCache.has(key))return tileArtCache.get(key);
-    const c=document.createElement('canvas');c.width=160;c.height=80;
-    const g=c.getContext('2d');
-    const base={grass:'#64865c',forest:'#476a50',water:'#427f91',hills:'#9e8a6b',ruin:'#aa9676'}[type]||'#64865c';
-    const colors={grass:['#8cad76','#426b48','#71945d','#bfd090'],forest:['#668b61','#2c583f','#517851','#8fa874'],water:['#71aab4','#356e8a','#5895a6','#a0d2ce'],hills:['#c4ab85','#887252','#aa9170','#d5c4a0'],ruin:['#d1bea0','#8f795e','#b09e7b','#e1d2b3']}[type]||[];
-    let seed=((variation+1)*1597334677^type.length*38127)>>>0;
-    const rand=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296);
-    g.beginPath();g.moveTo(80,0);g.lineTo(160,40);g.lineTo(80,80);g.lineTo(0,40);g.closePath();g.clip();
-    g.fillStyle=base;g.fillRect(0,0,160,80);
-    for(let i=0;i<235;i++){
-      const x=rand()*160,y=rand()*80,w=1+rand()*12,h=.4+rand()*3;
-      g.globalAlpha=.035+rand()*(type==='water'?.15:.12);
-      g.fillStyle=colors[i%colors.length];g.beginPath();g.ellipse(x,y,w,h,rand()*.7-.35,0,Math.PI*2);g.fill();
-    }
-    g.globalAlpha=1;
-    if(type==='grass'||type==='forest')for(let i=0;i<16;i++){
-      const x=rand()*160,y=rand()*80;
-      g.strokeStyle=i%3?'#e0c99c55':'#1f473550';g.lineWidth=.7+rand();
-      g.beginPath();g.moveTo(x,y+3);g.lineTo(x-2+rand()*4,y-1-rand()*5);g.stroke();
-    }
-    if(type==='water')for(let i=0;i<9;i++){
-      const x=rand()*160,y=rand()*80;
-      g.strokeStyle='#c5ece1';g.globalAlpha=.13+rand()*.3;g.lineWidth=1+rand();
-      g.beginPath();g.moveTo(x,y);g.lineTo(x+9+rand()*18,y-2);g.stroke();
-    }
-    g.globalAlpha=1;
-    tileArtCache.set(key,c);return c;
-  }
-  // One continuous painterly material for the *entire* world. Never repeat
-  // diamond tiles: the grid exists only in simulation and selection overlays.
+  // Natural ground is rendered ONCE as a single world-sized raster.
+  // No modulo/repeating 384px pattern and no per-cell grass diamonds:
+  // hidden logical cells are used only for gameplay and interactions.
+  const tileArtCache=new Map(); // Legacy diagnostic: should remain empty.
+  const BASE_TILE=82;
   const groundSurface=document.createElement('canvas');
-  groundSurface.width=384;groundSurface.height=384;
-  (function paintGround(){
-    const g=groundSurface.getContext('2d'),seed=(()=>{let n=0x35679abd;return ()=>((n=(Math.imul(n,1664525)+1013904223)>>>0)/4294967296);})();
-    g.fillStyle='#68895e';g.fillRect(0,0,384,384);
-    for(let k=0;k<1800;k++){
-      const x=seed()*384,y=seed()*384,r=2+seed()*25;
-      const tint=['#365b44','#b8bd7e','#8ba878','#4c754f','#d2c58b'][k%5];
-      g.globalAlpha=.024+seed()*.045;g.fillStyle=tint;
-      g.beginPath();g.ellipse(x,y,r,r*(.3+seed()),seed()*3,0,Math.PI*2);g.fill();
-    }
-    for(let k=0;k<1900;k++){
-      const x=seed()*384,y=seed()*384,d=1+seed()*5;
-      g.globalAlpha=.09+seed()*.19;g.strokeStyle=k%3===0?'#c6c99a':'#294f39';
-      g.lineWidth=.55+seed()*.8;g.beginPath();g.moveTo(x,y);
-      g.quadraticCurveTo(x+seed()*5-2,y-d*.7,x+seed()*5-2,y-d);g.stroke();
-    }
-    g.globalAlpha=1;
-  })();
-  const groundPattern=ctx.createPattern(groundSurface,'repeat');
+  groundSurface.width=Math.ceil((W+H)*BASE_TILE/2);
+  groundSurface.height=Math.ceil((W+H)*BASE_TILE/4);
+  let groundSeed=null;
+  function groundPoint(x,y){
+    return {x:(H+x-y)*BASE_TILE/2,y:(x+y)*BASE_TILE/4};
+  }
   function clipWorld(){
     const outline=[screen(0,0),screen(W,0),screen(W,H),screen(0,H)];
     ctx.beginPath();ctx.moveTo(outline[0].x,outline[0].y);
     for(let k=1;k<outline.length;k++)ctx.lineTo(outline[k].x,outline[k].y);
     ctx.closePath();ctx.clip();
   }
-  function drawGround(){
-    ctx.save();clipWorld();
-    ctx.fillStyle='#698b61';ctx.fillRect(0,0,width,height);
-    // Anchor texture to the moving world, not the screen.
-    const origin=screen(0,0),ox=((origin.x%384)+384)%384,oy=((origin.y%384)+384)%384;
-    ctx.translate(ox,oy);ctx.fillStyle=groundPattern;
-    ctx.fillRect(-384,-384,width+768,height+768);
-    ctx.restore();
+  function paintGround(){
+    const g=groundSurface.getContext('2d');
+    const seedValue=(game.seed|0)>>>0;
+    let state=(seedValue^0x6bd87243)>>>0;
+    const rand=()=>((state=(Math.imul(state,1664525)+1013904223)>>>0)/4294967296);
+    const gw=groundSurface.width,gh=groundSurface.height;
+    g.clearRect(0,0,gw,gh);
+    // A single clipping polygon makes even the map edges independent of cells.
+    g.beginPath();
+    for(const [i,p] of [[0,groundPoint(0,0)],[1,groundPoint(W,0)],
+      [2,groundPoint(W,H)],[3,groundPoint(0,H)]]){
+      if(i===0)g.moveTo(p.x,p.y);else g.lineTo(p.x,p.y);
+    }
+    g.closePath();g.clip();
+    g.fillStyle='#6f8d61';g.fillRect(0,0,gw,gh);
+    const wash=(x,y,rx,ry,rgb,opacity)=>{
+      g.save();g.translate(x,y);g.scale(rx,ry);
+      const gradient=g.createRadialGradient(0,0,.06,0,0,1);
+      gradient.addColorStop(0,'rgba('+rgb+','+opacity+')');
+      gradient.addColorStop(.48,'rgba('+rgb+','+(opacity*.52)+')');
+      gradient.addColorStop(1,'rgba('+rgb+',0)');
+      g.fillStyle=gradient;g.fillRect(-1,-1,2,2);
+      g.restore();
+    };
+    // Broad overlapping vegetation and dry-ground patterns intentionally
+    // cross tile boundaries. All positions are seeded in continuous space.
+    for(let i=0;i<155;i++){
+      const x=rand()*gw,y=rand()*gh,r=35+rand()*145;
+      const tint=['38,85,55','157,160,101','92,126,76','115,100,68','165,163,111'][i%5];
+      wash(x,y,r,r*(.38+rand()*.6),tint,.10+rand()*.13);
+    }
+    // Biome influence is a feathered region, not an individual grass tile.
+    // A forest cell only locates a soft canopy footprint with irregular offset.
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const tile=game.tiles[id(x,y)];
+      if(tile.terrain!=='forest'&&tile.terrain!=='hills')continue;
+      const p=groundPoint(x+.5+(rand()-.5)*.68,y+.5+(rand()-.5)*.68);
+      const radius=BASE_TILE*(tile.terrain==='forest'?1.0:1.22);
+      wash(p.x,p.y,radius,radius*.48,
+        tile.terrain==='forest'?'33,76,44':'135,121,91',
+        tile.terrain==='forest'?.19:.15);
+    }
+    // Thousands of varied small natural details, with no grid iteration.
+    for(let k=0;k<11000;k++){
+      const x=rand()*gw,y=rand()*gh,length=.9+rand()*5.5;
+      g.globalAlpha=.08+rand()*.23;
+      g.strokeStyle=k%7===0?'#dfd8a3':k%3===0?'#315f41':'#a1b585';
+      g.lineWidth=.4+rand()*.8;
+      g.beginPath();g.moveTo(x,y);
+      g.quadraticCurveTo(x+rand()*3-1.5,y-length*.48,
+        x+rand()*4-2,y-length);g.stroke();
+    }
+    for(let k=0;k<430;k++){
+      const x=rand()*gw,y=rand()*gh,r=.7+rand()*2.5;
+      g.globalAlpha=.12+rand()*.2;
+      g.fillStyle=k%3?'#bdab82':'#53614a';
+      g.beginPath();g.ellipse(x,y,r,r*.45,rand()*Math.PI,0,Math.PI*2);g.fill();
+    }
+    g.globalAlpha=1;
+    groundSeed=game.seed|0;
   }
-  // Natural surfaces are continuous washes across logical cells. Grid cells
-  // still exist for pathfinding, but are not rendered as different-colored
-  // "Minecraft" diamonds.
-  function terrainTile(x,y){
-    const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
-    const variation=((x*19+y*31+x*y*7)%7+7)%7;
-    const art=tileArt('grass',variation);
-    ctx.drawImage(art,p.x-t*.504,p.y-h*.504,t*1.008,h*1.008);
+  function drawGround(){
+    if(groundSeed!==(game.seed|0))paintGround();
+    const origin=screen(0,0);
+    ctx.drawImage(groundSurface,origin.x-H*BASE_TILE*zoom/2,origin.y,
+      groundSurface.width*zoom,groundSurface.height*zoom);
   }
   function landscapePatches(){
     const t=tileSize(),h=tileHeight();
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
-      const tile=game.tiles[id(x,y)],p=screen(x+.5,y+.5),v=(x*17+y*31)%7;
+      const tile=game.tiles[id(x,y)];
+      if(tile.terrain!=='hills')continue;
+      const jitterX=((x*73+y*31)%11-5)*.056;
+      const jitterY=((x*37+y*19)%9-4)*.05;
+      const p=screen(x+.5+jitterX,y+.5+jitterY);
       if(p.x<-t*2||p.y<-t*2||p.x>width+t*2||p.y>height+t*2)continue;
-      if(tile.terrain==='forest'){
-        blob(p.x,p.y,t*.49,h*.34,'#315c45',.18);
-        blob(p.x+t*.12,p.y-h*.04,t*.32,h*.25,'#416d4b',.12);
-      }else if(tile.terrain==='hills'){
-        // Uneven rocky escarpment with no square dirt boundary.
-        blob(p.x,p.y+h*.09,t*.59,h*.38,'#8d7b64',.60);
-        blob(p.x-t*.11,p.y-h*.04,t*.40,h*.27,'#c0ac8a',.55);
-        for(let k=0;k<3;k++){
-          const dx=t*((k-1)*.16+.03*(v%3)),dy=h*((k%2)*.09-.08);
-          const r=t*(.10+.035*((k+v)%3));
-          poly([[p.x+dx-r,p.y+dy+h*.05],[p.x+dx-r*.31,p.y+dy-h*(.19+.04*k)],
-            [p.x+dx+r*.78,p.y+dy-h*.08],[p.x+dx+r,p.y+dy+h*.12]],
-            ['#9d9386','#bdad94','#817d76'][k],null);
-          line(p.x+dx-r*.16,p.y+dy-h*.13,p.x+dx-r*.03,p.y+dy-h*.19,'#e1d0b6',.9*zoom);
-        }
-
+      // Unequal stone clusters instead of a repeated diamond backdrop.
+      for(let k=0;k<3;k++){
+        const phase=((x*41+y*17+k*23)%17)/17;
+        const dx=t*((k-1)*.17+phase*.1),dy=h*((k%2)*.08-.11);
+        const r=t*(.07+.065*phase);
+        poly([[p.x+dx-r,p.y+dy+h*.09],[p.x+dx-r*.25,p.y+dy-h*(.18+.06*phase)],
+          [p.x+dx+r*.65,p.y+dy-h*.11],[p.x+dx+r,p.y+dy+h*.13]],
+          ['#88887e','#c3baa4','#777a74'][k]);
+        line(p.x+dx-r*.14,p.y+dy-h*.10,p.x+dx-r*.015,
+          p.y+dy-h*.18,'#d7d0bd',.8*zoom);
       }
     }
   }
