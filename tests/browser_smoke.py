@@ -86,6 +86,15 @@ def check(browser,name,w,h,mobile):
     assert layout['width']>0
     assert layout['hubX']<0 and layout['hubY']<0
     assert layout['rotorWidth']<layout['width']*.55
+    body=page.evaluate("window.__strategyDebug().millGroundLayout('body')")
+    survey=page.evaluate("window.__strategyDebug().millGroundLayout('survey')")
+    frame=page.evaluate("window.__strategyDebug().millGroundLayout('frame')")
+    levels=[body['top']+body['height']*284/316,
+            survey['top']+survey['size']*135/176,
+            frame['top']+frame['size']*157/176]
+    assert max(levels)-min(levels)<.001,(name,'разные высоты основания мельницы',levels)
+    assert survey['size']*168/176 < 164,(name,'площадка вылезает за 2×2',survey)
+
     assert page.evaluate('window.__strategyDebug().millPackage().raster') is True
     assert page.evaluate('window.__strategyDebug().millPackage().source')=='approved-imagegen-sheets'
     assert page.evaluate('window.__strategyDebug().millRotorState(5).blades')==4
@@ -115,7 +124,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.7-placement'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.7-mill-ground-anchor'
     assert page.evaluate("window.__strategyDebug().placement('mill',14,9).size")=={'w':2,'h':2}
     blocked=page.evaluate("window.__strategyDebug().placement('mill',14,9)")
     assert blocked['ok'] is False
