@@ -180,6 +180,43 @@
     g.globalAlpha=1;
     tileArtCache.set(key,c);return c;
   }
+  // One continuous painterly material for the *entire* world. Never repeat
+  // diamond tiles: the grid exists only in simulation and selection overlays.
+  const groundSurface=document.createElement('canvas');
+  groundSurface.width=384;groundSurface.height=384;
+  (function paintGround(){
+    const g=groundSurface.getContext('2d'),seed=(()=>{let n=0x35679abd;return ()=>((n=(Math.imul(n,1664525)+1013904223)>>>0)/4294967296);})();
+    g.fillStyle='#68895e';g.fillRect(0,0,384,384);
+    for(let k=0;k<1800;k++){
+      const x=seed()*384,y=seed()*384,r=2+seed()*25;
+      const tint=['#365b44','#b8bd7e','#8ba878','#4c754f','#d2c58b'][k%5];
+      g.globalAlpha=.024+seed()*.045;g.fillStyle=tint;
+      g.beginPath();g.ellipse(x,y,r,r*(.3+seed()),seed()*3,0,Math.PI*2);g.fill();
+    }
+    for(let k=0;k<1900;k++){
+      const x=seed()*384,y=seed()*384,d=1+seed()*5;
+      g.globalAlpha=.09+seed()*.19;g.strokeStyle=k%3===0?'#c6c99a':'#294f39';
+      g.lineWidth=.55+seed()*.8;g.beginPath();g.moveTo(x,y);
+      g.quadraticCurveTo(x+seed()*5-2,y-d*.7,x+seed()*5-2,y-d);g.stroke();
+    }
+    g.globalAlpha=1;
+  })();
+  const groundPattern=ctx.createPattern(groundSurface,'repeat');
+  function clipWorld(){
+    const outline=[screen(0,0),screen(W,0),screen(W,H),screen(0,H)];
+    ctx.beginPath();ctx.moveTo(outline[0].x,outline[0].y);
+    for(let k=1;k<outline.length;k++)ctx.lineTo(outline[k].x,outline[k].y);
+    ctx.closePath();ctx.clip();
+  }
+  function drawGround(){
+    ctx.save();clipWorld();
+    ctx.fillStyle='#698b61';ctx.fillRect(0,0,width,height);
+    // Anchor texture to the moving world, not the screen.
+    const origin=screen(0,0),ox=((origin.x%384)+384)%384,oy=((origin.y%384)+384)%384;
+    ctx.translate(ox,oy);ctx.fillStyle=groundPattern;
+    ctx.fillRect(-384,-384,width+768,height+768);
+    ctx.restore();
+  }
   // Natural surfaces are continuous washes across logical cells. Grid cells
   // still exist for pathfinding, but are not rendered as different-colored
   // "Minecraft" diamonds.
@@ -585,10 +622,8 @@
     // the viewport with an extended margin for tall buildings and trees.
     const margin=tileSize()*2.6;
     const visible=(p)=>p.x>-margin&&p.y>-margin*1.5&&p.x<width+margin&&p.y<height+margin;
-    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
-      const pos=screen(x+.5,y+.5);if(visible(pos))terrainTile(x,y);
-    }
-    landscapePatches();
+    drawGround();
+    ctx.save();clipWorld();landscapePatches();ctx.restore();
     for(const field of game.fields||[])if(visible(screen(field.x+.5,field.y+.5)))drawField(field);
     for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(game.roads[id(x,y)]){
       if(visible(screen(x+.5,y+.5)))road(x,y);
