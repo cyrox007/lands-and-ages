@@ -5,7 +5,7 @@ const {Game}=require('../engine.js'),M=require('../mill-pack.js');
 function run(g,seconds){for(let k=0;k<Math.ceil(seconds*10);k++)g.step(.1);}
 test('игра загружает утверждённые растровые атласы вместо SVG',()=>{
   assert.equal(M.id,'mill');
-  assert.equal(M.version,2);
+  assert.equal(M.version,3);
   assert.equal(Object.keys(M.atlases).length,3);
   assert.equal(Object.keys(M.sprites).length,22);
   assert.deepEqual(M.states.destruction,['fresh_ruins','old_ruins','overgrown_ruins']);
@@ -15,6 +15,18 @@ test('игра загружает утверждённые растровые а
     assert.equal(data.subarray(8,12).toString('ascii'),'WEBP');
     assert.ok(data.length>30000,'спрайт-лист должен содержать настоящую детализацию');
   }
+  for(const file of [M.detailed.body,M.detailed.rotor]){
+    const bytes=fs.readFileSync(path.join(__dirname,'../',M.path,file));
+    assert.equal(bytes.subarray(0,4).toString('ascii'),'RIFF');
+    assert.ok(bytes.length>25000,'детализированный спрайт не должен быть пустым');
+  }
+  const art=M.layout(82,41);
+  assert.equal(art.width,82*2.28);
+  assert.ok(Math.abs(art.hubX+art.width*.125)<1e-7);
+  assert.ok(art.rotorWidth<art.width*.55);
+  assert.ok(art.hubY<0);
+  assert.equal(M.detailed.bodySize.w,360);
+  assert.equal(M.detailed.hub.y,148);
   for(const name of ['body_assembled','rotor','grain_sacks','flour_sacks','millstone',
     'working_miller','survey','frame','walls','almost',
     'damaged','fresh_ruins','old_ruins','overgrown_ruins','restoring'])
