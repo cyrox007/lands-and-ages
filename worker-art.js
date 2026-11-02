@@ -25,9 +25,9 @@
     const head=role==='logger'
       ?poly('60,41 75,38 75,49 64,52','#c5c6b8','#585e59')
       :role==='quarry'
-        ?line('55 43 Q70 34 82 43','#bdc4c1',8)
+        ?line('M55 43 Q70 34 82 43','#bdc4c1',8)
         :role==='farmer'
-          ?line('61 42 L76 42','#b1a580',7)
+          ?line('M61 42 L76 42','#b1a580',7)
           :poly('59,38 74,38 75,47 60,47','#b8b9ad','#555d5a');
     return '<g transform="rotate('+round(angle)+' 57 72)">'+
       line('M55 77 L67 39','#74502c',5)+head+
@@ -40,7 +40,7 @@
     const phase=frame*Math.PI/4;
     const step=action==='work'?0:Math.sin(phase);
     const bob=action==='work'?0:Math.abs(Math.sin(phase))*1.5;
-    const arm=action==='work'?Math.sin(phase)*9:step*10;
+    const arm=action==='work'?Math.sin(phase)*9:step*(action==='carry'?4:10);
     const lift=action==='work'?0:Math.max(0,step)*8;
     const liftOther=action==='work'?0:Math.max(0,-step)*8;
     const leftFootX=round(37+step*10),rightFootX=round(55-step*10);
