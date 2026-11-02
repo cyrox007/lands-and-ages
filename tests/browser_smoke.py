@@ -203,6 +203,21 @@ with sync_playwright() as pw:
         assert page.locator('[data-crop="barley"]').get_attribute('aria-pressed')=='true'
         page.locator('[data-hud-panel="stocks"]').click()
         assert page.locator('#stoneStock').is_visible()
+        # Actual new-game pointer flow: place a logger, finish its site and staff it.
+        page.locator('[data-hud-panel="build"]').click()
+        page.locator('[data-tool="logger"]').click()
+        tap_cell(page,12,9,mobile)
+        page.wait_for_function('window.__strategyDebug().sites.some(s=>s.type==="logger")')
+        page.evaluate('window.__strategyDebug().step(45)')
+        page.wait_for_function('window.__strategyDebug().buildings===2')
+        if page.locator('.shell').get_attribute('data-panel')!='build':
+            page.locator('[data-hud-panel="build"]').click()
+        page.locator('[data-tool="inspect"]').click()
+        tap_cell(page,12,9,mobile)
+        page.wait_for_function('document.querySelector(".staff-controls") !== null')
+        assert page.locator('.staff-controls').is_visible()
+        page.locator('.staff-controls button[aria-label="Назначить работника"]').click()
+        assert page.evaluate('window.__strategyDebug().freeWorkers')==3
         assert not errors,(name,errors)
         print(name,{'oneHQ':True,'fullViewport':True,'overlaidHUD':True,'errors':0})
         context.close()
