@@ -54,6 +54,11 @@
       x-size*.5,y-size*.76,size,size);
     return true;
   }
+  // Каждая доставка добавляет отдельную пачку материалов на фундамент.
+  function drawDeliveredMaterials(type,amount,x,y,t,h){
+    for(let i=0;i<Math.min(5,amount||0);i++)
+      drawResourceArt(type,1,x+(i%3)*t*.12,y+Math.floor(i/3)*h*.12,t*.33);
+  }
   function paintResourceLabels(){
     for(const label of document.querySelectorAll('.resource-grid [data-resource]')){
       const frame=resourceFrame(label.dataset.resource,2);
@@ -885,10 +890,8 @@
     castShadow(pos.x,pos.y+h*.3,t,h,1.60,.28);
     const phase=V.constructionVisualPhase(site);
     millArt(M.constructionSprite(phase),pos,t,h);
-    if((site.goods.boards||0)>0)
-      drawResourceArt('boards',site.goods.boards,pos.x-t*.48,pos.y+h*.28,t*.43);
-    if((site.goods.stone||0)>0)
-      drawResourceArt('stone',site.goods.stone,pos.x+t*.46,pos.y+h*.28,t*.43);
+    drawDeliveredMaterials('boards',site.goods.boards,pos.x-t*.58,pos.y+h*.28,t,h);
+    drawDeliveredMaterials('stone',site.goods.stone,pos.x+t*.32,pos.y+h*.28,t,h);
     const ready=Object.entries(site.required).every(([k,n])=>(site.goods[k]||0)>=n);
     const progress=Math.floor(site.progress/site.duration*100);
     const label=ready?'⚒ '+progress+'%':
@@ -1081,8 +1084,8 @@
         }
       }
       // Фактически доставленные материалы на стройплощадке, а не условная иконка.
-      if(have)drawResourceArt('boards',have,x-t*.46,y+h*.25,t*.45);
-      if(deliveredStone)drawResourceArt('stone',deliveredStone,x+t*.46,y+h*.25,t*.45);
+      drawDeliveredMaterials('boards',have,x-t*.52,y+h*.25,t,h);
+      drawDeliveredMaterials('stone',deliveredStone,x+t*.32,y+h*.25,t,h);
       if(materialsReady&&ratio>0){
         const f=(animationClock*.7+site.id*.13)%1;
         for(let k=0;k<4;k++){
