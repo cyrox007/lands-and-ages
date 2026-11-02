@@ -6,8 +6,8 @@
 })(typeof globalThis==='object'?globalThis:this,function(){
   'use strict';
   const W=26,H=18;
-  const RES=['logs','boards','stone','grain','flour','bread'];
-  const RES_NAME={logs:'Брёвна',boards:'Доски',stone:'Камень',grain:'Зерно',flour:'Мука',bread:'Хлеб'};
+  const RES=['logs','boards','stone','grain','vegetables','flour','bread'];
+  const RES_NAME={logs:'Брёвна',boards:'Доски',stone:'Камень',grain:'Зерно',vegetables:'Овощи',flour:'Мука',bread:'Хлеб'};
   const DEF={
     warehouse:{name:'Склад',symbol:'▣',cost:0,boards:0,max:100,recipe:null},
     logger:{name:'Лесничество',symbol:'♣',cost:27,boards:1,max:12,workers:1,recipe:{out:{logs:2},time:4}},
@@ -330,10 +330,14 @@
       const def=DEF[b.type],r=def?.recipe;if(!r||!this.connected(b))return false;
       if(this.scenario==='settlement'&&(this.staff[b.id]||0)<(def.workers||1))return false;
       if(b.type==='quarry'&&!this.findDeposit(b))return false;
-      if(b.type==='farm'&&this.scenario==='settlement'&&!this.fields.some(f=>f.stage==='ripe'&&distance(f,b)<=3))return false;
+      if(b.type==='farm'&&this.scenario==='settlement'){
+        const field=this.fields.find(f=>f.stage==='ripe'&&distance(f,b)<=3&&
+          b.goods[f.crop==='vegetables'?'vegetables':'grain']+(f.crop==='barley'?3:2)<=def.max);
+        if(!field)return false;
+      }
       if(b.type==='logger'&&!this.findForest(b))return false;
       if(r.in&&Object.entries(r.in).some(([k,n])=>b.goods[k]<n))return false;
-      if(r.out&&Object.entries(r.out).some(([k,n])=>b.goods[k]+n>def.max))return false;
+      if(r.out&&!(b.type==='farm'&&this.scenario==='settlement')&&Object.entries(r.out).some(([k,n])=>b.goods[k]+n>def.max))return false;
       return true;
     }
     produce(b,dt){
@@ -344,13 +348,16 @@
       if(b.progress<r.time)return;
       b.progress-=r.time;
       if(!this.readyToProduce(b))return;
+      let outputs=r.out||{};
       if(b.type==='farm'&&this.scenario==='settlement'){
-        const field=this.fields.find(f=>f.stage==='ripe'&&distance(f,b)<=3);
+        const field=this.fields.find(f=>f.stage==='ripe'&&distance(f,b)<=3&&
+          b.goods[f.crop==='vegetables'?'vegetables':'grain']+(f.crop==='barley'?3:2)<=DEF[b.type].max);
         if(!field)return;
+        outputs=field.crop==='vegetables'?{vegetables:2}:{grain:field.crop==='barley'?3:2};
         field.stage='sown';field.progress=0;field.harvests++;
       }
       for(const [k,n] of Object.entries(r.in||{}))b.goods[k]-=n;
-      for(const [k,n] of Object.entries(r.out||{}))b.goods[k]+=n;
+      for(const [k,n] of Object.entries(outputs))b.goods[k]+=n;
       if(b.type==='bakery')this.stats.baked+=r.out.bread;
       if(r.point)this.stats.developed[r.point]=(this.stats.developed[r.point]||0)+r.gain;
       if(b.type==='logger'){const forest=this.findForest(b);if(forest)forest.wood=Math.max(0,forest.wood-2);}
@@ -384,7 +391,7 @@
         for(const b of this.buildings){
           if(b.type==='warehouse'||!this.connected(b))continue;
           const outputs=DEF[b.type].recipe?.out||{};
-          for(const k of Object.keys(outputs)){
+          for(const k of b.type==='farm'?['grain','vegetables']:Object.keys(outputs)){
             const available=this.available(b,k);
             if(available<2||store.goods[k]+this.reservedTo(store.id,k)>=100)continue;
             const amount=Math.min(3,available,100-store.goods[k]-this.reservedTo(store.id,k));
@@ -461,7 +468,10 @@
       this.day++;
       const stock=this.warehouse().goods;
       const need=Math.ceil(this.population/5);
-      const eaten=Math.min(need,stock.bread);stock.bread-=eaten;
+      const breadEaten=Math.min(need,stock.bread);stock.bread-=breadEaten;
+      const vegetableEaten=this.scenario==='settlement'?Math.min(need-breadEaten,stock.vegetables):0;
+      stock.vegetables-=vegetableEaten;
+      const eaten=breadEaten+vegetableEaten;
       if(eaten<need){this.morale=Math.max(0,this.morale-9);this.note('Не хватает хлеба. Население недовольно.');}
       else this.morale=Math.min(100,this.morale+(this.tax>23?-3:this.tax<10?3:1));
       this.coins+=Math.floor(this.population*this.tax/18);
@@ -507,8 +517,8 @@
         const s=JSON.parse(raw);
         // v1/v2 persisted before stone was introduced; migrate on load.
         if(s&&[1,2].includes(s.version)&&Array.isArray(s.buildings)&&Array.isArray(s.tiles)){
-          for(const b of s.buildings)if(b.goods&&b.goods.stone===undefined)b.goods.stone=0;
-          for(const c of s.construction||[])if(c.goods&&c.goods.stone===undefined)c.goods.stone=0;
+          for(const b of s.buildings)if(b.goods){if(b.goods.stone===undefined)b.goods.stone=0;if(b.goods.vegetables===undefined)b.goods.vegetables=0;}
+          for(const c of s.construction||[])if(c.goods){if(c.goods.stone===undefined)c.goods.stone=0;if(c.goods.vegetables===undefined)c.goods.vegetables=0;}
           for(const t of s.tiles)if(t.stone===undefined)t.stone=t.terrain==='hills'?55:0;
         }
         if(![1,2,3].includes(s.version)||!Array.isArray(s.tiles)||s.tiles.length!==W*H||
