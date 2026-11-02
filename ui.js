@@ -187,7 +187,7 @@
       state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
   }
   function workerSprite(entity,role,px,py,size){
-    const pose=workerState(entity,role),img=pose.art||workerSheets[pose.sheet];
+    const pose=workerState(entity,role),img=pose.art||(role==='porter'||role==='builder'?workerSheets[pose.sheet]:null);
     if(!img?.naturalWidth)return false;
     // Character feet stay locked to the simulation tile; only drawn limbs change.
     ctx.drawImage(img,pose.frame*WORKER_FRAME_W,pose.row*WORKER_FRAME_H,
