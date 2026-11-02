@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="viewport-hud-20261102-v2"
+EXPECTED="strategy-hud-20261102-v3"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -57,6 +57,11 @@ with sync_playwright() as pw:
             dockDisplay:getComputedStyle(dock).display,
             sidebarDisplay:getComputedStyle(document.querySelector('.sidebar')).display,
             pageScroll:[document.documentElement.scrollWidth,document.documentElement.scrollHeight],
+            topBar:document.querySelector('.masthead').getBoundingClientRect().toJSON(),
+            stats:document.querySelector('.top-stats').getBoundingClientRect().toJSON(),
+            dockRect:dock.getBoundingClientRect().toJSON(),
+            questCollapsed:document.querySelector('#missionToggle').getAttribute('aria-expanded'),
+            questContentsDisplay:getComputedStyle(document.querySelector('#missionContents')).display,
             cssHref:document.querySelector('link[rel="stylesheet"]').href
           };
         }""")
@@ -65,9 +70,27 @@ with sync_playwright() as pw:
         assert abs(metrics["canvas"][3]-height)<2,(name,metrics)
         assert metrics["shellPosition"]=="fixed",(name,metrics)
         assert metrics["dockDisplay"]=="flex" and metrics["sidebarDisplay"]=="none",(name,metrics)
+        assert metrics["questCollapsed"]=="false" and metrics["questContentsDisplay"]=="none",(name,metrics)
+        assert metrics["stats"]["top"]<metrics["dockRect"]["top"],(name,metrics)
+        assert metrics["dockRect"]["top"]>=height*.75,(name,metrics)
+        if width<=750 and height>510:
+            gap=page.evaluate("""() => document.querySelector('.panel-head').getBoundingClientRect().left -
+              document.querySelector('.mission-card').getBoundingClientRect().right""")
+            assert gap>=3,(name,"overlapping upper controls",gap)
+
         assert metrics["pageScroll"][0]<=width+1 and metrics["pageScroll"][1]<=height+1,(name,metrics)
+        page.locator('#missionToggle').click()
+        assert page.locator('#missionContents').is_visible(),name
+        if width<=750 and height>510:
+            assert not page.locator('.panel-head').is_visible(),name
+        page.locator('#missionToggle').click()
         page.locator('[data-hud-panel="build"]').click()
         assert page.locator(".sidebar").is_visible(),(name,metrics)
+        page.locator('[data-build-category="raw"]').click()
+        assert page.locator('#buildPanel [data-tool="logger"]').is_visible(),name
+        assert not page.locator('#buildPanel [data-tool="mill"]').is_visible(),name
+        page.locator('[data-hud-panel="build"]').click()
+        assert not page.locator(".sidebar").is_visible(),name
         print(name,metrics,flush=True)
         context.close()
     browser.close()

@@ -608,8 +608,8 @@
     if(m.done&&!winShown){winShown=true;persist();}
   }
   function focusMission(){const m=game.missionProgress();if(!m.target)return;camera.x=m.target.x+.5;camera.y=m.target.y+.5;draw();}
-  $('missionFocus').addEventListener('click',focusMission);
-  $('missionTool').addEventListener('click',()=>{selectTool($('missionTool').dataset.actionTool);if(game.missionProgress().stage!==3)focusMission();});
+  $('missionFocus').addEventListener('click',()=>{focusMission();setMissionExpanded(false);});
+  $('missionTool').addEventListener('click',()=>{selectTool($('missionTool').dataset.actionTool);if(game.missionProgress().stage!==3)focusMission();setMissionExpanded(false);});
   function updateHUD(){
     const hud=game.hud();updateMission();
     const sites=$('constructionList');sites.replaceChildren();
@@ -641,10 +641,7 @@
   function inspectAt(x,y){const data=game.inspect(x,y);$('tileInfo').replaceChildren();
     const title=document.createElement('strong'),desc=document.createElement('span');
      title.textContent=data.title;desc.textContent=data.desc;$('tileInfo').append(title,desc);
-     if(game.scenario==='settlement'){
-       shell.dataset.panel='news';
-       document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded',String(btn.dataset.hudPanel==='news')));
-     }
+     if(game.scenario==='settlement')setPanel('news');
      const b=game.buildingAt(x,y);
      if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
        const row=document.createElement('div');row.className='staff-controls';
@@ -707,19 +704,41 @@
   canvas.addEventListener('lostpointercapture',()=>{pointer=null;});
   canvas.addEventListener('pointerleave',()=>{if(!pointer)hover=null;});
   canvas.addEventListener('wheel',e=>{if(e.cancelable)e.preventDefault();zoomBy(e.deltaY<0?.12:-.12);},{passive:false});
-  document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>selectTool(b.dataset.tool)));
+  document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>{
+    selectTool(b.dataset.tool);
+    if(b.closest('.game-dock'))setPanel('none');
+  }));
   $('surveyBtn').addEventListener('click',()=>selectTool('excavate'));
   const shell=document.querySelector('.shell');
-  document.querySelectorAll('[data-hud-panel]').forEach(b=>b.addEventListener('click',()=>{
-    const panel=b.dataset.hudPanel;
-    shell.dataset.panel=shell.dataset.panel===panel?'none':panel;
-    document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded',String(shell.dataset.panel===btn.dataset.hudPanel)));
+  function setPanel(panel){
+    shell.dataset.panel=panel;
+    document.querySelectorAll('[data-hud-panel]').forEach(btn=>
+      btn.setAttribute('aria-expanded',String(panel===btn.dataset.hudPanel)));
+  }
+  document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.addEventListener('click',()=>{
+    setPanel(shell.dataset.panel===btn.dataset.hudPanel?'none':btn.dataset.hudPanel);
   }));
+  document.querySelectorAll('[data-close-panel]').forEach(btn=>btn.addEventListener('click',()=>setPanel('none')));
+  const buildPanel=$('buildPanel');
+  document.querySelectorAll('[data-build-category]').forEach(btn=>btn.addEventListener('click',()=>{
+    buildPanel.dataset.category=btn.dataset.buildCategory;
+    document.querySelectorAll('[data-build-category]').forEach(tab=>
+      tab.setAttribute('aria-pressed',String(tab===btn)));
+  }));
+  const missionCard=$('missionCard'),missionToggle=$('missionToggle');
+  function setMissionExpanded(expanded){
+    missionCard.classList.toggle('expanded',expanded);
+    missionToggle.setAttribute('aria-expanded',String(expanded));
+    missionToggle.title=expanded?'Свернуть задание':'Развернуть задание';
+    missionToggle.querySelector('.sr-only').textContent=missionToggle.title;
+  }
+  missionToggle.addEventListener('click',()=>setMissionExpanded(!missionCard.classList.contains('expanded')));
+  canvas.addEventListener('pointerdown',()=>{if(shell.dataset.panel!=='none')setPanel('none');});
   document.querySelectorAll('[data-crop]').forEach(b=>b.addEventListener('click',()=>{
     selectedCrop=b.dataset.crop;
     document.querySelectorAll('[data-crop]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));
     selectTool('field');
-    if(innerWidth<=750)shell.dataset.panel='none';
+    if(innerWidth<=750)setPanel('none');
   }));
   document.querySelectorAll('[data-pan]').forEach(b=>b.addEventListener('click',()=>{
     const delta={left:[-2,0],right:[2,0],up:[0,-2],down:[0,2]}[b.dataset.pan];
@@ -735,16 +754,16 @@
   $('closeHelp').addEventListener('click',()=>$('helpDialog').close());
   $('resetBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать новую карту? Текущий прогресс будет потерян.'))return;
-    game=new Game().startMission();shell.dataset.panel='none';resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
+    game=new Game().startMission();setPanel('none');setMissionExpanded(false);resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
   });
   $('freeBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать свободную игру без задач? Текущий прогресс будет заменён.'))return;
-    game=new Game(1729,'settlement');shell.dataset.panel='none';resetMotion();stageShown=-2;winShown=false;camera.x=11.5;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
+    game=new Game(1729,'settlement');setPanel('none');setMissionExpanded(false);resetMotion();stageShown=-2;winShown=false;camera.x=11.5;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
   });
   window.addEventListener('keydown',e=>{
     if(e.target.closest('input,button,dialog'))return;
     if(e.code==='Space'){e.preventDefault();setPaused(!paused);}
-    if(e.key==='Escape')selectTool('inspect');
+    if(e.key==='Escape'){setPanel('none');setMissionExpanded(false);selectTool('inspect');}
     if(e.key==='+'||e.key==='=')zoomBy(.15);
     if(e.key==='-')zoomBy(-.15);
     const pan={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.code];
