@@ -99,7 +99,7 @@
   function notify(s){$('toast').textContent=s;$('toast').classList.add('visible');toastUntil=performance.now()+2800;}
   function selectTool(type){
     mode=type;
-    if(innerWidth<=750&&type!=='inspect'&&type!=='field'){
+    if(innerWidth<=750&&type!=='field'){
       const container=document.querySelector('.shell');
       if(container)container.dataset.panel='none';
       document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded','false'));
