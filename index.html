@@ -10,7 +10,7 @@
   <meta name="strategy-pages-layout" content="strategy-hud-20261102-v3">
   <!-- Critical game geometry is embedded deliberately: a cached old style.css
        must NEVER turn the game back into a scrolling web page. -->
-  <link rel="stylesheet" href="style.css?v=0.5.0-rc.2-strategy-hud">
+  <link rel="stylesheet" href="style.css?v=0.5.1-living-world">
   <style id="game-viewport-guard">
 
 /* Critical CSS lives in HTML to keep the game playable even if style.css is cached. */
@@ -149,10 +149,50 @@ dialog{max-height:85dvh}
  .game-dock button{min-height:42px!important}
 }
 
+
+    /* 0.5.1 motion system. Keep nodes mounted, animate visibility/size without
+       stealing pointer events from the living map during closed states. */
+    .shell .sidebar,.shell .stocks,.shell .news{display:block!important}
+    .shell .footer{display:flex!important}
+    .shell .hud-panel{
+      visibility:hidden!important;opacity:0!important;pointer-events:none!important;
+      transform:translateY(16px) scale(.975)!important;transform-origin:bottom left!important;
+      transition:opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1),visibility 0s linear .26s!important;
+      will-change:opacity,transform
+    }
+    .shell[data-panel="build"] .sidebar,.shell[data-panel="stocks"] .stocks,
+    .shell[data-panel="news"] .news,.shell[data-panel="settings"] .footer{
+      visibility:visible!important;opacity:1!important;pointer-events:auto!important;
+      transform:translateY(0) scale(1)!important;
+      transition:opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1),visibility 0s!important
+    }
+    .mission-card{transition:width .28s cubic-bezier(.2,.8,.2,1),padding .28s ease,
+       max-height .28s ease,box-shadow .2s ease!important}
+    .mission-card:not(.expanded) .mission-contents{display:block!important;
+       max-height:0!important;opacity:0!important;overflow:hidden!important;
+       transform:translateY(-9px)!important;pointer-events:none!important;
+       transition:max-height .27s ease,opacity .18s ease,transform .24s ease!important}
+    .mission-card.expanded .mission-contents{display:block!important;
+       max-height:420px!important;opacity:1!important;
+       transform:translateY(0)!important;transition:max-height .3s ease,opacity .24s ease,transform .3s ease!important}
+    .game-dock button,.header-actions button,.hud-close,.build-categories button,
+    .tool,.mission-toggle,.panel-head button{
+       transition:background-color .20s ease,color .20s ease,
+        border-color .20s ease,box-shadow .20s ease,transform .2s cubic-bezier(.2,.8,.2,1)!important}
+    .game-dock button:active,.hud-close:active,.tool:active,.panel-head button:active{transform:scale(.94)!important}
+    .build-categories button:active{transform:translateY(2px)!important}
+    .sidebar .tool[data-build-group]:not([hidden]){animation:tool-arrive .18s ease both}
+    @keyframes tool-arrive{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+    .resource-grid b,.top-stats .stat strong{font-variant-numeric:tabular-nums}
+    @media(prefers-reduced-motion:reduce){
+      .shell .hud-panel,.mission-card,.mission-contents,
+      .game-dock button,.header-actions button,.hud-close,.build-categories button,
+      .tool,.mission-toggle,.panel-head button{transition:none!important;animation:none!important}
+    }
   </style>
   <script defer src="engine.js"></script>
   <script defer src="visual-model.js"></script>
-  <script defer src="ui.js?v=0.5.0-rc.2-strategy-hud"></script>
+  <script defer src="ui.js?v=0.5.1-living-world"></script>
 </head>
 <body>
   <div class="shell" data-panel="none" data-layout="strategy-hud-v3">
