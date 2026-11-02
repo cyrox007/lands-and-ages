@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="mill-ground-anchor-20261102-v15"
+EXPECTED="resource-atlas-20261102-v16"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -71,6 +71,9 @@ with sync_playwright() as pw:
         assert len({tuple(v) for v in samples})>1,(name,"384px repeating square",samples)
         assert page.evaluate("window.__strategyDebug().treeArtCount")>0
         assert page.evaluate("window.__strategyDebug().rockDeposits")>0
+        page.wait_for_function("window.__strategyDebug().resourcePack().loaded",timeout=20000)
+        assert page.evaluate("window.__strategyDebug().resourcePack().count")==10
+
         assert page.evaluate("window.__strategyDebug().millRotorState(5).blades")==4
         assert page.evaluate("window.__strategyDebug().millRotorState(5).bakedSprite")==False
         page.wait_for_function("window.__strategyDebug().millPackage().loaded===3",timeout=20000)
