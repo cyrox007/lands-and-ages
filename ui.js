@@ -505,8 +505,8 @@
   // is drawn once per topology (0..15) and surface variation (0..3),
   // not reconstructed from hundreds of stones every animation frame.
   const roadSpriteCache=new Map();
-  const ROAD_SOURCE_TILE=192,ROAD_CANVAS_W=320,ROAD_CANVAS_H=200;
-  const ROAD_CENTER_X=160,ROAD_CENTER_Y=100;
+  const ROAD_SOURCE_TILE=192,ROAD_CANVAS_W=192,ROAD_CANVAS_H=112;
+  const ROAD_CENTER_X=96,ROAD_CENTER_Y=56;
   const ROAD_STONE_COLORS=['#c9b9a0','#af9b80','#d4c4a9','#978670',
     '#bba78c','#a3947a','#c2ae90','#8d806d'];
 
