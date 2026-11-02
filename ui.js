@@ -273,36 +273,66 @@
   }
   function rockDeposit(x,y){
     const tile=game.tiles[id(x,y)],stock=Math.max(0,tile.stone||0);
-    if(stock===0)return;
-    const t=tileSize(),h=tileHeight(),p=screen(x+.5,y+.5);
-    const abundance=Math.max(.36,Math.min(1,stock/55));
-    const shapes=Math.max(2,Math.ceil(abundance*5));
-    castShadow(p.x,p.y+h*.14,t,h,1.42,.46);
-    // An asymmetric cluster of tall boulders: highlight / lit side /
-    // shaded side / dark fissures, with coarse scree around the base.
-    const offsets=[[-.30,.07,.70],[-.05,-.09,1.16],[.26,.04,.81],
-      [-.16,.25,.67],[.22,.24,.53]];
-    for(let i=0;i<shapes;i++){
-      const [ox,oy,size]=offsets[i],cx=p.x+t*ox,base=p.y+h*oy;
-      const w=t*(.20+.13*size),z=h*(.50+.48*size)*Math.min(1,.4+abundance*.7);
-      const left=[cx-w*.57,base-h*.04],right=[cx+w*.68,base+h*.08];
-      const top=[cx-w*.10,base-z],ridge=[cx+w*.26,base-z*.76];
-      poly([left,top,ridge,[cx+w*.11,base-h*.06]],i%2?'#7d8580':'#8c8a7d','#505c55',.95*zoom);
-      poly([[cx+w*.11,base-h*.06],ridge,right,[cx+w*.34,base+h*.08]],
-        i%2?'#555f5b':'#616962','#46514d',.85*zoom);
-      poly([left,[cx-w*.36,base-z*.52],top,[cx+w*.11,base-z*.61]],
-        i%2?'#bbc0af':'#d1cab8',null);
-      line(top[0]-w*.08,top[1]+h*.06,cx-w*.32,base-z*.44,'#eee3ca',1.15*zoom);
-      line(cx+w*.16,base-z*.40,cx+w*.30,base-z*.21,'#424e49',1.25*zoom);
-      line(cx-w*.05,base-z*.29,cx+w*.035,base-z*.11,'#67726b',.85*zoom);
+    if(stock<=0)return;
+    const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
+    const amount=Math.min(1,stock/55);
+    const count=Math.max(2,Math.ceil(amount*4));
+    castShadow(p.x,p.y+h*.1,t,h,1.4,.42);
+    const palette=[
+      ['#a6a59b','#bcb7a8','#67746f'],
+      ['#8f968f','#c4bdaa','#5b6662'],
+      ['#a2a79c','#d0c9b9','#64716c'],
+      ['#8a938d','#b1b0a2','#5d6860']
+    ];
+    // Round, irregular boulders with shaded lower faces. Deliberately no
+    // triangular spikes: each cluster has a readable mass and soft crown.
+    const positions=[[-.25,.15,.75],[.17,.06,1.05],[-.06,-.17,1.18],[.30,.24,.67]];
+    for(let i=0;i<count;i++){
+      const [ox,oy,size]=positions[i],cx=p.x+t*ox,base=p.y+h*oy;
+      const rx=t*(.22+.08*size),height=h*(.85+.60*size)*(.6+.4*amount);
+      const left=cx-rx,right=cx+rx,top=base-height;
+      const [mid,lit,dark]=palette[(x*3+y*7+i)%palette.length];
+      const gradient=ctx.createLinearGradient(cx-rx,top,cx+rx,base);
+      gradient.addColorStop(0,lit);gradient.addColorStop(.42,mid);
+      gradient.addColorStop(1,dark);
+      ctx.beginPath();
+      ctx.moveTo(left,base-h*.06);
+      ctx.bezierCurveTo(left-rx*.14,base-height*.33,
+        left+rx*.08,top+height*.24,cx-rx*.27,top+height*.055);
+      ctx.bezierCurveTo(cx-rx*.03,top-height*.045,
+        cx+rx*.28,top+height*.015,cx+rx*.54,top+height*.20);
+      ctx.bezierCurveTo(right+rx*.04,top+height*.48,
+        right+rx*.06,base-height*.23,right,base-h*.02);
+      ctx.quadraticCurveTo(cx,base+h*.10,left,base-h*.06);
+      ctx.closePath();ctx.fillStyle=gradient;ctx.fill();
+      ctx.strokeStyle='#59615c';ctx.lineWidth=1.15*zoom;ctx.stroke();
+      ctx.save();ctx.clip();
+      // broad, soft reflected-light plane, no hard pyramidal facets
+      const glow=ctx.createRadialGradient(cx-rx*.33,top+height*.28,1,
+        cx-rx*.30,top+height*.28,rx*1.2);
+      glow.addColorStop(0,'rgba(241,229,205,.28)');
+      glow.addColorStop(1,'rgba(241,229,205,0)');
+      ctx.fillStyle=glow;ctx.fillRect(left,top-rx,rx*2.3,height+rx*2);
+      line(cx+rx*.21,top+height*.38,cx+rx*.41,base-height*.24,
+        '#515d58',1.1*zoom);
+      line(cx-rx*.39,top+height*.54,cx-rx*.23,base-height*.36,
+        '#e1dbc8',1.2*zoom);
+      for(let j=0;j<9;j++){
+        const u=Math.sin((x+7*i+j)*12.9),v=Math.cos((y+3*i+j)*18.1);
+        blob(cx+rx*u*.68,top+height*(.35+v*.23),
+          t*.0075,h*.018,j%3?'#6b7670':'#e4d7c3',.22);
+      }
+      ctx.restore();
+      blob(cx,base+h*.015,rx*.84,h*.075,'#283a30',.15);
     }
-    for(let i=0;i<11;i++){
-      const dx=Math.sin(i*8.7+x+y)*t*.52,dy=Math.cos(i*5.7+y)*h*.33;
-      const rr=t*(.015+(i%4)*.009);
-      poly([[p.x+dx-rr,p.y+dy],[p.x+dx-rr*.1,p.y+dy-h*.08],
-        [p.x+dx+rr,p.y+dy+h*.02]],i%3?'#a4a399':'#d4c7b1');
+    // Natural scree, gently embedded in the ground instead of sharp triangles.
+    for(let k=0;k<12;k++){
+      const dx=Math.sin(k*7.4+x*2)*t*.51;
+      const dy=Math.cos(k*6.2+y)*h*.30;
+      const radius=t*(.014+(k%4)*.009);
+      blob(p.x+dx,p.y+dy,radius,h*(.025+(k%3)*.008),
+        k%3===0?'#d0c4ad':'#878b80',.8);
     }
-    if(stock<18)blob(p.x,p.y+h*.1,t*.18,h*.09,'#4d5046',.18);
   }
   const waterGroupCache=new WeakMap();
   function waterGroups(){
@@ -509,11 +539,18 @@
             ellipse(px,py,rx,ry,gradient);
           }
         }
-        for(let k=0;k<80;k++){
-          const px=98+(rand()-.5)*radius*1.8,py=top+20+rand()*(radius*1.3);
-          ellipse(px,py,1.2+rand()*2,1+rand()*1.5,
-            k%3===0?'#cad3a0':k%2===0?'#173c2e':'#9db77c');
+        // No high-contrast polka-dot crowns: use subtle leaf strokes
+        // instead of dozens of bright and black isolated circles.
+        g.globalAlpha=.16;
+        for(let k=0;k<22;k++){
+          const px=98+(rand()-.5)*radius*1.55;
+          const py=top+26+rand()*(radius*.95);
+          g.strokeStyle=k%3===0?'#a9bc86':'#2e513d';
+          g.lineWidth=1.2;
+          g.beginPath();g.moveTo(px,py);
+          g.quadraticCurveTo(px+1,py-3,px+2,py-4);g.stroke();
         }
+        g.globalAlpha=1;
       }
     }
     treeSpriteCache.set(key,c);return c;
@@ -740,84 +777,17 @@
     line(x-t*.04,y-t*.16,x-t*.065+sway,y-t*.09,'#d5ac84',Math.max(.8,1.3*zoom));
     line(x+t*.04,y-t*.16,x+t*.07-sway,y-t*(active?.12:.10),'#d5ac84',Math.max(.8,1.3*zoom));
   }
-  // A single independent windmill rotor. No baked-in static blades:
-  // the old mill.webp is deliberately NOT rendered at any point.
-  const millRotors=new Map();
-  function windmillAngle(id,active){
-    const prior=millRotors.get(id)||{angle:(id*.23)%(Math.PI*2),clock:animationClock};
-    const dt=Math.min(.1,Math.max(0,animationClock-prior.clock));
-    if(active)prior.angle=(prior.angle+dt*1.7)%(Math.PI*2);
-    prior.clock=animationClock;millRotors.set(id,prior);
-    return prior.angle;
-  }
-  function drawWindmill(b,p,t,h,active){
-    const left=p.x-t*.37,right=p.x+t*.37,top=p.y-h*1.50,base=p.y+h*.19;
-    // Stone tower: three lit wall facets, clipped bands of hand-laid masonry,
-    // timber roof and chimney are all part of the same depth-correct structure.
-    poly([[left,top+h*.18],[p.x-t*.04,top-h*.03],[p.x+t*.10,top+h*.12],
-      [p.x+t*.04,base],[left-t*.03,base+h*.08]],'#b7a991','#554d41',1.2*zoom);
-    poly([[p.x+t*.10,top+h*.12],[right,top+h*.30],[right+t*.025,base+h*.08],
-      [p.x+t*.04,base]],'#827967','#45473f',1.1*zoom);
-    poly([[left,top+h*.18],[p.x+t*.04,top+h*.04],[right,top+h*.30],
-      [p.x-t*.02,top+h*.50]],'#d0bf9e',null);
-    for(let row=0;row<7;row++){
-      const y=top+h*.34+row*h*.18;
-      line(left+t*.03,y,p.x+t*.028,y+h*.025,'#777361',.95*zoom);
-      line(p.x+t*.075,y+h*.04,right-t*.018,y+h*.12,'#54584e',.95*zoom);
-      for(let col=0;col<3;col++){
-        const x=left+t*(.07+col*.11+(row%2)*.04);
-        line(x,y-t*.003,x+t*.015,y+h*.085,'#99917f',.8*zoom);
-      }
-    }
-    // Mill cap with stepped timber shingle layers and a visible overhang.
-    const roofPeak=[p.x-t*.05,top-h*.45];
-    poly([[left-t*.10,top+h*.18],roofPeak,[p.x+t*.025,top-h*.16],
-      [p.x+t*.035,top+h*.27]],'#895c3c','#54392c',1.1*zoom);
-    poly([roofPeak,[p.x+t*.20,top-h*.26],[right+t*.06,top+h*.30],
-      [p.x+t*.035,top+h*.27]],'#5b4234','#412e28',1.1*zoom);
-    for(let k=0;k<4;k++){
-      const fy=top-h*.18+k*h*.11;
-      line(p.x+t*.02,fy,p.x+t*(.09+k*.065),fy+h*.05,'#bf9060',.85*zoom);
-    }
-    // Door and windows add scale and contrast to the stone structure.
-    poly([[p.x-t*.12,base],[p.x-t*.12,base-h*.54],[p.x+t*.035,base-h*.53],
-      [p.x+t*.035,base]],'#40352d','#d7b98d',1.3*zoom);
-    poly([[p.x+t*.06,top+h*.61],[p.x+t*.19,top+h*.69],
-      [p.x+t*.19,top+h*1.00],[p.x+t*.06,top+h*.91]],'#33362f','#bdac8a',1.1*zoom);
-    line(p.x+t*.12,top+h*.66,p.x+t*.12,top+h*.97,'#d5b883',1.1*zoom);
-    for(let k=0;k<3;k++){
-      const y=base+h*(.10+k*.07);
-      line(p.x-t*.19,y,p.x+t*.12,y+h*.035,'#968571',1.5*zoom);
-    }
-    // Only one set of four vanes. The same rotor freezes in place whenever
-    // the mill lacks staff, road access, input material, or the game is paused.
-    const cx=p.x+t*.14,cy=p.y-h*1.12,angle=windmillAngle(b.id,active);
-    blob(cx+t*.015,cy+h*.055,t*.15,h*.16,'#252822',.48);
-    for(let i=0;i<4;i++){
-      const a=angle+i*Math.PI/2,u=Math.cos(a),v=Math.sin(a),vx=-v,vy=u;
-      const inner=t*.11,outer=t*.48,w=t*.073;
-      poly([[cx+u*inner+vx*w,cy+v*inner+vy*w*.55],
-        [cx+u*outer+vx*w*.74,cy+v*outer+vy*w*.72],
-        [cx+u*outer-vx*w*.74,cy+v*outer-vy*w*.72],
-        [cx+u*inner-vx*w,cy+v*inner-vy*w*.55]],
-        i%2===0?'#d8c399':'#c8b186','#654d35',1*zoom);
-      line(cx+u*inner,cy+v*inner,cx+u*outer,cy+v*outer,
-        '#785435',Math.max(1.2,2.0*zoom));
-      for(let k=1;k<4;k++){
-        const f=inner+(outer-inner)*k/4;
-        line(cx+u*f+vx*w*.75,cy+v*f+vy*w*.5,
-          cx+u*f-vx*w*.75,cy+v*f-vy*w*.5,'#8c6f49',.9*zoom);
-      }
-    }
-    blob(cx,cy,t*.049,h*.065,'#916e47');
-    blob(cx-t*.014,cy-h*.015,t*.016,h*.02,'#f1d5a1',.7);
-  }
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
     castShadow(p.x,p.y+h*.08,t,h,1.43,.37);
     diamond(p.x,p.y,.75,'#263d3133');
     if(b.type==='mill'){
-      drawWindmill(b,p,t,h,V.productionActive(b,connected,game.readyToProduce(b)));
+      // The original detailed atlas fits the art direction. The 0.5.4
+      // procedural tower was a visual regression and must not be shown.
+      // Its baked rotor requires a clean layered asset before animation.
+      if(!sprite(b.type,p.x,p.y+h*.33,renderedWidth,imageHeight)){
+        diamond(p.x,p.y-.23*t,.84,COLORS[b.type]);
+      }
     }else if(b.type==='quarry'){
       // A working quarry remains visibly industrial even once its nearby
       // stone outcrops have been depleted.
@@ -1414,7 +1384,7 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.4-visual-depth',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.4-art-recovery',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
@@ -1422,7 +1392,7 @@
     },roadSpritesCached:roadSpriteCache.size,
     stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},
     constructionArtAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionVisualPhase(site):null;},
-    millRotorState:(id)=>({angle:millRotors.get(id)?.angle??null,blades:4,bakedSprite:false}),
+    millRotorState:(id)=>({angle:null,blades:4,bakedSprite:true,mode:'detailed-static-until-layered-asset'}),
     rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
