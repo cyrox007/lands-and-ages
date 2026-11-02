@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="strategy-hud-20261102-v3"
+EXPECTED="living-world-20261102-v4"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
