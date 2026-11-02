@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "building": "mill",
+  "name": "Мельница",
+  "coordinateSystem": {
+    "size": [
+      320,
+      320
+    ],
+    "floorAnchor": [
+      160,
+      270
+    ],
+    "rotorPivot": [
+      128,
+      106
+    ]
+  },
+  "source": {
+    "concept": "Концепт-лист мельницы из рабочего диалога от 2026-11-02",
+    "status": "Векторная реконструкция по утверждённому концепту; исходный растровый лист сохранён в материалах беседы, не является игровым спрайтом."
+  },
+  "layers": {
+    "foundation": "layers/foundation.svg",
+    "body": "layers/body.svg",
+    "roof": "layers/roof.svg",
+    "rotor": "layers/rotor.svg",
+    "props": "layers/props.svg",
+    "input": "layers/input.svg",
+    "output": "layers/output.svg",
+    "worker": "layers/worker.svg",
+    "stone": "layers/stone.svg",
+    "frame": "layers/frame.svg",
+    "walls": "layers/walls.svg",
+    "damage": "layers/damage.svg",
+    "heavy": "layers/heavy.svg",
+    "ruins": "layers/ruins.svg",
+    "fresh": "layers/fresh.svg",
+    "old": "layers/old.svg",
+    "scaffold": "layers/scaffold.svg"
+  },
+  "states": {
+    "construction": [
+      "survey",
+      "foundation",
+      "frame",
+      "walls",
+      "roof"
+    ],
+    "functional": [
+      "idle",
+      "working",
+      "damaged"
+    ],
+    "destruction": [
+      "fresh_ruins",
+      "old_ruins",
+      "overgrown_ruins"
+    ],
+    "restoration": [
+      "restoring",
+      "operational"
+    ]
+  },
+  "inventory": {
+    "input": "grain",
+    "output": "flour",
+    "perCycle": {
+      "input": 2,
+      "output": 1,
+      "seconds": 6
+    }
+  },
+  "principles": [
+    "каждый слой независимо заменяем",
+    "только один ротор без статичных лопастей",
+    "нет визуальной продукции без реальных запасов",
+    "пустая и работающая мельница визуально различаются",
+    "руины занимают прежнюю клетку",
+    "восстановление не равно повторному строительству"
+  ]
+}
