@@ -18,11 +18,11 @@ visual=(root/'visual-model.js').read_text('utf8')
 mill_pack=(root/'mill-pack.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
-mill_assets={p.stem.replace('mill-','').replace('states-','').replace('-',''):'data:image/webp;base64,'+
-             base64.b64encode(p.read_bytes()).decode('ascii')
-             for p in (root/'assets/buildings/mill').glob('mill-states-*.webp')]+[
-             (root/'assets/buildings/mill/mill-parts.webp')
-
+mill_files={'start':'mill-states-start.webp',
+            'end':'mill-states-end.webp','parts':'mill-parts.webp'}
+mill_assets={name:'data:image/webp;base64,'+
+             base64.b64encode((root/'assets/buildings/mill'/filename).read_bytes()).decode('ascii')
+             for name,filename in mill_files.items()}
 detail_assets={name:'data:image/webp;base64,'+base64.b64encode(
     (root/'assets/buildings/mill'/file).read_bytes()).decode('ascii')
     for name,file in {'body':'mill-detailed-body.webp','rotor':'mill-detailed-rotor.webp'}.items()}
