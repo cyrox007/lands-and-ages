@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="strategy-hud-20261102-v3"
+EXPECTED="living-world-20261102-v4"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -55,7 +55,7 @@ with sync_playwright() as pw:
             viewport:[innerWidth,innerHeight],
             shellPosition:getComputedStyle(shell).position,
             dockDisplay:getComputedStyle(dock).display,
-            sidebarDisplay:getComputedStyle(document.querySelector('.sidebar')).display,
+            sidebarDisplay:getComputedStyle(document.querySelector('.sidebar')).visibility,
             pageScroll:[document.documentElement.scrollWidth,document.documentElement.scrollHeight],
             topBar:document.querySelector('.masthead').getBoundingClientRect().toJSON(),
             stats:document.querySelector('.top-stats').getBoundingClientRect().toJSON(),
@@ -69,7 +69,7 @@ with sync_playwright() as pw:
         assert abs(metrics["canvas"][2]-width)<2,(name,metrics)
         assert abs(metrics["canvas"][3]-height)<2,(name,metrics)
         assert metrics["shellPosition"]=="fixed",(name,metrics)
-        assert metrics["dockDisplay"]=="flex" and metrics["sidebarDisplay"]=="none",(name,metrics)
+        assert metrics["dockDisplay"]=="flex" and metrics["sidebarDisplay"]=="hidden",(name,metrics)
         assert metrics["questCollapsed"]=="false" and metrics["questContentsDisplay"]=="none",(name,metrics)
         assert metrics["stats"]["top"]<metrics["dockRect"]["top"],(name,metrics)
         assert metrics["dockRect"]["top"]>=height*.75,(name,metrics)

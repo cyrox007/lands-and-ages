@@ -16,17 +16,17 @@ test('new game has one HQ, waiting people and limited provisions',()=>{
   assert.equal(g.construction.length,0);assert.equal(g.fields.length,0);
   assert.equal(g.carriers.length,2);assert.equal(g.builders.length,2);
 });
-test('production requires assigned inhabitants; no automatic workers',()=>{
+test('completed workshop automatically hires one resident, but can stop without workers',()=>{
   const g=new Game(1729,'settlement'),b=buildAndFinish(g,'logger',12,9);
-  assert.equal(g.staff[b.id],undefined);assert.equal(g.readyToProduce(b),false);
+  assert.equal(g.staff[b.id],1);assert.equal(g.availableWorkers(),3);
   assert.equal(g.assignWorkers(b.id,2).ok,false);
-  assert.equal(g.assignWorkers(b.id,1).ok,true);
-  assert.equal(g.availableWorkers(),3);
-  assert.equal(g.readyToProduce(b),true);
-  run(g,8);
-  assert.ok(b.goods.logs>0||g.warehouse().goods.logs>6||g.carriers.some(c=>c.carrying?.res==='logs'));
+  assert.ok(g.workAgents.some(a=>a.buildingId===b.id));
   assert.equal(g.assignWorkers(b.id,0).ok,true);
+  run(g,10);
   assert.equal(g.readyToProduce(b),false);
+  assert.equal(g.assignWorkers(b.id,1).ok,true);
+  run(g,10);
+  assert.ok(g.workAgents.some(a=>a.buildingId===b.id));
 });
 test('stone is physically mined and delivered through a built road',()=>{
   const g=new Game(1729,'settlement');
@@ -48,6 +48,7 @@ test('field passes clearing / sowing / growth / harvest with staffed farm',()=>{
   const farm=buildAndFinish(g,'farm',13,9);
   assert.equal(g.placeField(13,8,'wheat').ok,true);
   assert.equal(g.placeField(13,8,'wheat').ok,false);
+  assert.equal(g.assignWorkers(farm.id,0).ok,true);
   run(g,20);assert.equal(g.fields[0].stage,'clearing','without farmer the land stands idle');
   assert.equal(g.assignWorkers(farm.id,1).ok,true);
   run(g,85);
@@ -94,10 +95,11 @@ test('grain, vegetables, lumber and stone flow to the warehouse and on to second
     ['quarry',16,9],['bakery',17,9],['road',16,10],['road',17,10]
   ])assert.equal(g.build(type,x,y).ok,true,type);
   run(g,115);
-  for(const [type,worker] of [['logger',1],['farm',1],['quarry',1],['sawmill',1]]){
-    const b=g.buildings.find(b=>b.type===type);
-    assert.ok(b,type+' built');assert.equal(g.assignWorkers(b.id,worker).ok,true);
-  }
+  const members=['logger','farm','quarry','sawmill'].map(type=>g.buildings.find(b=>b.type===type));
+  assert.ok(members.every(Boolean),'all primary buildings completed');
+  // A busy village reallocates an existing worker instead of creating one.
+  if(g.availableWorkers()===0)assert.equal(g.assignWorkers(members[3].id,0).ok,true);
+  for(const b of members.slice(0,3))assert.equal(g.assignWorkers(b.id,1).ok,true);
   assert.equal(g.placeField(13,8,'wheat').ok,true);
   assert.equal(g.placeField(14,8,'vegetables').ok,true);
   run(g,115);
@@ -132,4 +134,41 @@ test('stone-dependent building remains foundation until a porter brings stone',(
   const copy=Game.restore(g.save());assert.ok(copy);
   assert.equal(copy.siteAt(15,9).required.stone,1);
   assert.equal(copy.siteAt(15,9).progress,0);
+});
+
+test('residents visibly walk to natural sources, harvest there and return tangible inventory',()=>{
+  const g=new Game(1729,'settlement');
+  const logger=g.addBuilding('logger',12,9);
+  assert.equal(g.assignWorkers(logger.id,1).ok,true);
+  const stock=logger.goods.logs;
+  const woodBefore=g.tiles.reduce((n,t)=>n+(t.wood||0),0);
+  run(g,.4);
+  const agent=g.workAgents.find(a=>a.buildingId===logger.id);
+  assert.ok(agent,'resident actor exists for a staffed workshop');
+  assert.ok(['arrive','out','work'].includes(agent.phase),'worker walks from headquarters to forest');
+  assert.equal(logger.goods.logs,stock,'production does not happen at the start of a timer');
+  run(g,9);
+  assert.ok(g.tiles.reduce((n,t)=>n+(t.wood||0),0)<woodBefore,'tree lost actual wood');
+  assert.ok(logger.goods.logs>stock||g.warehouse().goods.logs>6||
+    g.carriers.some(c=>c.carrying?.res==='logs'),'returned timber entered the physical supply chain');
+});
+test('resident activity survives a mid-trip save and restores deterministically',()=>{
+  const g=new Game(1729,'settlement');
+  const q=g.addBuilding('quarry',16,9);assert.equal(g.assignWorkers(q.id,1).ok,true);
+  run(g,1);
+  const saved=Game.restore(g.save());assert.ok(saved,'workAgents is persisted');
+  assert.equal(saved.save(),g.save());
+  run(g,25);run(saved,25);assert.equal(saved.save(),g.save());
+});
+test('no free inhabitant means newly finished workshop stays unstaffed',()=>{
+  const g=new Game(1729,'settlement');
+  // Assign four free people to existing workshops, then add another finished one.
+  for(let i=0;i<4;i++){
+    const b=g.addBuilding('logger',12+i,9);
+    assert.equal(g.assignWorkers(b.id,1).ok,true);
+  }
+  const site=g.build('farm',13,11);assert.equal(site.ok,true);
+  run(g,85);
+  const farm=g.buildingAt(13,11);assert.ok(farm);
+  assert.equal(g.staff[farm.id]||0,0);
 });
