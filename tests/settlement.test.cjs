@@ -172,3 +172,73 @@ test('no free inhabitant means newly finished workshop stays unstaffed',()=>{
   const farm=g.buildingAt(13,11);assert.ok(farm);
   assert.equal(g.staff[farm.id]||0,0);
 });
+
+
+test('paused game cannot place three roads, reserve goods or advance existing construction',()=>{
+  const g=new Game(1729,'settlement');
+  assert.equal(g.build('road',16,10).ok,true);
+  run(g,1.5);
+  const snapshot=g.save();
+  const progress=g.siteAt(16,10).progress;
+  g.setPaused(true);
+  for(let i=0;i<3;i++){
+    const attempt=g.build('road',17+i,10);
+    assert.equal(attempt.ok,false,'no road orders while paused');
+    assert.match(attempt.error,/пауз/i);
+  }
+  assert.equal(g.canBuild('road',17,10).ok,false);
+  assert.equal(g.placeField(13,8).ok,false);
+  assert.equal(g.assignWorkers(123456,1).ok,false);
+  assert.equal(g.excavate(2,14).ok,false);
+  g.step(300);
+  assert.equal(g.save(),snapshot,'no resources, routes, roads, tree growth or timers mutate on pause');
+  assert.equal(g.siteAt(16,10).progress,progress);
+  g.setPaused(false);
+  assert.equal(g.build('road',17,10).ok,true,'building works after resuming');
+  run(g,55);
+  assert.equal(g.roads[id(16,10)],true);
+});
+test('forest tree stages physically progress from stump through growth to mature harvesting',()=>{
+  const g=new Game(1729,'settlement');
+  const tile=g.tiles.find(t=>t.terrain==='forest'&&t.tree.stage==='mature');
+  assert.ok(tile);
+  assert.equal(tile.wood,40);
+  assert.ok(['oak','pine','birch'].includes(tile.tree.species));
+  tile.wood=2;
+  assert.equal(g.harvestTree(tile,2),true);
+  assert.equal(tile.wood,0);
+  assert.equal(g.treeStage(tile),'stump');
+  assert.equal(g.harvestTree(tile,2),false,'stump is not a timber source');
+  g.advanceForestDay();assert.equal(g.treeStage(tile),'stump');
+  g.advanceForestDay();assert.equal(g.treeStage(tile),'regrowing');
+  for(let i=0;i<2;i++)g.advanceForestDay();
+  assert.equal(g.treeStage(tile),'sapling');
+  for(let i=0;i<4;i++)g.advanceForestDay();
+  assert.equal(g.treeStage(tile),'young');
+  for(let i=0;i<6;i++)g.advanceForestDay();
+  assert.equal(g.treeStage(tile),'mature');
+  assert.ok(tile.wood>=2);
+  assert.equal(g.harvestTree(tile,2),true);
+});
+test('tree growth and forestry survive saving, restore v3 data without tree records',()=>{
+  const g=new Game(1729,'settlement');
+  const tree=g.tiles.find(t=>t.terrain==='forest'&&t.wood>=2);
+  tree.wood=2;g.harvestTree(tree,2);
+  for(let i=0;i<4;i++)g.advanceForestDay();
+  const restored=Game.restore(g.save());
+  assert.ok(restored);
+  assert.equal(restored.save(),g.save());
+  for(let i=0;i<35;i++){g.step(.1);restored.step(.1);}
+  assert.equal(restored.save(),g.save());
+  const old=JSON.parse(g.save());for(const t of old.tiles)delete t.tree;
+  const migrated=Game.restore(JSON.stringify(old));
+  assert.ok(migrated);
+  assert.ok(migrated.tiles.filter(t=>t.terrain==='forest').every(t=>t.tree&&t.tree.stage));
+});
+test('water bodies consist of connected tiles while central settlement stays buildable',()=>{
+  const g=new Game(1729,'settlement');
+  assert.equal(g.tiles[id(22,14)].terrain,'water');
+  assert.equal(g.tiles[id(23,14)].terrain,'water');
+  assert.equal(g.tiles[id(12,9)].terrain,'grass');
+  assert.equal(g.tiles[id(13,9)].terrain,'grass');
+});
