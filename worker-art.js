@@ -12,16 +12,21 @@
     builder:{coat:'#c39b59',light:'#e6bc75',shade:'#77512d',trousers:'#625143',hat:'#c79c4c',hair:'#654127'},
     logger:{coat:'#56754b',light:'#819c65',shade:'#354f36',trousers:'#6b513b',hat:'#73563b',hair:'#5c3525'},
     quarry:{coat:'#7e8380',light:'#b1afa0',shade:'#4b514e',trousers:'#555b5c',hat:'#8e8e79',hair:'#493b33'},
-    farmer:{coat:'#8b7950',light:'#b9a372',shade:'#615332',trousers:'#68543a',hat:'#b59a5c',hair:'#674e34'}
+    farmer:{coat:'#8b7950',light:'#b9a372',shade:'#615332',trousers:'#68543a',hat:'#b59a5c',hair:'#674e34'},
+    'villager-man-1':{coat:'#617c69',light:'#94a88b',shade:'#3a574b',trousers:'#5b5245',hat:'#806746',hair:'#594032'},
+    'villager-man-2':{coat:'#906c53',light:'#b89573',shade:'#634a38',trousers:'#625644',hat:'#87634b',hair:'#624337'},
+    'villager-woman-1':{coat:'#866c8d',light:'#bea0c2',shade:'#5e4a68',trousers:'#735e79',hat:'#a98ba7',hair:'#50352d'},
+    'villager-young-1':{coat:'#648a93',light:'#a1c5c1',shade:'#405c68',trousers:'#5b5a52',hat:'#72979c',hair:'#47362c'}
   };
-  const ACTIONS=['walk','work','carry'];
+  const villagerRoles=['villager-man-1','villager-man-2','villager-woman-1','villager-young-1'];
+  const ACTIONS=['idle','walk','work','carry'];
   const round=n=>Math.round(n*10)/10;
   const path=(d,fill,stroke='#473426',weight=2)=>'<path d="'+d+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+weight+'" stroke-linejoin="round" stroke-linecap="round"/>';
   const line=(d,color,weight)=>path(d,'none',color,weight);
   const ellipse=(cx,cy,rx,ry,fill)=>'<ellipse cx="'+cx+'" cy="'+cy+'" rx="'+rx+'" ry="'+ry+'" fill="'+fill+'"/>';
   const poly=(pts,fill,outline='#3d332b')=>'<polygon points="'+pts+'" fill="'+fill+'" stroke="'+outline+'" stroke-width="2" stroke-linejoin="round"/>';
   const tool=(role,angle)=>{
-    if(role==='porter')return '';
+    if(role==='porter'||villagerRoles.includes(role))return '';
     const head=role==='logger'
       ?poly('60,41 75,38 75,49 64,52','#c5c6b8','#585e59')
       :role==='quarry'
@@ -37,12 +42,12 @@
     const p=PALETTES[role];
     if(!p)return '';
     const back=direction[0]==='n',mirror=direction[1]==='w';
-    const phase=frame*Math.PI/4;
-    const step=action==='work'?0:Math.sin(phase);
-    const bob=action==='work'?0:Math.abs(Math.sin(phase))*1.5;
-    const arm=action==='work'?Math.sin(phase)*9:step*(action==='carry'?4:10);
-    const lift=action==='work'?0:Math.max(0,step)*8;
-    const liftOther=action==='work'?0:Math.max(0,-step)*8;
+    const phase=frame*Math.PI/4,resting=action==='idle';
+    const step=action==='work'||resting?0:Math.sin(phase);
+    const bob=resting?Math.sin(phase)*.7:action==='work'?0:Math.abs(Math.sin(phase))*1.5;
+    const arm=resting?Math.sin(phase)*2.8:action==='work'?Math.sin(phase)*9:step*(action==='carry'?4:10);
+    const lift=action==='work'||resting?0:Math.max(0,step)*8;
+    const liftOther=action==='work'||resting?0:Math.max(0,-step)*8;
     const leftFootX=round(37+step*10),rightFootX=round(55-step*10);
     const leftFootY=round(113-lift),rightFootY=round(113-liftOther);
     const leftKneeX=round(40+step*6),rightKneeX=round(54-step*6);
@@ -50,6 +55,8 @@
     const armLeft=round(-arm),armRight=round(arm);
     const toolAngle=action==='work'?Math.sin(phase)*34-13:0;
     const mirrorTransform=mirror?'translate(96 0) scale(-1 1)':'';
+    const civilian=villagerRoles.includes(role),woman=role==='villager-woman-1',
+      youth=role==='villager-young-1',elder=role==='villager-man-2';
     const rearLeg=path('M43 74 Q'+leftKneeX+' 91 '+leftFootX+' '+(leftFootY-6)+
       ' L'+(leftFootX-7)+' '+leftFootY+' Q'+(leftFootX-15)+' '+leftFootY+
       ' '+(leftFootX-10)+' '+(leftFootY-5)+' L34 77 Z',p.trousers);
@@ -76,13 +83,30 @@
     if(role==='logger')costume+=line('M35 64 L60 71','#a8bb80',3);
     if(role==='quarry')costume+=ellipse(48,67,3,3,'#d1bba2')+line('M38 49 L60 50','#ccd0c6',2);
     if(role==='porter')costume+=path('M39 51 Q46 59 52 74','none','#d5b18b',3);
+    // Различимые мирные жители: сарафан, жилет, пояс, короткая куртка.
+    if(woman)costume+=path('M36 65 Q47 61 60 66 L66 94 Q49 103 31 94 Z',
+      '#987a9f','#54435c',2)+line('M39 67 L56 68','#ddc3a9',2);
+    if(elder)costume+=path('M40 47 L57 48 L54 75 L44 76 Z',
+      '#69533f','#433728',1.8)+line('M49 48 L48 72','#d1aa78',2);
+    if(youth)costume+=path('M37 56 L60 56 L61 70 L35 70 Z',
+      '#6897a0','#365b66',1.5)+line('M37 70 L61 70','#d1b57c',2);
+    if(civilian&&!woman&&!elder&&!youth)costume+=
+      line('M40 49 L52 76','#d7ba91',3);
     let face=back
       ?path('M38 19 Q48 12 58 23 L59 36 Q49 47 38 37 Z',p.hair,'#4d3226',2)
       :path('M39 23 Q48 14 58 24 L57 38 Q49 45 40 37 Z','#d1a077','#76533c',2);
     if(!back)face+=ellipse(53,30,1.7,2.1,'#503629')+
       line('M56 34 L59 35 L55 37','#9a6344',1.4)+
-      (role==='porter'||role==='logger'?path('M44 37 Q51 43 55 37','#70462f','#70462f',2):'');
-    const hat=role==='farmer'
+      (role==='porter'||role==='logger'||elder?
+        path('M44 37 Q51 43 55 37','#70462f','#70462f',2):'');
+    const hat=woman
+      ?ellipse(48,21,20,4,'#c7acc3')+
+        path('M35 21 Q37 12 49 12 Q60 13 62 22 L59 30 L37 28 Z',
+          '#96749d','#654f70',2)
+      :youth
+        ?path('M35 24 Q37 14 48 13 Q59 13 61 23 Z','#668e9a','#435b64',2)+
+          line('M44 24 L64 25','#b4cfca',2)
+      :role==='farmer'
       ?ellipse(48,21,25,5,'#b99b5b')+path('M34 21 L36 11 Q48 5 60 12 L63 22 Z','#ad8b4f','#765c34')
       :role==='quarry'
         ?path('M33 25 Q34 10 48 9 Q63 10 64 25 Z','#a3a08b','#51483c')+ellipse(48,25,19,4,'#888876')
@@ -92,9 +116,12 @@
             line('M36 24 L63 25','#d4a06b',2.4);
     const gear=action==='work'?tool(role,toolAngle):'';
     const pack=back?path('M40 45 Q49 39 59 46 L64 69 Q50 81 37 70 Z',p.shade,p.hair,2):'';
+    const idleGesture=resting&&civilian&&!back?
+      line('M60 80 L'+round(64+Math.sin(phase)*3)+' '+round(74+Math.cos(phase)*2),
+        '#d9b38d',2):'';
     const body='<g transform="translate(0 '+torsoY+')">'+
       leftArm+rearLeg+leftBoot+nearLeg+rightBoot+pack+costume+rightArm+
-      leftHand+rightHand+ellipse(48,41,7,5,'#976440')+face+hat+gear+'</g>';
+      leftHand+rightHand+idleGesture+ellipse(48,41,7,5,'#976440')+face+hat+gear+'</g>';
     return '<g transform="'+mirrorTransform+'">'+
       ellipse(48,115,22,5,'#17201d33')+body+'</g>';
   }
@@ -115,5 +142,7 @@
       '"/><stop offset="1" stop-color="'+p.light+'"/></linearGradient></defs>'+
       cells.join('')+'</svg>';
   }
-  return {WIDTH,HEIGHT,FRAMES,DIRECTIONS,ACTIONS,roles:Object.keys(PALETTES),atlas};
+  return {WIDTH,HEIGHT,FRAMES,DIRECTIONS,ACTIONS,
+    roles:Object.keys(PALETTES).filter(role=>!villagerRoles.includes(role)),
+    villagerRoles,atlas};
 });

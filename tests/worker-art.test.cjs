@@ -35,3 +35,20 @@ test('рабочие движения отличаются от ходьбы, о
   assert.throws(()=>Art.atlas('unknown','walk'),/Неизвестная/);
   assert.throws(()=>Art.atlas('farmer','teleport'),/Неизвестная/);
 });
+
+test('свободные жители различаются и имеют самостоятельную анимацию ожидания',()=>{
+  assert.deepEqual(Art.villagerRoles,[
+    'villager-man-1','villager-man-2','villager-woman-1','villager-young-1'
+  ]);
+  assert.ok(Art.ACTIONS.includes('idle'));
+  for(const role of [...Art.roles,...Art.villagerRoles]){
+    const svg=Art.atlas(role,'idle');
+    assert.match(svg,/width="768" height="512"/);
+    for(const direction of Art.DIRECTIONS)
+      assert.equal((svg.match(new RegExp('data-direction="'+direction+'" data-frame="\\d"','g'))||[]).length,8);
+    assert.equal((svg.match(/data-frame="/g)||[]).length,32);
+    assert.notEqual(svg,Art.atlas(role,'walk'));
+  }
+  const appearances=Art.villagerRoles.map(role=>Art.atlas(role,'idle'));
+  assert.equal(new Set(appearances).size,4);
+});

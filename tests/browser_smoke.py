@@ -89,8 +89,8 @@ def check(browser,name,w,h,mobile):
       const art=window.StrategyWorkerArt;
       if(!art)return {error:'нет генератора'};
       const results=[];
-      for(const role of art.roles){
-        const svg=art.atlas(role,'walk');
+      for(const role of [...art.roles,...art.villagerRoles]){
+        const svg=art.atlas(role,art.villagerRoles.includes(role)?'idle':'walk');
         const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
         const img=new Image();
         try{
@@ -110,7 +110,7 @@ def check(browser,name,w,h,mobile):
       return {results};
     }""")
     assert 'error' not in illustrated,illustrated
-    assert len(illustrated['results'])==5
+    assert len(illustrated['results'])==9
     for result in illustrated['results']:
         assert result['width']==768 and result['height']==512,result
         assert result['rendered']==32,result
@@ -368,6 +368,18 @@ with sync_playwright() as pw:
         assert page.evaluate('window.__strategyDebug().scenario')=='settlement'
         assert page.evaluate('window.__strategyDebug().buildings')==1
         assert page.evaluate('window.__strategyDebug().freeWorkers')==4
+        residents=page.evaluate('window.__strategyDebug().villagers()')
+        assert len(residents)==4,(name,residents)
+        assert len(set(r['variant'] for r in residents))==4
+        assert all(r['y']>=10.5 for r in residents),(name,residents)
+        assert all(not(10<=r['x']<12 and 8<=r['y']<10) for r in residents)
+        page.wait_for_function("""() => {
+          const roles=window.__strategyDebug().villagerRoles;
+          return roles.length===4&&roles.every(role=>{
+            const atlas=window.StrategyWorkerArt.atlas(role,'idle');
+            return atlas.includes('data-direction="nw" data-frame="7"');
+          });
+        }""")
         box=page.locator('#gameMap').bounding_box()
         assert abs(box['width']-w)<2 and abs(box['height']-h)<2
         assert page.evaluate('document.documentElement.scrollHeight')<=h+1
