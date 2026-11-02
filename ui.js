@@ -346,6 +346,19 @@
       line(p.x+t*(.29+.075*swing),p.y-h*.19,p.x+t*(.36+.075*swing),p.y-h*.21,'#dde1d4',Math.max(2,3.3*zoom));
     }
   }
+  function drawCitizen(x,y,t,active=false,kind='idle'){
+    // Visual representation derived from staffed slots; only porter/builder are autonomous agents.
+    const colors={logger:'#678e67',quarry:'#ae9b82',farm:'#b9a365',sawmill:'#927f55',
+      mill:'#b2a68b',bakery:'#b98a65',idle:'#9ab3a0'};
+    const c=colors[kind]||'#a1b8a5',sway=active?Math.sin(animationClock*6)*t*.023:Math.sin(animationClock*.9)*t*.006;
+    blob(x,y+t*.025,t*.07,t*.022,'#0c251e',.28);
+    line(x-t*.018,y-t*.04,x-t*.024+sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
+    line(x+t*.018,y-t*.04,x+t*.025-sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
+    blob(x+sway*.35,y-t*.13,t*.056,t*.075,c,.98);
+    blob(x+sway*.45,y-t*.245,t*.035,t*.043,'#e3bc91',1);
+    line(x-t*.04,y-t*.16,x-t*.065+sway,y-t*.09,'#d5ac84',Math.max(.8,1.3*zoom));
+    line(x+t*.04,y-t*.16,x+t*.07-sway,y-t*(active?.12:.10),'#d5ac84',Math.max(.8,1.3*zoom));
+  }
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
     diamond(p.x,p.y,.75,'#263d3180');
@@ -363,6 +376,10 @@
     }
     const active=V.productionActive(b,connected,game.readyToProduce(b));
     if(active)drawProductionEffect(b,p,t,h);
+    if(game.scenario==='settlement'&&(game.staff[b.id]||0)>0){
+      const pos=screen(b.x+.91,b.y+.79);
+      drawCitizen(pos.x,pos.y+h*.06,t,active,b.type);
+    }
     if(!connected){
       ctx.textAlign='center';ctx.font=`bold ${Math.max(14,t*.28)}px sans-serif`;
       ctx.fillStyle='#ffd1a0';ctx.strokeStyle='#703f2b';ctx.lineWidth=3;
@@ -477,11 +494,21 @@
     for(const site of game.construction)if(visible(screen(site.x+.5,site.y+.5)))objects.push({x:site.x,y:site.y,depth:site.x+site.y+.73,type:'site',site});
     for(const b of game.builders)if(visible(screen(b.x+.5,b.y+.5)))objects.push({x:b.x,y:b.y,depth:b.x+b.y+.90,type:'builder',b});
     for(const c of game.carriers)if(visible(screen(c.x+.5,c.y+.5)))objects.push({x:c.x,y:c.y,depth:c.x+c.y+.90,type:'carrier',c});
+    if(game.scenario==='settlement'){
+      const home=game.warehouse(),count=Math.min(7,game.availableWorkers());
+      for(let k=0;k<count;k++){
+        const x=home.x+.15+(k%4)*.22,y=home.y+1.2+Math.floor(k/4)*.25;
+        objects.push({x,y,depth:x+y+.92,type:'villager'});
+      }
+    }
     objects.sort((a,b)=>a.depth-b.depth||a.x-b.x);
     for(const o of objects){
       if(o.type==='forest')tree(o.x,o.y,(o.x*5+o.y*9)%6);
       else if(o.type==='ruin')ruins(o.x,o.y);
        else if(o.type==='bush')bush(o.x,o.y,(o.x*3+o.y*7)%11);
+      else if(o.type==='villager'){
+        const p=screen(o.x,o.y);drawCitizen(p.x,p.y,tileSize(),false,'idle');
+      }
       else if(o.type==='building')drawBuilding(o.b);
       else if(o.type==='site')drawSite(o.site);
       else if(o.type==='builder')drawBuilder(o.b);
