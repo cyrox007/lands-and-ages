@@ -501,34 +501,95 @@
       ctx.fillText('?',p.x+t*.32,p.y-h*.53);
     }
   }
-  function road(x,y){
-    const mask=V.roadMask(game.roads,x,y,W,H),p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
-    // Every arm is oriented in the *projected grid* rather than screen cardinal axes.
-    // Each adjacent cell draws the other half of this same road strip.
-    const dirs=[[V.N,0,-1],[V.E,1,0],[V.S,0,1],[V.W,-1,0]];
-    const halfWidth=t*.091;
-    for(const [bit,dx,dy] of dirs){
-      if(!(mask&bit))continue;
-      const np=screen(x+.5+dx,y+.5+dy);
-      const ex=(p.x+np.x)/2,ey=(p.y+np.y)/2;
-      const vx=ex-p.x,vy=ey-p.y,len=Math.hypot(vx,vy)||1;
-      const nx=-vy/len,ny=vx/len;
-      const strip=(w,color)=>poly([
-        [p.x+nx*w,p.y+ny*w],[ex+nx*w,ey+ny*w],
-        [ex-nx*w,ey-ny*w],[p.x-nx*w,p.y-ny*w]],color);
-      strip(halfWidth*1.13,'#594735');strip(halfWidth,'#a98a62');
-      strip(halfWidth*.77,'#c7aa80');
-      for(let j=1;j<4;j++){
-        const k=j/4,qx=p.x+vx*k,qy=p.y+vy*k;
-        line(qx-nx*halfWidth*.76,qy-ny*halfWidth*.76,qx+nx*halfWidth*.76,qy+ny*halfWidth*.76,'#8a765c88',.7*zoom);
+  // Road tiles are cached as isometric cobblestone sprites. The atlas
+  // is drawn once per topology (0..15) and surface variation (0..3),
+  // not reconstructed from hundreds of stones every animation frame.
+  const roadSpriteCache=new Map();
+  const ROAD_SOURCE_TILE=192,ROAD_CANVAS_W=320,ROAD_CANVAS_H=200;
+  const ROAD_CENTER_X=160,ROAD_CENTER_Y=100;
+  const ROAD_STONE_COLORS=['#c9b9a0','#af9b80','#d4c4a9','#978670',
+    '#bba78c','#a3947a','#c2ae90','#8d806d'];
+
+  function makeRoadSprite(mask,variation){
+    const key=mask*4+variation;
+    if(roadSpriteCache.has(key))return roadSpriteCache.get(key);
+    const surface=document.createElement('canvas');
+    surface.width=ROAD_CANVAS_W;surface.height=ROAD_CANVAS_H;
+    const g=surface.getContext('2d'),plan=V.cobblestonePlan(mask);
+    g.lineJoin='round';g.lineCap='round';
+    const project=(x,y)=>({
+      x:ROAD_CENTER_X+(x-y)*ROAD_SOURCE_TILE/2,
+      y:ROAD_CENTER_Y+(x+y)*ROAD_SOURCE_TILE/4
+    });
+    const quad=(coords,fill,stroke=null,lineWidth=1)=>{
+      const vertices=coords.map(([x,y])=>project(x,y));
+      g.beginPath();g.moveTo(vertices[0].x,vertices[0].y);
+      for(let i=1;i<vertices.length;i++)g.lineTo(vertices[i].x,vertices[i].y);
+      g.closePath();g.fillStyle=fill;g.fill();
+      if(stroke){g.lineWidth=lineWidth;g.strokeStyle=stroke;g.stroke();}
+      return vertices;
+    };
+    const armQuad=(dx,dy,u0,u1,v0,v1)=>{
+      const at=(u,v)=>[dx*u-dy*v,dy*u+dx*v];
+      return [at(u0,v0),at(u1,v0),at(u1,v1),at(u0,v1)];
+    };
+    const centerQuad=(a,b,c,d)=>[[a,c],[b,c],[b,d],[a,d]];
+    // Continuous dark compacted-earth shoulder, with one consistent
+    // pavement width at both ends of each neighbouring road.
+    for(const arm of plan.arms){
+      quad(armQuad(arm.dx,arm.dy,0,.508,-.275,.275),'#715e47');
+      quad(armQuad(arm.dx,arm.dy,0,.507,-.235,.235),'#9b8a70');
+    }
+    quad(centerQuad(-.275,.275,-.275,.275),'#715e47');
+    quad(centerQuad(-.235,.235,-.235,.235),'#9b8a70');
+    let count=0;
+    const stone=(corners,seed)=>{
+      const n=((seed*1664525+variation*1013904223)>>>0);
+      const color=ROAD_STONE_COLORS[n%ROAD_STONE_COLORS.length];
+      const vertices=quad(corners,color,'#675943',1.35);
+      const p0=vertices[0],p1=vertices[1],p3=vertices[3];
+      // Thin sunny upper edge and an irregular mineral fleck.
+      g.strokeStyle='#f3dfc1';g.globalAlpha=.52;g.lineWidth=.85;
+      g.beginPath();g.moveTo(p0.x+.8,p0.y+.2);
+      g.lineTo(p1.x-.7,p1.y-.3);g.stroke();
+      if((n%4)===0){
+        g.fillStyle='#f4e7d1';g.globalAlpha=.24;
+        g.beginPath();g.ellipse(
+          (p0.x+p1.x+p3.x)/3,(p0.y+p1.y+p3.y)/3,
+          1.15,.65,.3,0,Math.PI*2);g.fill();
+      }
+      g.globalAlpha=1;count++;
+    };
+    // Every arm has five staggered rows of three real, differently shaded
+    // stone blocks. End rows meet in the shared road border at u=.5.
+    for(const arm of plan.arms){
+      for(const s of arm.stones){
+        const gap=.006,shift=((s.row+s.col+variation)%2)*.004;
+        stone(armQuad(arm.dx,arm.dy,
+          Math.max(.14,s.u0+gap+shift),Math.min(.5,s.u1-gap),
+          s.v0+gap,s.v1-gap),
+          arm.bit*311+s.row*37+s.col*71);
       }
     }
-    const kind=V.roadKind(mask);
-    diamond(p.x,p.y,kind==='isolated'?.33:.385,'#b89a73','#77604788');
-    diamond(p.x,p.y,kind==='crossroads'?.25:.21,'#d4b68c');
-    if(kind==='end'){
-      blob(p.x,p.y,t*.037,h*.027,'#e0cba8',.75);
+    // Paving at the central connection covers arm overlaps and avoids the
+    // old large smooth diamond on bends, T-junctions and crossroads.
+    for(const c of plan.center){
+      const gap=.009;
+      stone(centerQuad(c.x0+gap,c.x1-gap,c.y0+gap,c.y1-gap),
+        c.row*101+c.col*43+mask*17);
     }
+    surface.dataset.stones=String(count);
+    roadSpriteCache.set(key,surface);
+    return surface;
+  }
+  function road(x,y){
+    const mask=V.roadMask(game.roads,x,y,W,H);
+    const variation=((x*13+y*23+x*y*3)%4+4)%4;
+    const img=makeRoadSprite(mask,variation);
+    const p=screen(x+.5,y+.5),scale=tileSize()/ROAD_SOURCE_TILE;
+    ctx.drawImage(img,
+      p.x-ROAD_CENTER_X*scale,p.y-ROAD_CENTER_Y*scale,
+      ROAD_CANVAS_W*scale,ROAD_CANVAS_H*scale);
   }
   function sprite(name,cx,cy,w,h){
     const img=sprites[name];if(!img||!img.complete||!img.naturalWidth)return false;
@@ -1131,7 +1192,12 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.2-seamless',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.3-cobblestone',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+      const mask=V.roadMask(game.roads,x,y,W,H);
+      const plan=V.cobblestonePlan(mask);
+      return {mask,kind:V.roadKind(mask),stones:plan.center.length+
+        plan.arms.reduce((sum,arm)=>sum+arm.stones.length,0)};
+    },roadSpritesCached:roadSpriteCache.size,stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
     spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
