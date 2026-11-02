@@ -37,9 +37,24 @@
       overgrown_ruins:'overgrown_ruins',restoring:'restoring',
       damaged:'damaged'}[phase]||'body_assembled';
   }
+  // Нижняя видимая точка спрайта в его собственной ячейке 176×176.
+  // Независимо от прозрачных полей все стадии стоят на одной земле.
+  const spriteBottom={
+    survey:135,frame:157,walls:156,almost:172,finished:172,
+    idle:172,active:172,grain:172,flour:172,damaged:172,
+    fresh_ruins:162,old_ruins:148,overgrown_ruins:151,restoring:142
+  };
+  function groundLevel(tileHeight){return tileHeight*.84;}
+  function stageLayout(name,tileWidth,tileHeight){
+    const size=tileWidth*1.94,bottom=spriteBottom[name]||172;
+    return {size,left:-size/2,
+      top:groundLevel(tileHeight)-size*bottom/cell,
+      bottom:groundLevel(tileHeight)};
+  }
   function layout(tileWidth,tileHeight){
-    const width=tileWidth*2.28,height=width*316/360;
-    const left=-width/2,top=tileHeight*.46-height;
+    const width=tileWidth*2.18,height=width*316/360;
+    const left=-width/2;
+    const top=groundLevel(tileHeight)-height*284/316;
     const rotorWidth=width*186/360;
     return {
       width,height,left,top,
@@ -49,7 +64,7 @@
     };
   }
   return Object.freeze({
-    id:'mill',version:3,path,cell,atlases,sprites,states,
+    id:'mill',version:4,path,cell,atlases,sprites,states,
     storage:{input:{grain:12},output:{flour:12}},
     recipe:{input:{grain:2},output:{flour:1},seconds:6,workers:1},
     // Координаты совпадают с пикселями исходного многослойного корпуса.
@@ -59,6 +74,6 @@
       hub:{x:135,y:148},rotorWidthInBody:186,
       renderWidthTiles:2.28,baseOffset:0.46
     },
-    constructionSprite,stateSprite,layout
+    constructionSprite,stateSprite,layout,stageLayout,groundLevel
   });
 });
