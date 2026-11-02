@@ -294,7 +294,14 @@
       const b=this.buildingAt(x,y);
       if(b){
         const def=DEF[b.type],goods=RES.filter(k=>b.goods[k]>0).map(k=>RES_NAME[k]+': '+b.goods[k]).join(' · ');
-        return {title:def.name,desc:(this.connected(b)?'Соединено с дорожной сетью. ':'Нет маршрута до склада. ')+(goods||'Запасов нет.')};
+        const agent=this.workAgents.find(a=>a.buildingId===b.id);
+        const activity={arrive:'Работник идёт из поселения к предприятию.',out:'Работник направляется к природному ресурсу.',
+          work:'Работник добывает или собирает ресурс.',return:'Работник несёт добычу на предприятие.',
+          idle:'Работник ожидает нового задания.'};
+        const needsStaff=this.scenario==='settlement'&&def.recipe;
+        const state=needsStaff?((this.staff[b.id]||0)<1?'Нет назначенных работников. ':
+          agent?activity[agent.phase]+' ':this.readyToProduce(b)?'Идёт производство. ':'Ожидание сырья или урожая. '):'';
+        return {title:def.name,desc:state+(this.connected(b)?'Соединено с дорожной сетью. ':'Нет маршрута до склада. ')+(goods||'Запасов нет.')};
       }
       const site=this.siteAt(x,y);
       if(site){const have=site.goods.boards||0;return {title:'Стройка: '+(site.type==='road'?'дорога':DEF[site.type].name),
@@ -399,7 +406,8 @@
       for(const b of this.buildings){
         if(!primary.has(b.type)||(this.staff[b.id]||0)<1)continue;
         if(!this.workAgents.some(a=>a.buildingId===b.id))
-          this.workAgents.push({buildingId:b.id,x:b.x+.5,y:b.y+.5,phase:'idle',target:null,progress:0,carrying:null});
+          this.workAgents.push({buildingId:b.id,x:this.warehouse().x+.5,
+            y:this.warehouse().y+.5,phase:'arrive',target:null,progress:0,carrying:null});
       }
       for(const a of this.workAgents){
         const b=this.buildings.find(v=>v.id===a.buildingId);
@@ -411,8 +419,9 @@
           if(!cell)continue;
           a.target=cell;a.phase='out';a.progress=0;
         }
-        if(a.phase==='out'||a.phase==='return'){
-          const destination=a.phase==='return'?{x:b.x+.5,y:b.y+.5}:{x:a.target.x+.5,y:a.target.y+.5};
+        if(a.phase==='out'||a.phase==='return'||a.phase==='arrive'){
+          const destination=a.phase==='return'||a.phase==='arrive'?
+            {x:b.x+.5,y:b.y+.5}:{x:a.target.x+.5,y:a.target.y+.5};
           const dx=destination.x-a.x,dy=destination.y-a.y,d=Math.hypot(dx,dy),travel=dt*1.65;
           if(d>travel){a.x+=dx/d*travel;a.y+=dy/d*travel;}
           else {
@@ -649,7 +658,7 @@
         }
         if(!Array.isArray(game.workAgents)||game.workAgents.length>W*H||
           !game.workAgents.every(a=>Number.isInteger(a.buildingId)&&Number.isFinite(a.x)&&Number.isFinite(a.y)&&
-            ['idle','out','work','return'].includes(a.phase)&&Number.isFinite(a.progress)&&a.progress>=0&&
+            ['idle','arrive','out','work','return'].includes(a.phase)&&Number.isFinite(a.progress)&&a.progress>=0&&
             (!a.target||inside(a.target.x,a.target.y))&&
             (!a.carrying||(RES.includes(a.carrying.res)&&Number.isFinite(a.carrying.amount)&&a.carrying.amount>0))))return null;
         game.version=3;
