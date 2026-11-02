@@ -64,9 +64,9 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
     assert page.evaluate('window.__strategyDebug().rockDeposits')>0
     assert page.evaluate('window.__strategyDebug().millRotorState(5).blades')==4
-    assert page.evaluate('window.__strategyDebug().millRotorState(5).bakedSprite') is False
-    assert page.evaluate('window.__strategyDebug().millRotorState(5).angle') is not None
-    assert page.evaluate('window.__obsoleteMillDrawCount')==0,'static mill rotor must never render'
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).bakedSprite') is True
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).angle') is None
+    assert page.evaluate('window.__obsoleteMillDrawCount')>0,'detailed mill artwork must be restored'
     # When stopped, rotor angle is not animated by wall clock.
     mill_angle=page.evaluate('window.__strategyDebug().millRotorState(5).angle')
     page.locator('#pauseBtn').click()
@@ -90,7 +90,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.4-visual-depth'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.4-art-recovery'
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
