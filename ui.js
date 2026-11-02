@@ -179,7 +179,7 @@
       [2,groundPoint(W,H)],[3,groundPoint(0,H)]]){
       if(i===0)g.moveTo(p.x,p.y);else g.lineTo(p.x,p.y);
     }
-    g.closePath();g.clip();
+    g.closePath();g.save();g.clip();
     g.fillStyle='#6f8d61';g.fillRect(0,0,gw,gh);
     const wash=(x,y,rx,ry,rgb,opacity)=>{
       g.save();g.translate(x,y);g.scale(rx,ry);
@@ -224,7 +224,7 @@
       g.fillStyle=k%3?'#bdab82':'#53614a';
       g.beginPath();g.ellipse(x,y,r,r*.45,rand()*Math.PI,0,Math.PI*2);g.fill();
     }
-    g.globalAlpha=1;
+    g.globalAlpha=1;g.restore();
     groundSeed=game.seed|0;
   }
   function drawGround(){
@@ -474,7 +474,9 @@
     const stage=game.treeStage(tile);
     if(!stage)return;
     const species=tile.tree?.species||'oak';
-    const jitterX=((x*23+y*37)%9-4)*.042,jitterY=((x*17+y*13)%9-4)*.035;
+    // Leave enough off-grid variation that forest rows do not trace diamonds.
+    const jitterX=((x*23+y*37+x*y*3)%19-9)*.037;
+    const jitterY=((x*17+y*13+x*y*5)%17-8)*.037;
     const p=screen(x+.5+jitterX,y+.5+jitterY),t=tileSize(),h=tileHeight();
     const sprite=treeSprite(species,stage,variation%4);
     const isSmall=stage==='sapling'||stage==='regrowing'||stage==='stump';
@@ -1129,5 +1131,8 @@
   requestAnimationFrame(loop);
   window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.2-ecology',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.2-seamless',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
+    groundMaterialMode:'nonperiodic-world-raster',
+    groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
+    spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();
