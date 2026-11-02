@@ -108,9 +108,20 @@ def check(browser,name,w,h,mobile):
     assert hud['dock'][1] > h*.75,(name,hud)
     assert hud['sidebar']=='none' and hud['missionOpen']=='false',(name,hud)
     assert hud['quest'][1]>hud['header'][1],(name,hud)
+    if w<=750 and h>510:
+        horizontal_gap=page.evaluate('''() => {
+          const quest=document.querySelector('.mission-card').getBoundingClientRect();
+          const zoom=document.querySelector('.panel-head').getBoundingClientRect();
+          return zoom.left-quest.right;
+        }''')
+        assert horizontal_gap>=3,(name,'quest overlaps camera',horizontal_gap)
+
     assert page.locator('#missionToggle').get_attribute('aria-expanded')=='false'
     page.locator('#missionToggle').click()
     assert page.locator('#missionToggle').get_attribute('aria-expanded')=='true'
+    if w<=750 and h>510:
+        assert not page.locator('.panel-head').is_visible(),(name,'camera must recede when quest expanded')
+
     page.locator('#missionTool').click()
     assert page.locator('.game-dock [data-tool="road"]').get_attribute('aria-pressed')=='true'
     tap_cell(page,17,10,mobile)
