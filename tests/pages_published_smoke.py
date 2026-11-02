@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="seamless-world-20261102-v7"
+EXPECTED="cobblestone-world-20261102-v8"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -60,6 +60,10 @@ with sync_playwright() as pw:
         assert page.evaluate("window.__strategyDebug().groundTextureWidth")==1804
         assert page.evaluate("window.__strategyDebug().groundTextureHeight")==902
         assert page.evaluate("window.__strategyDebug().groundMaterialMode")=="nonperiodic-world-raster"
+        paving=page.evaluate('window.__strategyDebug().roadPaving(15,10)')
+        assert paving['stones']>=24 and paving['kind']=='straight',(name,paving)
+        assert page.evaluate("window.__strategyDebug().roadSpritesCached")>0
+
         samples=page.evaluate('''() => [500,884,1268].map(x=>window.__strategyDebug().groundSample(x,450))''')
         assert len({tuple(v) for v in samples})>1,(name,"384px repeating square",samples)
         assert page.evaluate("window.__strategyDebug().treeArtCount")>0
