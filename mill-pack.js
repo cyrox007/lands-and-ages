@@ -37,6 +37,17 @@
       overgrown_ruins:'overgrown_ruins',restoring:'restoring',
       damaged:'damaged'}[phase]||'body_assembled';
   }
+  function layout(tileWidth,tileHeight){
+    const width=tileWidth*2.28,height=width*316/360;
+    const left=-width/2,top=tileHeight*.46-height;
+    const rotorWidth=width*186/360;
+    return {
+      width,height,left,top,
+      hubX:left+width*135/360,
+      hubY:top+height*148/316,
+      rotorWidth,rotorHeight:rotorWidth*227/239
+    };
+  }
   return Object.freeze({
     id:'mill',version:3,path,cell,atlases,sprites,states,
     storage:{input:{grain:12},output:{flour:12}},
@@ -48,6 +59,6 @@
       hub:{x:135,y:148},rotorWidthInBody:186,
       renderWidthTiles:2.28,baseOffset:0.46
     },
-    constructionSprite,stateSprite
+    constructionSprite,stateSprite,layout
   });
 });
