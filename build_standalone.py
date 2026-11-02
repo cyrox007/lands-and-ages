@@ -7,11 +7,12 @@ html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','<style>'+ 
 html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|ui)\.js(?:\?[^"]+)?"></script>','',html)
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in sorted((root/'assets').glob('*.webp'))}
 assert len(assets)==12
-mill_assets={p.stem:'data:image/svg+xml;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
-             for p in sorted((root/'assets/buildings/mill/layers').glob('*.svg'))}
-assert len(mill_assets)>=17
+mill_assets={p.stem.replace('mill-','').replace('states-','').replace('-',''):'data:image/webp;base64,'+
+             base64.b64encode(p.read_bytes()).decode('ascii')
+             for p in sorted((root/'assets/buildings/mill').glob('mill-*.webp'))}
+assert set(mill_assets)=={'start','end','parts'}
 scripts=('window.StrategyAssets='+json.dumps(assets,separators=(',',':'))+';\n'+
-         'window.StrategyMillAssets='+json.dumps(mill_assets,separators=(',',':'))+';\n'+
+         'window.StrategyMillAtlases='+json.dumps(mill_assets,separators=(',',':'))+';\n'+
          (root/'engine.js').read_text('utf8')+'\n;\n'+
          (root/'visual-model.js').read_text('utf8')+'\n;\n'+
          (root/'mill-pack.js').read_text('utf8')+'\n;\n'+

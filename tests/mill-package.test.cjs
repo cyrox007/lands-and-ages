@@ -3,19 +3,27 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {Game}=require('../engine.js'),M=require('../mill-pack.js');
 function run(g,seconds){for(let k=0;k<Math.ceil(seconds*10);k++)g.step(.1);}
-test('пакет содержит независимые слои и стадии',()=>{
+test('игра загружает утверждённые растровые атласы вместо SVG',()=>{
   assert.equal(M.id,'mill');
-  assert.equal(Object.keys(M.layers).length,17);
+  assert.equal(M.version,2);
+  assert.equal(Object.keys(M.atlases).length,3);
+  assert.equal(Object.keys(M.sprites).length,22);
   assert.deepEqual(M.states.destruction,['fresh_ruins','old_ruins','overgrown_ruins']);
-  for(const name of Object.values(M.layers)){
-    const svg=fs.readFileSync(path.join(__dirname,'../',M.path,name),'utf8');
-    assert.match(svg,/^<svg /);
-    assert.match(svg,/<\/svg>$/);
+  for(const file of Object.values(M.atlases)){
+    const data=fs.readFileSync(path.join(__dirname,'../',M.path,file));
+    assert.equal(data.subarray(0,4).toString('ascii'),'RIFF');
+    assert.equal(data.subarray(8,12).toString('ascii'),'WEBP');
+    assert.ok(data.length>30000,'спрайт-лист должен содержать настоящую детализацию');
   }
+  for(const name of ['body_assembled','rotor','grain_sacks','flour_sacks','millstone',
+    'working_miller','survey','frame','walls','almost',
+    'damaged','fresh_ruins','old_ruins','overgrown_ruins','restoring'])
+    assert.ok(M.sprites[name],name);
   for(const phase of M.states.construction)
-    assert.ok(M.constructionLayers(phase).length>0,phase);
-  assert.equal(M.stateLayers('fresh_ruins').includes('fresh'),true);
-  assert.equal(M.stateLayers('old_ruins').includes('old'),true);
+    assert.ok(M.sprites[M.constructionSprite(phase)],phase);
+  assert.equal(M.stateSprite('fresh_ruins'),'fresh_ruins');
+  assert.equal(M.stateSprite('old_ruins'),'old_ruins');
+  assert.notEqual(M.sprites.body_assembled.atlas,M.sprites.old_ruins.atlas);
 });
 test('мельник работает только при доступном зерне, а мука хранится отдельно',()=>{
   const g=new Game(),mill=g.buildings.find(b=>b.type==='mill');
