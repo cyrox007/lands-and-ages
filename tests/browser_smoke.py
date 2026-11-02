@@ -32,6 +32,15 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=visual)
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
     page.evaluate('(scenario) => { window.__strategyBoot=scenario; }',boot)
+    page.evaluate('''() => {
+      const draw=CanvasRenderingContext2D.prototype.drawImage;
+      window.__obsoleteMillDrawCount=0;
+      CanvasRenderingContext2D.prototype.drawImage=function(image,...args){
+        if(image instanceof HTMLImageElement && image.src===window.StrategyAssets?.mill)
+          window.__obsoleteMillDrawCount++;
+        return draw.call(this,image,...args);
+      };
+    }''')
     page.add_script_tag(content=ui)
 
 def tap_cell(page,x,y,mobile):
@@ -53,6 +62,18 @@ def check(browser,name,w,h,mobile):
     page.wait_for_function('window.__strategyDebug().spritesReady===8',timeout=20000)
     page.wait_for_function('window.__strategyDebug().workerSheetsReady===4',timeout=20000)
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
+    assert page.evaluate('window.__strategyDebug().rockDeposits')>0
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).blades')==4
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).bakedSprite') is False
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).angle') is not None
+    assert page.evaluate('window.__obsoleteMillDrawCount')==0,'static mill rotor must never render'
+    # When stopped, rotor angle is not animated by wall clock.
+    mill_angle=page.evaluate('window.__strategyDebug().millRotorState(5).angle')
+    page.locator('#pauseBtn').click()
+    page.wait_for_timeout(90)
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).angle')==mill_angle
+    page.locator('#pauseBtn').click()
+
     # Walk cycle is tied to real traveled grid distance, not animationClock.
     page.evaluate('window.__strategyDebug().step(2)')
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')>0
@@ -69,7 +90,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.3-cobblestone'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.4-visual-depth'
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:
@@ -175,6 +196,9 @@ def check(browser,name,w,h,mobile):
     page.evaluate('window.__strategyDebug().step(23)')
     page.wait_for_function('window.__strategyDebug().mission.stage>=1')
     assert page.evaluate('window.__strategyDebug().roadKind(17,10)')=='straight'
+    # Construction visuals are driven by delivery and actual work progress.
+    assert page.evaluate("typeof window.__strategyDebug().constructionArtAt")== 'function'
+
     paved=page.evaluate('window.__strategyDebug().roadPaving(17,10)')
     assert paved['stones']==39,(name,paved)
     assert page.evaluate('window.__strategyDebug().roadSpritesCached')>0
