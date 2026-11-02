@@ -809,7 +809,8 @@
   }
   function drawMillBuilding(b,p,t,h){
     if(!M||!millSprites.body?.naturalWidth||!millSprites.roof?.naturalWidth){
-      return sprite('mill',p.x,p.y+h*.33,t*1.24,t*1.62);
+      diamond(p.x,p.y,.70,'#907c61','#e3c69d');
+      return false;
     }
     const state=game.millState(b),interior=game.millInterior(b);
     if(state.phase==='restoring'){
