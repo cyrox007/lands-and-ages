@@ -385,6 +385,34 @@ with sync_playwright() as pw:
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
         assert page.evaluate('window.__strategyDebug().paintedCounts().idle')>0
         page.wait_for_function('window.__paintedDrawCount>=4',timeout=20000)
+        # Не ограничиваемся портретами: в Chromium реально рисуются все действия.
+        motion_pixels=page.evaluate("""async () => {
+          const art=window.StrategyPaintedMotion;
+          const source=new Image();
+          source.src=window.StrategyPaintedPeople;
+          await source.decode();
+          const result={};
+          for(const action of art.STATES){
+            const render=(frame)=>{
+              const c=document.createElement('canvas');
+              c.width=140;c.height=180;
+              const g=c.getContext('2d',{willReadFrequently:true});
+              art.draw(g,source,7,action,frame,'se',70,165,75,0);
+              return g.getImageData(0,0,c.width,c.height).data;
+            };
+            const a=render(0),b=render(2);
+            let differences=0,alpha=0;
+            for(let i=0;i<a.length;i+=4){
+              if(a[i+3]>0)alpha++;
+              if(a[i]!==b[i]||a[i+1]!==b[i+1]||
+                a[i+2]!==b[i+2]||a[i+3]!==b[i+3])differences++;
+            }
+            result[action]={differences,alpha};
+          }
+          return result;
+        }""")
+        assert all(v['alpha']>200 and v['differences']>40
+                   for v in motion_pixels.values()),(name,motion_pixels)
         assert all(r['variant'].startswith('villager-') for r in residents)
         assert all(r['y']>=10.5 for r in residents),(name,residents)
         assert all(not(10<=r['x']<12 and 8<=r['y']<10) for r in residents)
