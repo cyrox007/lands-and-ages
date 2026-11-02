@@ -244,6 +244,10 @@ with sync_playwright() as pw:
         tap_cell(page,12,9,mobile)
         page.wait_for_function('document.querySelector(".staff-controls") !== null')
         assert page.locator('.staff-controls').is_visible()
+        assert page.locator('.staff-controls span').inner_text()=='Рабочие: 1 / 1'
+        assert page.evaluate('window.__strategyDebug().freeWorkers')==3
+        page.locator('.staff-controls button[aria-label="Снять работника"]').click()
+        assert page.evaluate('window.__strategyDebug().freeWorkers')==4
         page.locator('.staff-controls button[aria-label="Назначить работника"]').click()
         assert page.evaluate('window.__strategyDebug().freeWorkers')==3
         assert not errors,(name,errors)
