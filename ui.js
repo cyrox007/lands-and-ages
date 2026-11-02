@@ -49,15 +49,16 @@
     return paintedPeople.naturalWidth===PAINTED_ROLES.length*PAINTED_W&&
       paintedPeople.naturalHeight===PAINTED_H;
   }
-  function paintedSprite(role,x,y,size,seed=0){
-    const index=PAINTED_ROLES.indexOf(role);
-    if(index<0||!paintedReady())return false;
-    const sway=Math.sin(animationClock*.9+seed*1.7)*.014;
-    ctx.save();ctx.translate(x,y);ctx.rotate(sway);
-    ctx.drawImage(paintedPeople,index*PAINTED_W,0,PAINTED_W,PAINTED_H,
-      -size/2,-size*PAINTED_H/PAINTED_W,size,
-      size*PAINTED_H/PAINTED_W);
-    ctx.restore();return true;
+  const PaintedMotion=window.StrategyPaintedMotion;
+  const paintedCounters={idle:0,walk:0,work:0,carry:0};
+  function paintedSprite(role,x,y,size,seed=0,state='idle',frame=0,direction='se'){
+    const visualRole=PaintedMotion?.characterRole(role)||role;
+    const index=PAINTED_ROLES.indexOf(visualRole);
+    if(index<0||!paintedReady()||!PaintedMotion)return false;
+    const ok=PaintedMotion.draw(ctx,paintedPeople,index,state,frame,
+      direction,x,y,size,seed);
+    if(ok)paintedCounters[state]++;
+    return ok;
   }
   const paintedPortraits=new Map();
   function paintedPortrait(role){
@@ -225,10 +226,12 @@
   }
   function workerSprite(entity,role,px,py,size){
     const pose=workerState(entity,role);
-    // Носильщик с нарисованным мешком не используется на карте:
-    // настоящий груз уже отрисовывается независимым слоем.
-    if(role!=='porter'&&pose.state==='idle'&&
-      paintedSprite(role,px,py,size,entity.id||entity.buildingId||0))return true;
+    // Рендер на основе утверждённой графики работает при ходьбе и производстве.
+    // Никаких дополнительных мешков в теле носильщика нет.
+    const paintedState=pose.state==='walk'&&role==='porter'&&entity.carrying?
+      'carry':pose.state;
+    if(paintedSprite(role,px,py,size,entity.id||entity.buildingId||0,
+      paintedState,pose.frame,pose.direction))return true;
     const img=pose.art||(role==='porter'||role==='builder'?workerSheets[pose.sheet]:null);
     if(!img?.naturalWidth)return false;
     // Character feet stay locked to the simulation tile; only drawn limbs change.
@@ -944,14 +947,15 @@
   }
   function drawVillager(person){
     const p=screen(person.x,person.y),t=tileSize(),h=tileHeight();
-    if(paintedSprite(person.variant,p.x,p.y+h*.24,t*.49,person.id))return;
+    const frame=Math.floor(animationClock*1.55+person.id*2.37)%8;
+    if(paintedSprite(person.variant,p.x,p.y+h*.24,t*.49,person.id,
+      'idle',frame,person.direction))return;
     const fallback=villagerRoles[person.id%Math.max(1,villagerRoles.length)];
     const image=illustratedSheet(fallback,'idle');
     if(!image?.naturalWidth){
       drawCitizen(p.x,p.y+h*.24,t,false,'idle');
       return;
     }
-    const frame=Math.floor(animationClock*1.55+person.id*2.37)%8;
     const row={se:0,sw:1,ne:2,nw:3}[person.direction]??0;
     const size=t*.49;
     // Пятки зафиксированы на поверхности; анимируются только части тела.
@@ -1802,5 +1806,8 @@
     rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
-    spritesReady,workerSheetsReady,animationClock,villagers:()=>villagerPositions(),villagerRoles,paintedRoles:PAINTED_ROLES,paintedReady:()=>paintedReady(),paintedSize:()=>({width:paintedPeople.naturalWidth,height:paintedPeople.naturalHeight}),productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
+    spritesReady,workerSheetsReady,animationClock,villagers:()=>villagerPositions(),villagerRoles,
+    paintedRoles:PAINTED_ROLES,paintedReady:()=>paintedReady(),
+    paintedCounts:()=>({...paintedCounters}),
+    paintedSize:()=>({width:paintedPeople.naturalWidth,height:paintedPeople.naturalHeight}),productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();
