@@ -58,7 +58,7 @@
   // Don't animate unpowered, disconnected or resource-starved factories.
   function productionActive(building,connected,ready){
     return Boolean(building && connected && ready && Number.isFinite(building.progress) && building.progress>0 &&
-      ['logger','sawmill','farm','mill','bakery'].includes(building.type));
+      ['logger','quarry','sawmill','farm','mill','bakery'].includes(building.type));
   }
   return {N,E,S,W,roadMask,roadKind,constructionStage,facing,animationFrame,gaitFrame,productionActive};
 });
