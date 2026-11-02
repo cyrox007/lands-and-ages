@@ -274,7 +274,7 @@
       this.dispatchBuilders();
       for(const worker of this.builders)this.moveBuilder(worker,dt);
       for(const site of this.construction.slice()){
-        if(site.goods.boards<this.siteMaterials(site))continue;
+        if(Object.entries(site.required).some(([k,n])=>(site.goods[k]||0)<n))continue;
         // A worker on site makes real, time-consuming progress. Two work faster.
         const count=this.builders.filter(w=>w.site===site.id&&w.phase==='work').length;
         if(!count)continue;
