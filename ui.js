@@ -809,8 +809,8 @@
     target.restore();return true;
   }
   function millArt(name,p,t,h){
-    const size=t*2.08;
-    return paintMillSprite(ctx,name,p.x,p.y+h*.12-size*.36,size);
+    const a=M.stageLayout(name,t,h);
+    return paintMillSprite(ctx,name,p.x,p.y+a.top+a.size/2,a.size);
   }
   function drawMillRotor(b,p,t,h,working){
     const img=millDetailed.rotor;
@@ -852,6 +852,7 @@
     return true;
   }
   function drawMillConstruction(site,pos,t,h){
+    castShadow(pos.x,pos.y+h*.3,t,h,1.60,.28);
     const phase=V.constructionVisualPhase(site);
     millArt(M.constructionSprite(phase),pos,t,h);
     const ready=Object.entries(site.required).every(([k,n])=>(site.goods[k]||0)>=n);
@@ -1168,13 +1169,6 @@
     }
     const area=game.placement(mode,x,y);
     const check=game.canBuild(mode,x,y),valid=check.ok;
-    if(mode==='mill'&&millDetailed.body?.naturalWidth){
-      const center=screen(x+area.size.w/2,y+area.size.h/2);
-      const a=M.layout(tileSize(),tileHeight());
-      ctx.save();ctx.globalAlpha=valid ? .58 : .24;
-      ctx.drawImage(millDetailed.body,center.x+a.left,center.y+a.top,a.width,a.height);
-      ctx.restore();
-    }
     for(const tile of area.cells){
       if(tile.x<0||tile.y<0||tile.x>=W||tile.y>=H)continue;
       const c=screen(tile.x+.5,tile.y+.5);
@@ -1182,6 +1176,16 @@
       diamond(c.x,c.y,1,
         good?'rgba(73,190,112,.34)':'rgba(221,70,52,.36)',
         good?'#b5f6b0':'#ff9388');
+    }
+    // Разметка лежит на земле. Спрайт рисуется ПОСЛЕ неё,
+    // иначе зелёные ромбы визуально отрывают фундамент от поверхности.
+    if(mode==='mill'&&millDetailed.body?.naturalWidth){
+      const center=screen(x+area.size.w/2,y+area.size.h/2);
+      const a=M.layout(tileSize(),tileHeight());
+      ctx.save();ctx.globalAlpha=valid ? .66 : .24;
+      ctx.drawImage(millDetailed.body,center.x+a.left,center.y+a.top,
+        a.width,a.height);
+      ctx.restore();
     }
     const {w,h}=area.size,coords=[
       screen(x,y),screen(x+w,y),screen(x+w,y+h),screen(x,y+h)
@@ -1573,7 +1577,9 @@
     buildings:game.buildings.length,trees:game.tiles.filter(t=>t.terrain==='forest').map(t=>({stage:game.treeStage(t),age:t.tree?.age||0,wood:t.wood})),waterTiles:game.tiles.filter(t=>t.terrain==='water').length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
     culture:game.culture,diplomacy:game.diplomacy,military:game.military,
     placement:(type,x,y)=>({...game.placement(type,x,y),check:game.canBuild(type,x,y)}),
-    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.7-placement',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    millGroundLayout:(name)=>name==='body'?M.layout(tileSize(),tileHeight()):
+      M.stageLayout(name,tileSize(),tileHeight()),
+    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.7-mill-ground-anchor',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
