@@ -90,9 +90,10 @@
     }
   }
   const Art=window.StrategyWorkerArt;
+  const villagerRoles=Art?.villagerRoles||[];
   const illustratedSheets=new Map();
   function illustratedSheet(role,action){
-    if(!Art||!Art.roles.includes(role))return null;
+    if(!Art||(!Art.roles.includes(role)&&!villagerRoles.includes(role)))return null;
     const key=role+':'+action;
     if(!illustratedSheets.has(key)){
       const img=new Image();
@@ -176,12 +177,14 @@
         Boolean(entity.job)&&face.moving);
     const working=agent?entity.phase==='work':
       role==='builder'&&entity.phase==='work'&&entity.site!==null;
-    const action=role==='porter'&&entity.carrying?'carry':working?'work':'walk';
+    const action=role==='porter'&&entity.carrying?'carry':working?'work':moving?'walk':'idle';
     const fallback=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
       V.porterAppearance(entity.carrying).bodySheet;
     const state=working?'work':moving?'walk':'idle';
+    const seed=entity.id||entity.buildingId||0;
     const frame=state==='walk'?V.gaitFrame(previous?.distance??0):
-      V.animationFrame(state,animationClock,entity.id||entity.buildingId||0);
+      state==='idle'?Math.floor(animationClock*1.7+seed*1.91)%8:
+      V.animationFrame(state,animationClock,seed);
     const direction=face?.moving?face.direction:(previous?.direction||'se');
     return {sheet:fallback,art:illustratedSheet(role,action),
       state,frame,row:facingRow[direction]??0,direction,travelled:previous?.distance||0};
@@ -885,6 +888,35 @@
     line(x-t*.04,y-t*.16,x-t*.065+sway,y-t*.09,'#d5ac84',Math.max(.8,1.3*zoom));
     line(x+t*.04,y-t*.16,x+t*.07-sway,y-t*(active?.12:.10),'#d5ac84',Math.max(.8,1.3*zoom));
   }
+  // Поселенцы ждут работы перед складом, за границами его фундамента 2×2.
+  // Их количество следует за свободным населением, координаты не сохраняются.
+  function villagerPositions(){
+    if(game.scenario!=='settlement')return [];
+    const home=game.warehouse();
+    if(!home)return [];
+    const slots=[[.27,2.62],[.83,2.56],[1.43,2.65],[2.01,2.59],
+      [.52,3.04],[1.10,3.10],[1.73,3.01]];
+    const directions=['se','sw','ne','se','nw','sw','se'];
+    return slots.slice(0,Math.min(slots.length,game.availableWorkers()))
+      .map(([dx,dy],id)=>({
+        id,x:home.x+dx,y:home.y+dy,direction:directions[id],
+        variant:villagerRoles[id%Math.max(1,villagerRoles.length)]||null
+      }));
+  }
+  function drawVillager(person){
+    const p=screen(person.x,person.y),t=tileSize(),h=tileHeight();
+    const image=illustratedSheet(person.variant,'idle');
+    if(!image?.naturalWidth){
+      drawCitizen(p.x,p.y+h*.24,t,false,'idle');
+      return;
+    }
+    const frame=Math.floor(animationClock*1.55+person.id*2.37)%8;
+    const row={se:0,sw:1,ne:2,nw:3}[person.direction]??0;
+    const size=t*.49;
+    // Пятки зафиксированы на поверхности; анимируются только части тела.
+    ctx.drawImage(image,frame*96,row*128,96,128,
+      p.x-size/2,p.y+h*.24-size*128/96,size,size*128/96);
+  }
   function paintMillSprite(target,name,x,y,size,opacity=1){
     const rect=M?.sprites[name],img=rect&&millAtlases[rect.atlas];
     if(!img?.naturalWidth)return false;
@@ -1334,22 +1366,15 @@
     for(const c of game.carriers)if(visible(screen(c.x+.5,c.y+.5)))objects.push({x:c.x,y:c.y,depth:c.x+c.y+.90,type:'carrier',c});
     for(const agent of game.workAgents||[])if(visible(screen(agent.x,agent.y)))
       objects.push({x:agent.x,y:agent.y,depth:agent.x+agent.y+.90,type:'resident-worker',agent});
-    if(game.scenario==='settlement'){
-      const home=game.warehouse(),count=Math.min(7,game.availableWorkers());
-      for(let k=0;k<count;k++){
-        const x=home.x+.15+(k%4)*.22,y=home.y+1.2+Math.floor(k/4)*.25;
-        objects.push({x,y,depth:x+y+.92,type:'villager'});
-      }
-    }
+    for(const person of villagerPositions())if(visible(screen(person.x,person.y)))
+      objects.push({...person,depth:person.x+person.y+.92,type:'villager'});
     objects.sort((a,b)=>a.depth-b.depth||a.x-b.x);
     for(const o of objects){
       if(o.type==='forest')tree(o.x,o.y,(o.x*5+o.y*9)%6);
       else if(o.type==='rocks')rockDeposit(o.x,o.y);
       else if(o.type==='ruin')ruins(o.x,o.y);
        else if(o.type==='bush')bush(o.x,o.y,(o.x*3+o.y*7)%11);
-      else if(o.type==='villager'){
-        const p=screen(o.x,o.y);drawCitizen(p.x,p.y,tileSize(),false,'idle');
-      }
+      else if(o.type==='villager')drawVillager(o);
       else if(o.type==='building')drawBuilding(o.b);
       else if(o.type==='site')drawSite(o.site);
       else if(o.type==='builder')drawBuilder(o.b);
@@ -1714,5 +1739,5 @@
     rockDeposits:game.tiles.filter(t=>t.terrain==='hills'&&t.stone>0).length,tileCache:tileArtCache.size,treeArtCount:treeSpriteCache.size,waterGroupCount:waterGroups().length,groundTextureWidth:groundSurface.width,groundTextureHeight:groundSurface.height,
     groundMaterialMode:'nonperiodic-world-raster',
     groundSample:(x,y)=>Array.from(groundSurface.getContext('2d',{willReadFrequently:true}).getImageData(x,y,1,1).data),
-    spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
+    spritesReady,workerSheetsReady,animationClock,villagers:()=>villagerPositions(),villagerRoles,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();
