@@ -292,16 +292,115 @@
         j%2?'#52794e':'#739963',.9);
     }
   }
-  function tree(x,y,variant=0){
-    const jitterX=((x*23+y*37)%9-4)*.028,jitterY=((x*17+y*13)%9-4)*.026;
+  // Cached 2.5D trees: birch, oak and pine have different silhouettes,
+  // independent sapling/young/mature/old/stump/regrowth sprites. Only the
+  // small wind sway is redrawn per frame; trunks and foliage are rasterized once.
+  const treeSpriteCache=new Map();
+  function treeSprite(species,stage,variation){
+    const key=species+':'+stage+':'+variation;
+    if(treeSpriteCache.has(key))return treeSpriteCache.get(key);
+    const c=document.createElement('canvas');c.width=196;c.height=240;
+    const g=c.getContext('2d');g.lineCap='round';
+    let seed=(variation*18741+species.length*1327+stage.length*79)>>>0;
+    const rand=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296);
+    const path=(points,fill)=>{
+      g.beginPath();g.moveTo(...points[0]);
+      for(const p of points.slice(1))g.lineTo(...p);
+      g.closePath();g.fillStyle=fill;g.fill();
+    };
+    const ellipse=(x,y,rx,ry,color)=>{
+      g.fillStyle=color;g.beginPath();g.ellipse(x,y,rx,ry,0,0,Math.PI*2);g.fill();
+    };
+    const stump=stage==='stump'||stage==='regrowing';
+    const small=stage==='sapling'||stage==='regrowing';
+    const width=stump?17:stage==='sapling'?4:stage==='young'?8:stage==='old'?18:13;
+    const top=stump?211:stage==='sapling'?140:stage==='young'?107:stage==='old'?48:72;
+    const trunk=species==='birch'?'#d1c9ae':'#715039';
+    const grad=g.createLinearGradient(98-width/2,0,98+width/2,0);
+    grad.addColorStop(0,species==='birch'?'#7c8074':'#483326');
+    grad.addColorStop(.35,trunk);grad.addColorStop(.72,species==='birch'?'#f3ead1':'#97714a');
+    grad.addColorStop(1,'#46372c');
+    path([[91,233],[90-width*.38,top+16],[95-width*.22,top],[102+width*.30,top+3],
+      [106+width*.45,232],[100,230]],grad);
+    // Visible growth rings after an actual felling.
+    if(stump){
+      ellipse(97,top+1,width*.72,5,'#a68660');
+      ellipse(97,top+1,width*.45,3,'#d3b48b');
+      ellipse(97,top+1,width*.18,1.5,'#806544');
+      if(stage==='regrowing'){
+        g.strokeStyle='#487d42';g.lineWidth=3;
+        g.beginPath();g.moveTo(108,231);g.quadraticCurveTo(113,212,110,201);g.stroke();
+        ellipse(105,207,8,4,'#729e5c');ellipse(116,204,8,5,'#8dab68');
+      }
+    }else{
+      if(species==='birch')for(let k=0;k<5;k++){
+        const y=top+24+k*(216-top)/5;
+        g.strokeStyle='#56574c';g.lineWidth=2.4;
+        g.beginPath();g.moveTo(96-width*.3,y);g.lineTo(100+width*.12,y+4);g.stroke();
+      }
+      // Uneven branches remain legible between foliage patches.
+      for(let i=0;i<7;i++){
+        const by=top+30+i*(190-top)/8,side=i%2?-1:1;
+        g.strokeStyle=species==='birch'?'#858474':'#675039';
+        g.lineWidth=Math.max(2,width*.3-i*.23);
+        g.beginPath();g.moveTo(99,by+12);
+        g.quadraticCurveTo(99+side*(19+rand()*9),by-5,
+          99+side*(25+rand()*18),by-20-rand()*12);g.stroke();
+      }
+      if(species==='pine'){
+        for(let layer=5;layer>=0;layer--){
+          const cy=top+23+layer*25,spread=(24+layer*7)*(stage==='sapling'?.6:1);
+          path([[98,cy-40],[98-spread*.65,cy+7],[98-spread,cy+18],
+            [98,cy+11],[98+spread,cy+18],[98+spread*.65,cy+7]],
+            layer%2?'#305b40':'#416a48');
+          for(let k=0;k<16;k++){
+            const px=98+(rand()-.5)*spread*1.45,py=cy-10+rand()*27;
+            g.strokeStyle=k%3?'#689266':'#9aaa77';g.globalAlpha=.38;
+            g.lineWidth=1;g.beginPath();g.moveTo(px,py);g.lineTo(px-3,py-7);g.stroke();
+          }g.globalAlpha=1;
+        }
+      }else{
+        const crown=species==='birch'?['#7ca16d','#a1b47c','#578866','#c0c391']:
+          ['#365e42','#4e7850','#72965d','#9eaf72'];
+        const radius=stage==='sapling'?26:stage==='young'?43:stage==='old'?70:59;
+        for(let layer=0;layer<3;layer++){
+          const y=top+36+layer*23;
+          for(let k=0;k<11;k++){
+            const angle=(k/11)*Math.PI*2+rand()*.2,rad=radius*(.25+rand()*.54);
+            const px=98+Math.cos(angle)*rad,py=y+Math.sin(angle)*rad*.52;
+            const rx=radius*(.28+rand()*.15),ry=rx*.65;
+            const gradient=g.createRadialGradient(px-rx*.35,py-ry*.45,2,px,py,rx*1.1);
+            gradient.addColorStop(0,crown[(k+2)%4]);
+            gradient.addColorStop(.65,crown[(k+layer)%4]);
+            gradient.addColorStop(1,layer===2?'#294c39':'#47684b');
+            ellipse(px,py,rx,ry,gradient);
+          }
+        }
+        for(let k=0;k<80;k++){
+          const px=98+(rand()-.5)*radius*1.8,py=top+20+rand()*(radius*1.3);
+          ellipse(px,py,1.2+rand()*2,1+rand()*1.5,
+            k%3===0?'#cad3a0':k%2===0?'#173c2e':'#9db77c');
+        }
+      }
+    }
+    treeSpriteCache.set(key,c);return c;
+  }
+  function tree(x,y,variation=0){
+    const tile=game.tiles[id(x,y)];
+    const stage=game.treeStage(tile);
+    if(!stage)return;
+    const species=tile.tree?.species||'oak';
+    const jitterX=((x*23+y*37)%9-4)*.042,jitterY=((x*17+y*13)%9-4)*.035;
     const p=screen(x+.5+jitterX,y+.5+jitterY),t=tileSize(),h=tileHeight();
-    const scale=.95+((variant%5)-2)*.04,lean=(variant%3-1)*t*.03;
-    blob(p.x,p.y+h*.14,t*.21*scale,h*.12*scale,'#10241c',.28);
-    ctx.fillStyle='#6a4a2e';ctx.fillRect(p.x-t*.028+lean,p.y-h*.47,t*.056,h*.54);
-    ctx.fillStyle='#553a24';ctx.fillRect(p.x-t*.012+lean,p.y-h*.54,t*.024,h*.10);
-    const greens=[['#345f47',-.30,-.36,.18,.14],['#497857',.08,-.40,.20,.15],['#5f8b62',-.10,-.56,.24,.17],['#3c6b4d',.18,-.58,.17,.13],['#6e9a69',0,-.72,.20,.14]];
-    for(const [c,ox,oy,rx,ry] of greens){blob(p.x+t*ox*scale+lean,p.y+h*oy*scale,t*rx*scale,h*ry*scale,c,.98);}    
-    for(let i=0;i<3;i++)blob(p.x+t*((variant+i*7)%9-4)*.02,p.y-h*(.30+i*.11),t*.03,h*.02,'#8fb47e',.35);
+    const sprite=treeSprite(species,stage,variation%4);
+    const isSmall=stage==='sapling'||stage==='regrowing'||stage==='stump';
+    const scale=stage==='stump'?.31:stage==='regrowing'?.37:stage==='sapling'?.45:
+      stage==='young'?.72:stage==='old'?1.19:1;
+    const w=t*1.14*scale,ht=h*3.05*scale;
+    blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.25);
+    const wind=(!isSmall?Math.sin(animationClock*.8+x*.6+y*.9)*.009:0);
+    ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind);
+    ctx.drawImage(sprite,-w/2,-ht,w,ht);ctx.restore();
   }
   function ruins(x,y){
     const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
@@ -633,7 +732,7 @@
     const objects=[];
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const tile=game.tiles[id(x,y)];if(!visible(screen(x+.5,y+.5)))continue;
-      if(tile.terrain==='forest'&&tile.wood>0)objects.push({x,y,depth:x+y+.65,type:'forest'});
+      if(tile.terrain==='forest')objects.push({x,y,depth:x+y+.65,type:'forest'});
       if(tile.terrain==='ruin')objects.push({x,y,depth:x+y+.65,type:'ruin'});
        if(tile.terrain==='grass'&&!game.roads[id(x,y)]&&!game.buildingAt(x,y)&&!game.siteAt(x,y)&&!game.fieldAt(x,y)&&
           (x*31+y*47+x*y*11)%13===0)objects.push({x,y,depth:x+y+.60,type:'bush'});
