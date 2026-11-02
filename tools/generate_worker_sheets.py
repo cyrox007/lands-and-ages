@@ -85,10 +85,9 @@ def cell(role,action,direction,frame):
     elif action=='carry':
         shoulder=(34,60+cy);elbow=(28,69+cy+stride*2);hand=(44,69+cy)
         layers.extend([seg(*shoulder,*elbow,arm,7),seg(*elbow,*hand,skin,6)])
-        # visible sack *held* not marker above head
-        layers.append(f'<path d="M49,{53+cy:.2f} Q66,{49+cy:.2f} 75,{64+cy:.2f} Q81,{87+cy:.2f} 63,{87+cy:.2f} Q50,{88+cy:.2f} 48,{73+cy:.2f}Z" fill="#ceb17b" stroke="#795d3d" stroke-width="2.2"/>')
-        layers.append(f'<path d="M53,{58+cy:.2f} Q60,{54+cy:.2f} 69,{57+cy:.2f}" fill="none" stroke="#ead7a3" stroke-width="2"/>')
-        layers.append(f'<path d="M54,{53+cy:.2f} L64,{51+cy:.2f} L67,{57+cy:.2f}" stroke="#775737" stroke-width="3" fill="none"/>')
+        # Cargo is NOT painted into the body animation. The renderer selects
+        # and positions one object using the carried resource from simulation.
+        # A generic sack here duplicated bread with logs, stone, and grain.
     else:
         shoulder=(34,60+cy);elbow=(30+stride*8,72+cy);hand=(37+stride*12,84+cy)
         layers.extend([seg(*shoulder,*elbow,arm,7),seg(*elbow,*hand,skin,6)])
