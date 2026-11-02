@@ -59,6 +59,19 @@
     if(ratio<.78)return 'walls';
     return 'roof';
   }
+  // Detailed art phase: material delivery happens BEFORE the foundation
+  // grows; each later step is driven by actual builder progress.
+  function constructionVisualPhase(site){
+    const required=site.required||{},goods=site.goods||{};
+    if((goods.boards||0)<(required.boards||0)||
+       (goods.stone||0)<(required.stone||0))return 'survey';
+    const progress=Math.max(0,Math.min(1,
+      (site.progress||0)/Math.max(.001,site.duration||1)));
+    if(progress<.18)return 'foundation';
+    if(progress<.46)return 'frame';
+    if(progress<.77)return 'walls';
+    return 'roof';
+  }
   // Screen-facing directions; game uses world grid diagonally projected on screen.
   function facing(entity){
     const dest=entity.path?.[entity.segment+1];
@@ -95,5 +108,5 @@
     return Boolean(building && connected && ready && Number.isFinite(building.progress) && building.progress>0 &&
       ['logger','quarry','sawmill','farm','mill','bakery'].includes(building.type));
   }
-  return {N,E,S,W,roadMask,roadKind,cobblestonePlan,constructionStage,facing,animationFrame,gaitFrame,productionActive,porterAppearance};
+  return {N,E,S,W,roadMask,roadKind,cobblestonePlan,constructionStage,constructionVisualPhase,facing,animationFrame,gaitFrame,productionActive,porterAppearance};
 });
