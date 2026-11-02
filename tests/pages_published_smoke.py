@@ -92,7 +92,8 @@ with sync_playwright() as pw:
         assert page.locator('#buildPanel [data-tool="logger"]').is_visible(),name
         assert not page.locator('#buildPanel [data-tool="mill"]').is_visible(),name
         page.locator('[data-hud-panel="build"]').click()
-        assert not page.locator(".sidebar").is_visible(),name
+        assert page.locator('.sidebar').evaluate('(el)=>getComputedStyle(el).pointerEvents')=='none',name
+        page.locator('.sidebar').wait_for(state="hidden",timeout=3000)
         print(name,metrics,flush=True)
         context.close()
     browser.close()
