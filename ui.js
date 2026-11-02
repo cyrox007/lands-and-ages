@@ -1574,6 +1574,25 @@
       const p=document.createElement('p');
       p.textContent='Главное здание I уровня. Оно определяет границы строительства и обеспечивает первых жителей. Улучшения до управы, крепости и цитадели появятся позднее.';
       $('tileInfo').append(p);
+      // Носильщики носят реальные ресурсы отдельным слоем на карте.
+      // Детализированный образ со статичным мешком показываем только здесь.
+      if(paintedReady()){
+        const group=document.createElement('div');
+        group.style.cssText='display:flex;gap:14px;margin:8px 0;align-items:center';
+        for(const [role,name] of [['porter','Носильщики'],['builder','Строители']]){
+          const portrait=paintedPortrait(role);
+          if(!portrait)continue;
+          const item=document.createElement('div');
+          item.style.cssText='display:flex;flex-direction:column;align-items:center;gap:4px';
+          const image=document.createElement('img');
+          image.src=portrait;image.alt=name;image.width=68;image.height=72;
+          image.style.cssText='object-fit:contain';
+          const label=document.createElement('span');
+          label.textContent=name;label.style.fontSize='11px';
+          item.append(image,label);group.append(item);
+        }
+        $('tileInfo').append(group);
+      }
     }
     if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
       const profession=WORKER_PORTRAITS[b.type]==='quarry-worker'?'quarry':
