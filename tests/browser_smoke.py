@@ -11,12 +11,15 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
+mill_pack=(root/'mill-pack.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
+mill_assets={p.stem:'data:image/svg+xml;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
+             for p in (root/'assets/buildings/mill/layers').glob('*.svg')}
 
 def mount(page,prior=None,boot="mission"):
     page.set_content(html)
@@ -30,7 +33,9 @@ def mount(page,prior=None,boot="mission"):
     }''',prior)
     page.add_script_tag(content=engine)
     page.add_script_tag(content=visual)
+    page.add_script_tag(content=mill_pack)
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
+    page.evaluate('(assets) => { window.StrategyMillAssets=assets; }',mill_assets)
     page.evaluate('(scenario) => { window.__strategyBoot=scenario; }',boot)
     page.evaluate('''() => {
       const draw=CanvasRenderingContext2D.prototype.drawImage;
@@ -63,10 +68,12 @@ def check(browser,name,w,h,mobile):
     page.wait_for_function('window.__strategyDebug().workerSheetsReady===4',timeout=20000)
     assert page.evaluate('window.__strategyDebug().projection')=='isometric'
     assert page.evaluate('window.__strategyDebug().rockDeposits')>0
+    page.wait_for_function('window.__strategyDebug().millPackage().loaded===17',timeout=20000)
+    assert page.evaluate('window.__strategyDebug().millPackage().total')==17
     assert page.evaluate('window.__strategyDebug().millRotorState(5).blades')==4
-    assert page.evaluate('window.__strategyDebug().millRotorState(5).bakedSprite') is True
-    assert page.evaluate('window.__strategyDebug().millRotorState(5).angle') is None
-    assert page.evaluate('window.__obsoleteMillDrawCount')>0,'detailed mill artwork must be restored'
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).bakedSprite') is False
+    assert page.evaluate('window.__strategyDebug().millRotorState(5).angle') is not None
+    assert page.evaluate('window.__obsoleteMillDrawCount')==0,'отдельный корпус не должен рисовать старые лопасти'
     # When stopped, rotor angle is not animated by wall clock.
     mill_angle=page.evaluate('window.__strategyDebug().millRotorState(5).angle')
     page.locator('#pauseBtn').click()
@@ -90,7 +97,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.4-art-recovery'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.5-mill-package'
     # Old carry atlas has a painted sack. Actual carrier renders clean walk
     # poses and draws only one resource on top, even for bread / flour / logs.
     for cargo in ['logs','boards','stone','grain','vegetables','flour','bread']:

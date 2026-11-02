@@ -131,6 +131,8 @@
       if(this.paused)return this.blockedOnPause();
       if(this.scenario!=='settlement')return {ok:false,error:'Назначения доступны в новом поселении'};
       const b=this.buildings.find(b=>b.id===buildingId);
+      if(b?.type==='mill'&&!['operational','damaged'].includes(this.millState(b).phase))
+        return {ok:false,error:'Разрушенная мельница не принимает работников'};
       if(!b||!DEF[b.type].recipe)return {ok:false,error:'Здесь нет рабочих мест'};
       const previous=this.staff[b.id]||0,cap=DEF[b.type].workers||1;
       if(!Number.isInteger(count)||count<0||count>cap)return {ok:false,error:'Превышено число рабочих мест'};
@@ -208,9 +210,86 @@
     }
     addBuilding(type,x,y,goods={}){
       const b={id:this.nextBuilding++,type,x,y,goods:{...dict(),...goods},progress:0};
+      if(type==='mill')b.mill={phase:'operational',integrity:100,ruinAge:0,repairProgress:0};
       this.buildings.push(b);return b;
     }
     warehouse(){return this.buildings.find(b=>b.type==='warehouse');}
+    // Зерно и мука хранятся в том же локальном инвентаре, который
+    // используют носильщики. Пакет ассетов лишь показывает эти два отсека.
+    millState(b){
+      if(!b||b.type!=='mill')return null;
+      if(!b.mill)b.mill={phase:'operational',integrity:100,ruinAge:0,repairProgress:0};
+      return b.mill;
+    }
+    millInterior(b){
+      const state=this.millState(b);if(!state)return null;
+      const worker=this.scenario==='settlement'?(this.staff[b.id]||0)>0:true;
+      const working=worker&&['operational','damaged'].includes(state.phase)&&this.readyToProduce(b);
+      return {phase:state.phase,integrity:state.integrity,worker,working,
+        input:{grain:b.goods.grain},output:{flour:b.goods.flour},
+        processing:b.progress/DEF.mill.recipe.time,repair:state.repairProgress};
+    }
+    damageMill(buildingId,amount){
+      if(this.paused)return this.blockedOnPause();
+      const b=this.buildings.find(b=>b.id===buildingId&&b.type==='mill');
+      if(!b||!Number.isFinite(amount)||amount<=0)return {ok:false,error:'Мельница не найдена'};
+      const state=this.millState(b);
+      if(!['operational','damaged'].includes(state.phase))
+        return {ok:false,error:'Мельница уже разрушена'};
+      state.integrity=Math.max(0,state.integrity-Math.round(amount));
+      state.phase=state.integrity===0?'fresh_ruins':state.integrity<100?'damaged':'operational';
+      if(state.integrity===0){
+        b.progress=0;state.ruinAge=0;this.staff[b.id]=0;
+        for(const c of this.carriers)if(c.job&&(c.job.source===b.id||c.job.target===b.id)){
+          if(c.carrying){this.warehouse().goods[c.carrying.res]+=c.carrying.amount;c.carrying=null;}
+          c.job=null;c.path=[];c.segment=0;
+        }
+      }
+      this.note(state.integrity===0?'Мельница уничтожена. Руины продолжают занимать участок.':
+        'Мельница повреждена: '+state.integrity+'% прочности.');
+      return {ok:true,phase:state.phase};
+    }
+    restoreMill(buildingId){
+      if(this.paused)return this.blockedOnPause();
+      const b=this.buildings.find(b=>b.id===buildingId&&b.type==='mill');
+      if(!b)return {ok:false,error:'Мельница не найдена'};
+      const state=this.millState(b);
+      if(!['fresh_ruins','old_ruins','overgrown_ruins'].includes(state.phase))
+        return {ok:false,error:'Здание не требует восстановления'};
+      const store=this.warehouse();
+      if(this.coins<24||store.goods.boards<3||store.goods.stone<2)
+        return {ok:false,error:'Для восстановления нужно 24 монеты, 3 доски и 2 камня'};
+      if(!this.route(this.entrance(store),this.entrance(b)))
+        return {ok:false,error:'Нужна дорога между руинами и складом'};
+      this.coins-=24;store.goods.boards-=3;store.goods.stone-=2;
+      state.phase='restoring';state.repairProgress=0;
+      this.note('Начато восстановление мельницы. Рабочие подготовят уцелевший фундамент.');
+      return {ok:true};
+    }
+    clearMillRuins(buildingId){
+      if(this.paused)return this.blockedOnPause();
+      const i=this.buildings.findIndex(b=>b.id===buildingId&&b.type==='mill');
+      if(i<0)return {ok:false,error:'Мельница не найдена'};
+      const b=this.buildings[i],state=this.millState(b);
+      if(!['old_ruins','overgrown_ruins'].includes(state.phase))
+        return {ok:false,error:'Сначала руины должны остыть и состариться'};
+      this.buildings.splice(i,1);delete this.staff[b.id];
+      this.note('Участок старой мельницы расчищен и снова пригоден для строительства.');
+      return {ok:true};
+    }
+    advanceMillRestoration(dt){
+      for(const b of this.buildings){
+        if(b.type!=='mill')continue;
+        const state=this.millState(b);
+        if(state.phase!=='restoring')continue;
+        if(!this.builders.some(worker=>worker.site===null)||!this.route(this.entrance(this.warehouse()),this.entrance(b)))continue;
+        state.repairProgress=Math.min(1,state.repairProgress+dt/16);
+        if(state.repairProgress>=1){
+          state.phase='operational';state.integrity=100;state.ruinAge=0;state.repairProgress=0;
+          this.note('Мельница восстановлена. Требуется мельник и зерно.');
+        }
+      }
+    }
     entrance(building){
       if(!building)return null;
       const opts=adj(building.x,building.y).filter(([x,y])=>this.roads[id(x,y)]);
@@ -240,7 +319,10 @@
       const path=[];for(let p=goal;p!==start;p=seen[p])path.push(xy(p));
       path.push(xy(start));return path.reverse();
     }
-    connected(building){return Boolean(this.route(this.entrance(this.warehouse()),this.entrance(building)));}
+    connected(building){
+      if(building?.type==='mill'&&!['operational','damaged'].includes(this.millState(building).phase))return false;
+      return Boolean(this.route(this.entrance(this.warehouse()),this.entrance(building)));
+    }
     canBuild(type,x,y){
       if(this.paused)return this.blockedOnPause();
       if(!inside(x,y))return {ok:false,error:'За пределами карты'};
@@ -344,6 +426,12 @@
       if(!inside(x,y))return {title:'Вне карты',desc:''};
       const b=this.buildingAt(x,y);
       if(b){
+        const mill=b.type==='mill'?this.millInterior(b):null;
+        if(mill&&!['operational','damaged'].includes(mill.phase))
+          return {title:'Мельница — '+({fresh_ruins:'свежие руины',old_ruins:'старые руины',
+            overgrown_ruins:'заросшие руины',restoring:'восстановление'}[mill.phase]||mill.phase),
+            desc:mill.phase==='restoring'?'Реставрация: '+Math.round(mill.repair*100)+'%.':
+              'Участок занят руинами. Можно восстановить или позже расчистить.'};
         const def=DEF[b.type],goods=RES.filter(k=>b.goods[k]>0).map(k=>RES_NAME[k]+': '+b.goods[k]).join(' · ');
         const agent=this.workAgents.find(a=>a.buildingId===b.id);
         const activity={arrive:'Работник идёт из поселения к предприятию.',out:'Работник направляется к природному ресурсу.',
@@ -352,7 +440,11 @@
         const needsStaff=this.scenario==='settlement'&&def.recipe;
         const state=needsStaff?((this.staff[b.id]||0)<1?'Нет назначенных работников. ':
           agent?activity[agent.phase]+' ':this.readyToProduce(b)?'Идёт производство. ':'Ожидание сырья или урожая. '):'';
-        return {title:def.name,desc:state+(this.connected(b)?'Соединено с дорожной сетью. ':'Нет маршрута до склада. ')+(goods||'Запасов нет.')};
+        return {title:def.name,desc:state+
+          (mill?'Входной склад — зерно: '+mill.input.grain+
+            '. Выходной склад — мука: '+mill.output.flour+'. ':
+            '')+
+          (this.connected(b)?'Соединено с дорожной сетью. ':'Нет маршрута до склада. ')+(goods||'Запасов нет.')};
       }
       const site=this.siteAt(x,y);
       if(site){const have=site.goods.boards||0;return {title:'Стройка: '+(site.type==='road'?'дорога':DEF[site.type].name),
@@ -399,6 +491,7 @@
     readyToProduce(b){
       const def=DEF[b.type],r=def?.recipe;if(!r||!this.connected(b))return false;
       if(this.scenario==='settlement'&&(this.staff[b.id]||0)<(def.workers||1))return false;
+      if(b.type==='mill'&&!['operational','damaged'].includes(this.millState(b).phase))return false;
       if(b.type==='quarry'&&!this.findDeposit(b))return false;
       if(b.type==='farm'&&this.scenario==='settlement'){
         const field=this.fields.find(f=>f.stage==='ripe'&&distance(f,b)<=3&&
@@ -415,7 +508,7 @@
       if(!r)return;
       if(this.scenario==='settlement'&&['logger','quarry','farm'].includes(b.type))return;
       if(!this.readyToProduce(b)){b.progress=0;return;}
-      b.progress+=dt;
+      b.progress+=dt*(b.type==='mill'?Math.max(.3,this.millState(b).integrity/100):1);
       if(b.progress<r.time)return;
       b.progress-=r.time;
       if(!this.readyToProduce(b))return;
@@ -623,6 +716,15 @@
       else this.morale=Math.min(100,this.morale+(this.tax>23?-3:this.tax<10?3:1));
       this.coins+=Math.floor(this.population*this.tax/18);
       this.advanceForestDay();
+      for(const b of this.buildings){
+        if(b.type!=='mill')continue;
+        const state=this.millState(b);
+        if(['fresh_ruins','old_ruins','overgrown_ruins'].includes(state.phase)){
+          state.ruinAge++;
+          if(state.ruinAge>=30)state.phase='overgrown_ruins';
+          else if(state.ruinAge>=4)state.phase='old_ruins';
+        }
+      }
       this.morale=Math.max(0,Math.min(100,this.morale-(this.tax>23?3:0)));
       const capacity=8+this.count('house')*6;
       if(eaten===need&&this.morale>=55&&this.population<capacity&&this.day%3===0)this.population++;
@@ -651,6 +753,7 @@
         for(const b of this.buildings)this.produce(b,sub);
         for(const c of this.carriers)this.moveCarrier(c,sub);
         this.advanceConstruction(sub);
+        this.advanceMillRestoration(sub);
         if(this.dispatchClock>=.65){this.dispatchClock-=.65;this.dispatch();}
         if(this.dayClock>=25){this.dayClock-=25;this.advanceDay();}
       }
@@ -685,6 +788,14 @@
           !s.buildings.some(b=>b.type==='warehouse')||!Number.isFinite(s.coins)||
           !Number.isInteger(s.day)||s.day<1||!Number.isFinite(s.population)||
           !s.buildings.every(b=>DEF[b.type]&&inside(b.x,b.y)&&b.goods&&RES.every(k=>Number.isFinite(b.goods[k])&&b.goods[k]>=0)))return null;
+        // Старые сохранения автоматически получают рабочий пакет мельницы.
+        for(const b of s.buildings)if(b.type==='mill'){
+          if(!b.mill)b.mill={phase:'operational',integrity:100,ruinAge:0,repairProgress:0};
+          if(!['operational','damaged','fresh_ruins','old_ruins','overgrown_ruins','restoring'].includes(b.mill.phase)||
+            !Number.isFinite(b.mill.integrity)||b.mill.integrity<0||b.mill.integrity>100||
+            !Number.isFinite(b.mill.ruinAge)||b.mill.ruinAge<0||
+            !Number.isFinite(b.mill.repairProgress)||b.mill.repairProgress<0||b.mill.repairProgress>1)return null;
+        }
         // Migrate existing v1-v3 saves without tree records without destroying
         // their finite wood inventory or ongoing construction.
         for(let i=0;i<s.tiles.length;i++){

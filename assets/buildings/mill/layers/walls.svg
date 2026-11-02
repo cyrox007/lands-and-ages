@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs>
+<linearGradient id="stone" x1="0" y1="0" x2="1" y2=".75"><stop stop-color="#e1d0ae"/><stop offset=".43" stop-color="#aa9b82"/><stop offset="1" stop-color="#635e55"/></linearGradient>
+<linearGradient id="wood" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9a96c"/><stop offset=".4" stop-color="#895a39"/><stop offset="1" stop-color="#48372a"/></linearGradient>
+<linearGradient id="roof" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c77f4b"/><stop offset=".45" stop-color="#805239"/><stop offset="1" stop-color="#483b33"/></linearGradient>
+<radialGradient id="gold"><stop stop-color="#fff9bf"/><stop offset=".45" stop-color="#ffcb69"/><stop offset="1" stop-color="#98552e"/></radialGradient>
+<radialGradient id="shadow"><stop stop-color="#112b20" stop-opacity=".47"/><stop offset=".55" stop-color="#17372a" stop-opacity=".21"/><stop offset="1" stop-color="#17372a" stop-opacity="0"/></radialGradient>
+</defs><path d="M75 231L83 134L149 110 178 131 185 229 145 252Z" fill="url(#stone)" stroke="#695d4d" stroke-width="5"/>
+<path d="M80 153Q129 142 174 158" fill="none" stroke="#82745f" stroke-width="2"/><path d="M80 167Q129 156 174 170" fill="none" stroke="#82745f" stroke-width="2"/><path d="M80 181Q129 170 174 182" fill="none" stroke="#82745f" stroke-width="2"/><path d="M80 195Q129 184 174 194" fill="none" stroke="#82745f" stroke-width="2"/><path d="M80 209Q129 198 174 206" fill="none" stroke="#82745f" stroke-width="2"/><path d="M80 223Q129 212 174 218" fill="none" stroke="#82745f" stroke-width="2"/>
+<path d="M180 236L180 179 226 158 269 184 270 238 226 257Z" fill="#b99d77" stroke="#675445" stroke-width="5"/><path d="M226 158L269 184 270 238 226 257Z" fill="#8d765c"/>
+<path d="M189 189L257 207M196 215L254 231" stroke="#6c533c" stroke-width="4"/></svg>

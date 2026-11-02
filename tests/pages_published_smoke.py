@@ -8,7 +8,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 URL=os.environ.get("PAGES_URL","https://cyrox007.github.io/lands-and-ages/")
-EXPECTED="art-recovery-20261102-v10"
+EXPECTED="modular-windmill-20261102-v11"
 DEADLINE=time.monotonic()+240
 
 with sync_playwright() as pw:
@@ -72,7 +72,9 @@ with sync_playwright() as pw:
         assert page.evaluate("window.__strategyDebug().treeArtCount")>0
         assert page.evaluate("window.__strategyDebug().rockDeposits")>0
         assert page.evaluate("window.__strategyDebug().millRotorState(5).blades")==4
-        assert page.evaluate("window.__strategyDebug().millRotorState(5).bakedSprite")==True
+        assert page.evaluate("window.__strategyDebug().millRotorState(5).bakedSprite")==False
+        page.wait_for_function("window.__strategyDebug().millPackage().loaded===17",timeout=20000)
+        assert page.evaluate("window.__strategyDebug().millPackage().total")==17
 
         assert page.evaluate("window.__strategyDebug().waterGroupCount")>0
         for res in ['logs','bread','flour','stone','grain','boards','vegetables']:
