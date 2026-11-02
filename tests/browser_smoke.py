@@ -10,8 +10,8 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
-html=re.sub(r'<link rel="stylesheet" href="style\\.css(?:\\?[^\"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|ui)\\.js(?:\\?[^\"]+)?"></script>','',html)
+html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
+html=re.sub(r'<script defer src="(?:engine|visual-model|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
