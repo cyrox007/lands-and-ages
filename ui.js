@@ -718,6 +718,7 @@
     const colors={logger:'#678e67',quarry:'#ae9b82',farm:'#b9a365',sawmill:'#927f55',
       mill:'#b2a68b',bakery:'#b98a65',idle:'#9ab3a0'};
     const c=colors[kind]||'#a1b8a5',sway=active?Math.sin(animationClock*6)*t*.023:Math.sin(animationClock*.9)*t*.006;
+    castShadow(x,y+t*.028,t,t/2,.26,.22);
     blob(x,y+t*.025,t*.07,t*.022,'#0c251e',.28);
     line(x-t*.018,y-t*.04,x-t*.024+sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
     line(x+t*.018,y-t*.04,x+t*.025-sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
@@ -805,12 +806,24 @@
     if(b.type==='mill'){
       drawWindmill(b,p,t,h,V.productionActive(b,connected,game.readyToProduce(b)));
     }else if(b.type==='quarry'){
-      diamond(p.x,p.y,.72,'#716c60','#c8b894');
-      for(let k=0;k<6;k++){
-        const ox=((k%3)-1)*t*.17,oy=Math.floor(k/3)*h*.16;
-        poly([[p.x+ox-t*.10,p.y+oy],[p.x+ox-t*.02,p.y+oy-h*.22],[p.x+ox+t*.10,p.y+oy-h*.12],[p.x+ox+t*.15,p.y+oy+h*.09]],
-          ['#a9a99f','#c1bcb0','#888b84'][k%3],'#55564f',1);
+      // A working quarry remains visibly industrial even once its nearby
+      // stone outcrops have been depleted.
+      diamond(p.x,p.y,.77,'#615c50','#b8a58a');
+      for(let k=0;k<5;k++){
+        const xx=p.x+t*((k%3-1)*.16),yy=p.y+h*(Math.floor(k/3)*.20-.02);
+        poly([[xx-t*.11,yy],[xx-t*.04,yy-h*(.18+.03*k)],
+          [xx+t*.09,yy-h*.10],[xx+t*.15,yy+h*.05]],
+          k%2?'#a3a69b':'#bcb5a2','#4d554f',1.0*zoom);
+        line(xx-t*.03,yy-h*.13,xx+t*.03,yy-h*.16,
+          '#e3d7bd',.9*zoom);
       }
+      for(const side of [-1,1]){
+        line(p.x+t*side*.35,p.y+h*.14,p.x+t*side*.35,p.y-h*.56,
+          '#9e774d',2.7*zoom);
+      }
+      line(p.x-t*.35,p.y-h*.49,p.x+t*.35,p.y-h*.49,'#d2a56f',3.1*zoom);
+      line(p.x-t*.35,p.y-h*.07,p.x+t*.35,p.y-h*.07,'#d2a56f',2.0*zoom);
+      line(p.x+t*.27,p.y-h*.48,p.x+t*.42,p.y+h*.08,'#75583d',1.6*zoom);
     }else if(!sprite(b.type,p.x,p.y+h*.33,renderedWidth,imageHeight)){
       diamond(p.x,p.y-.23*t,.84,COLORS[b.type]);
       ctx.textAlign='center';ctx.font=`bold ${Math.max(12,t*.32)}px sans-serif`;ctx.fillStyle='#f8eac6';
@@ -975,6 +988,7 @@
   function drawBuilder(b){
     const p=screen(b.x+.5,b.y+.5),t=tileSize(),h=tileHeight();
     const footY=p.y+h*.26;
+    castShadow(p.x,footY,t,h,.34,.25);
     // 100% frame-sheet playback. No static character sprite or global bobbing.
     if(!workerSprite(b,'builder',p.x,footY,t*.48)){
       blob(p.x,footY-h*.24,t*.10,h*.20,'#dda93f');
@@ -1027,6 +1041,7 @@
   function drawWorkAgent(a){
     const b=game.buildings.find(v=>v.id===a.buildingId);if(!b)return;
     const p=screen(a.x,a.y),t=tileSize(),h=tileHeight();
+    castShadow(p.x,p.y+h*.20,t,h,.3,.19);
     const moving=a.phase==='arrive'||a.phase==='out'||a.phase==='return';
     drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
     if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
@@ -1046,6 +1061,7 @@
   function drawCarrier(c){
     const p=screen(c.x+.5,c.y+.5),t=tileSize(),h=tileHeight();
     const footY=p.y+h*.26;
+    castShadow(p.x,footY,t,h,.32,.24);
     if(!workerSprite(c,'porter',p.x,footY,t*.48)){
       blob(p.x,footY-h*.23,t*.10,h*.20,'#aa8255');
     }
