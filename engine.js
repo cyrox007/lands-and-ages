@@ -96,7 +96,7 @@
       // People are simulation agents, not decorative markers. Worker count
       // is constrained by assigned places and their physical home building.
       const valid=new Set(this.buildings.filter(b=>DEF[b.type].recipe).map(b=>b.id));
-      this.workforce=this.workforce.filter(w=>valid.has(w.buildingId)&&(this.staff[w.buildingId]||0)>0);
+      this.workforce=this.workforce.filter(w=>valid.has(w.buildingId)&&w.slot<(this.staff[w.buildingId]||0));
       for(const b of this.buildings){
         if(!DEF[b.type].recipe)continue;
         const assigned=this.staff[b.id]||0;
