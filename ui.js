@@ -9,9 +9,10 @@
   const STORAGE='lands-ages:campaign:v1';
   let restored=null;
   try{restored=Game.restore(localStorage.getItem(STORAGE));}catch(_){/* restricted storage */}
-  let game=restored||new Game().startMission();
+  let game=restored||(window.__strategyBoot==='mission'?new Game().startMission():new Game(1729,'settlement'));
+  let selectedCrop='wheat';
   let mode='inspect',paused=false,speed=1,zoom=innerWidth<600?.88:1;
-  const camera={x:restored?10:17,y:restored?10:10};
+  const camera={x:game.scenario==='settlement'?11.5:17,y:10};
   let width=800,height=500,dpr=1,last=0,lastDraw=0,lastHud=0,lastSave=0,hover=null;
   let pointer=null,toastUntil=0;
   const TRAITS={grass:'#69875d',forest:'#456f54',hills:'#998a6c',water:'#478b9c',ruin:'#ae9c7b'};
@@ -103,6 +104,7 @@
     }
     const tool=type==='inspect'?'Осмотр: коснись клетки карты.':type==='excavate'?'Исследование: выбери древние руины (15 монет).':
       type==='road'?'Дорога: 2 монеты + 1 доска. Носильщики доставят материал, строители проложат путь.':
+      type==='field'?'Поле: выбери культуру, затем свободный участок до 3 клеток от фермы. Урожай растёт только с назначенным земледельцем.':
       'Заложить стройку: '+DEF[type].name+' — '+DEF[type].cost+' монет, '+DEF[type].boards+' досок; доставка и работа занимают время.';
     $('mapHint').textContent=tool;
   }
@@ -183,6 +185,34 @@
       poly([[p.x-t*.22,p.y+h*.06],[p.x-t*.015,p.y-h*.43],[p.x+t*.22,p.y+h*.06],[p.x,p.y+h*.22]],'#a48c70');
       poly([[p.x-t*.22,p.y+h*.06],[p.x-t*.015,p.y-h*.43],[p.x,p.y+h*.22]],'#cdb38c');
       line(p.x-t*.06,p.y-h*.23,p.x-t*.015,p.y-h*.38,'#e8d9b565',1.4*zoom);
+    }
+  }
+  function drawField(f){
+    const p=screen(f.x+.5,f.y+.5),t=tileSize(),h=tileHeight();
+    diamond(p.x,p.y,.94,'#70543a','#a7885d');
+    const rows=5,cols=5,seed=f.crop==='vegetables'?'#81a95b':f.crop==='barley'?'#e3c17b':'#dac16d';
+    for(let j=0;j<rows;j++)for(let k=0;k<cols;k++){
+      const u=(k+.5)/cols,v=(j+.5)/rows;
+      const x=p.x+(u-v)*t*.40,y=p.y+(u+v-1)*h*.40;
+      if(f.stage==='clearing'){line(x-t*.02,y,x+t*.02,y+h*.02,'#ad8b64',1.3*zoom);continue;}
+      const tall=f.stage==='ripe'?.18:f.stage==='growing'?.13:.06;
+      const sway=f.stage==='ripe'?Math.sin(animationClock*1.4+k+j)*t*.009:0;
+      line(x,y,x+sway,y-h*tall,f.stage==='sown'?'#729254':seed,Math.max(.8,1.3*zoom));
+      if(f.stage==='ripe')blob(x+sway,y-h*tall,t*.017,h*.04,seed,.95);
+    }
+    if(f.stage==='ripe'){
+      ctx.fillStyle='#fff1b9';ctx.textAlign='center';ctx.font=`bold ${Math.max(9,11*zoom)}px sans-serif`;
+      ctx.fillText('✓',p.x,p.y-h*.64);
+    }
+  }
+  function bush(x,y,variation){
+    const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
+    const dx=((variation%5)-2)*t*.09,dy=((variation%3)-1)*h*.12;
+    blob(p.x+dx,p.y+dy+h*.08,t*.15,h*.06,'#182c25',.3);
+    for(let j=0;j<4;j++){
+      const ox=(j-1.5)*t*.055;
+      blob(p.x+dx+ox,p.y+dy-h*(.06+(j%2)*.08),t*.085,h*.16,
+        j%2?'#52794e':'#739963',.9);
     }
   }
   function tree(x,y,variant=0){
@@ -305,7 +335,14 @@
   function drawBuilding(b){
     const {w:renderedWidth,h:imageHeight,p}=buildingRect(b),t=tileSize(),h=tileHeight(),connected=game.connected(b);
     diamond(p.x,p.y,.75,'#263d3180');
-    if(!sprite(b.type,p.x,p.y+h*.33,renderedWidth,imageHeight)){
+    if(b.type==='quarry'){
+      diamond(p.x,p.y,.72,'#716c60','#c8b894');
+      for(let k=0;k<6;k++){
+        const ox=((k%3)-1)*t*.17,oy=Math.floor(k/3)*h*.16;
+        poly([[p.x+ox-t*.10,p.y+oy],[p.x+ox-t*.02,p.y+oy-h*.22],[p.x+ox+t*.10,p.y+oy-h*.12],[p.x+ox+t*.15,p.y+oy+h*.09]],
+          ['#a9a99f','#c1bcb0','#888b84'][k%3],'#55564f',1);
+      }
+    }else if(!sprite(b.type,p.x,p.y+h*.33,renderedWidth,imageHeight)){
       diamond(p.x,p.y-.23*t,.84,COLORS[b.type]);
       ctx.textAlign='center';ctx.font=`bold ${Math.max(12,t*.32)}px sans-serif`;ctx.fillStyle='#f8eac6';
       ctx.fillText(DEF[b.type].symbol,p.x,p.y-h*.12);
@@ -407,6 +444,7 @@
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const pos=screen(x+.5,y+.5);if(visible(pos))terrainTile(x,y);
     }
+    for(const field of game.fields||[])if(visible(screen(field.x+.5,field.y+.5)))drawField(field);
     for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(game.roads[id(x,y)]){
       if(visible(screen(x+.5,y+.5)))road(x,y);
     }
@@ -417,6 +455,8 @@
       const tile=game.tiles[id(x,y)];if(!visible(screen(x+.5,y+.5)))continue;
       if(tile.terrain==='forest'&&tile.wood>0)objects.push({x,y,depth:x+y+.65,type:'forest'});
       if(tile.terrain==='ruin')objects.push({x,y,depth:x+y+.65,type:'ruin'});
+       if(tile.terrain==='grass'&&!game.roads[id(x,y)]&&!game.buildingAt(x,y)&&!game.siteAt(x,y)&&!game.fieldAt(x,y)&&
+          (x*31+y*47+x*y*11)%13===0)objects.push({x,y,depth:x+y+.60,type:'bush'});
     }
     for(const b of game.buildings)if(visible(screen(b.x+.5,b.y+.5)))objects.push({x:b.x,y:b.y,depth:b.x+b.y+.75,type:'building',b});
     for(const site of game.construction)if(visible(screen(site.x+.5,site.y+.5)))objects.push({x:site.x,y:site.y,depth:site.x+site.y+.73,type:'site',site});
@@ -426,6 +466,7 @@
     for(const o of objects){
       if(o.type==='forest')tree(o.x,o.y,(o.x*5+o.y*9)%6);
       else if(o.type==='ruin')ruins(o.x,o.y);
+       else if(o.type==='bush')bush(o.x,o.y,(o.x*3+o.y*7)%11);
       else if(o.type==='building')drawBuilding(o.b);
       else if(o.type==='site')drawSite(o.site);
       else if(o.type==='builder')drawBuilder(o.b);
@@ -457,10 +498,12 @@
   function updateMission(){
     const m=game.missionProgress(),card=$('missionCard'),focus=$('missionFocus'),choose=$('missionChoices'),tool=$('missionTool');
     if(!m.active){
-      $('missionStep').textContent='СВОБОДНАЯ ИГРА';$('missionTitle').textContent='Развивай поселение';
-      $('missionText').textContent='Строй дороги, прокладывай цепочки снабжения и исследуй мир в собственном темпе.';
-      $('missionDetail').textContent='Ты можешь начать испытание кнопкой «Новое испытание» внизу страницы.';
-      $('missionFill').style.width='100%';focus.hidden=true;tool.hidden=true;choose.hidden=true;return;
+      $('missionStep').textContent='ПОСЕЛЕНИЕ · ПЕРВАЯ ЭПОХА';$('missionTitle').textContent='Создай работающую экономику';
+      $('missionText').textContent=game.scenario==='settlement'?'Начни с лесничества, каменоломни и фермы. Назначь жителей, заложи поля и организуй доставку на общий склад.':'Строй дороги, прокладывай цепочки снабжения и исследуй мир.';
+      $('missionDetail').textContent=game.scenario==='settlement'?'Цель: получить на общем складе брёвна, камень и зерно, затем запустить переработку.':'Тестовая кампания доступна через системное меню.';
+      $('missionFill').style.width=(game.scenario==='settlement'?
+  (['logs','stone','grain'].filter(k=>game.warehouse().goods[k]>0).length/3*100):100)+'%';
+  focus.hidden=true;tool.hidden=true;choose.hidden=true;return;
     }
     if(m.stage!==stageShown){
       if(stageShown>=0&&m.stage>stageShown)notify(m.done?'Победа! Первое испытание пройдено.':'Задача выполнена! Следующий шаг открыт.');
@@ -520,7 +563,9 @@
     $('dayStat').textContent=hud.day;$('coinStat').textContent=hud.coins;
     $('popStat').textContent=hud.population;$('moraleStat').textContent=hud.morale+'%';
     for(const k of ['science','culture','diplomacy','military'])$(k+'Stat').textContent=hud[k];
-    for(const k of ['logs','boards','grain','flour','bread'])$(k+'Stock').textContent=hud.goods[k];
+    for(const k of ['logs','boards','stone','grain','flour','bread'])$(k+'Stock').textContent=hud.goods[k];
+     $('freeWorkers').textContent=hud.scenario==='settlement'?hud.freeWorkers:'—';
+     $('workforceHint').textContent=hud.scenario==='settlement'?'Свободные жители: '+hud.freeWorkers+' · Носильщики: '+game.carriers.length+' · Строители: '+game.builders.length:'Тестовая миссия: работники назначены автоматически';
     $('taxSlider').value=hud.tax;$('taxValue').textContent=hud.tax+'%';
     const list=$('eventLog');list.replaceChildren();
     for(const event of game.log.slice(0,6)){
@@ -531,6 +576,19 @@
   function inspectAt(x,y){const data=game.inspect(x,y);$('tileInfo').replaceChildren();
     const title=document.createElement('strong'),desc=document.createElement('span');
     title.textContent=data.title;desc.textContent=data.desc;$('tileInfo').append(title,desc);
+     const b=game.buildingAt(x,y);
+     if(b&&game.scenario==='settlement'&&DEF[b.type].workers){
+       const row=document.createElement('div');row.className='staff-controls';
+       const label=document.createElement('span');label.textContent='Рабочие: '+(game.staff[b.id]||0)+' / '+DEF[b.type].workers;
+       const minus=document.createElement('button');minus.type='button';minus.textContent='−';minus.setAttribute('aria-label','Снять работника');
+       const plus=document.createElement('button');plus.type='button';plus.textContent='+';plus.setAttribute('aria-label','Назначить работника');
+       for(const [btn,d] of [[minus,-1],[plus,1]])btn.addEventListener('click',()=>{
+         const result=game.assignWorkers(b.id,(game.staff[b.id]||0)+d);
+         if(!result.ok)notify(result.error);else persist();
+         inspectAt(x,y);updateHUD();
+       });
+       row.append(label,minus,plus);$('tileInfo').append(row);
+     }
   }
   function act(cell){
     const {x,y}=cell;if(x<0||x>=W||y<0||y>=H){notify('За пределами карты');return;}
@@ -540,9 +598,13 @@
       else{notify('Найденная печать пополнила знания и культурное наследие.');persist();}
       inspectAt(x,y);updateHUD();return;
     }
-    const result=game.build(mode,x,y);
+    const result=mode==='field'?game.placeField(x,y,selectedCrop):game.build(mode,x,y);
     if(!result.ok)notify(result.error);
-    else{notify(mode==='road'?'Дорожная стройка заложена — ждём носильщика и строителей.':DEF[mode].name+': площадка заложена, материалы в пути.');inspectAt(x,y);persist();}
+    else{
+       notify(mode==='field'?'Поле заложено. Назначь земледельца на ближайшую ферму.':
+         mode==='road'?'Дорожная стройка заложена — ждём носильщика и строителей.':DEF[mode].name+': площадка заложена, материалы в пути.');
+       inspectAt(x,y);persist();
+     }
     updateHUD();
   }
   function canvasPointer(e){const rect=canvas.getBoundingClientRect();return {x:e.clientX-rect.left,y:e.clientY-rect.top};}
@@ -578,6 +640,17 @@
   canvas.addEventListener('wheel',e=>{if(e.cancelable)e.preventDefault();zoomBy(e.deltaY<0?.12:-.12);},{passive:false});
   document.querySelectorAll('[data-tool]').forEach(b=>b.addEventListener('click',()=>selectTool(b.dataset.tool)));
   $('surveyBtn').addEventListener('click',()=>selectTool('excavate'));
+  const shell=document.querySelector('.shell');
+  document.querySelectorAll('[data-hud-panel]').forEach(b=>b.addEventListener('click',()=>{
+    const panel=b.dataset.hudPanel;
+    shell.dataset.panel=shell.dataset.panel===panel?'none':panel;
+    document.querySelectorAll('[data-hud-panel]').forEach(btn=>btn.setAttribute('aria-expanded',String(shell.dataset.panel===btn.dataset.hudPanel)));
+  }));
+  document.querySelectorAll('[data-crop]').forEach(b=>b.addEventListener('click',()=>{
+    selectedCrop=b.dataset.crop;
+    document.querySelectorAll('[data-crop]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));
+    selectTool('field');
+  }));
   document.querySelectorAll('[data-pan]').forEach(b=>b.addEventListener('click',()=>{
     const delta={left:[-2,0],right:[2,0],up:[0,-2],down:[0,2]}[b.dataset.pan];
     camera.x=clamp(camera.x+delta[0],-1,W+1);camera.y=clamp(camera.y+delta[1],-1,H+1);
@@ -592,11 +665,11 @@
   $('closeHelp').addEventListener('click',()=>$('helpDialog').close());
   $('resetBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать новую карту? Текущий прогресс будет потерян.'))return;
-    game=new Game().startMission();resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
+    game=new Game().startMission();shell.dataset.panel='none';resetMotion();stageShown=-2;winShown=false;selectTool('road');camera.x=17;camera.y=10;setPaused(false);persist();updateHUD();notify('Начато первое испытание!');
   });
   $('freeBtn').addEventListener('click',()=>{
     if(!window.confirm('Начать свободную игру без задач? Текущий прогресс будет заменён.'))return;
-    game=new Game();resetMotion();stageShown=-2;winShown=false;camera.x=10;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
+    game=new Game(1729,'settlement');shell.dataset.panel='none';resetMotion();stageShown=-2;winShown=false;camera.x=11.5;camera.y=10;selectTool('inspect');setPaused(false);persist();updateHUD();notify('Свободное поселение основано.');
   });
   window.addEventListener('keydown',e=>{
     if(e.target.closest('input,button,dialog'))return;
@@ -611,7 +684,8 @@
   window.addEventListener('blur',()=>{setPaused(true);persist();});
   window.addEventListener('beforeunload',persist);
   new ResizeObserver(resize).observe(canvas);
-  resetMotion();resize();selectTool(!restored?'road':'inspect');updateHUD();
+  window.addEventListener('resize',resize);
+  resetMotion();resize();selectTool(!restored&&game.mission.active?'road':'inspect');updateHUD();
   if(restored)notify('Прогресс поселения восстановлен.');
   function loop(now){
     if(!last)last=now;
@@ -625,7 +699,7 @@
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  window.__strategyDebug=()=>({day:game.day,coins:game.coins,resources:{...game.warehouse().goods},
+  window.__strategyDebug=()=>({day:game.day,coins:game.coins,scenario:game.scenario,staff:{...game.staff},freeWorkers:game.availableWorkers(),fields:game.fields.map(f=>({...f})),resources:{...game.warehouse().goods},
     buildings:game.buildings.length,sites:game.construction.map(s=>({type:s.type,x:s.x,y:s.y,boards:s.goods.boards,required:s.required.boards,progress:s.progress,duration:s.duration})),builders:game.builders.map(b=>({site:b.site,phase:b.phase,x:b.x,y:b.y})),carriers:game.carriers.filter(c=>c.job).length,science:game.science,
-    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.4.4',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){game.step(.1);animationClock+=.1;updateMotion();}updateHUD();draw();}});
+    culture:game.culture,diplomacy:game.diplomacy,military:game.military,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.0-dev',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),stageAt:(x,y)=>{const site=game.siteAt(x,y);return site?V.constructionStage(site):null;},tileCache:tileArtCache.size,spritesReady,workerSheetsReady,animationClock,productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){game.step(.1);animationClock+=.1;updateMotion();}updateHUD();draw();}});
 })();
