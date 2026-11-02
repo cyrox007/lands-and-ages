@@ -14,9 +14,9 @@
     quarry:{name:'Каменоломня',symbol:'◆',cost:36,boards:2,max:12,workers:1,recipe:{out:{stone:2},time:6}},
     sawmill:{name:'Лесопилка',symbol:'▥',cost:38,boards:2,max:12,workers:1,recipe:{in:{logs:2},out:{boards:1},time:6}},
     farm:{name:'Ферма',symbol:'✿',cost:32,boards:1,max:12,workers:1,recipe:{out:{grain:2},time:5}},
-    mill:{name:'Мельница',symbol:'✳',cost:42,boards:2,max:12,workers:1,recipe:{in:{grain:2},out:{flour:1},time:6}},
-    bakery:{name:'Пекарня',symbol:'♨',cost:45,boards:2,max:12,workers:1,recipe:{in:{flour:1,logs:1},out:{bread:3},time:7}},
-    house:{name:'Дом',symbol:'⌂',cost:25,boards:2,max:0,recipe:null},
+    mill:{name:'Мельница',symbol:'✳',cost:42,boards:2,stone:1,max:12,workers:1,recipe:{in:{grain:2},out:{flour:1},time:6}},
+    bakery:{name:'Пекарня',symbol:'♨',cost:45,boards:2,stone:2,max:12,workers:1,recipe:{in:{flour:1,logs:1},out:{bread:3},time:7}},
+    house:{name:'Дом',symbol:'⌂',cost:25,boards:2,stone:1,max:0,recipe:null},
     academy:{name:'Академия',symbol:'✧',cost:75,boards:4,max:8,recipe:{in:{boards:1},point:'science',gain:4,time:9}},
     theatre:{name:'Театр',symbol:'♫',cost:60,boards:3,max:8,recipe:{in:{bread:1},point:'culture',gain:3,time:9}},
     market:{name:'Рынок',symbol:'⚖',cost:50,boards:2,max:8,recipe:{in:{bread:2},point:'wealth',gain:9,time:8}},
@@ -153,7 +153,7 @@
     siteMaterials(site){return site.required.boards||0;}
     siteStage(site){
       const have=site.goods.boards||0,need=this.siteMaterials(site);
-      if(have<need)return this.entrance(site)?'Доставка материалов':'Нет подъезда к стройке';
+      if(Object.entries(site.required).some(([k,n])=>(site.goods[k]||0)<n))return this.entrance(site)?'Доставка материалов':'Нет подъезда к стройке';
       const workers=this.builders.filter(b=>b.site===site.id&&b.phase==='work').length;
       return workers?'Работают строители':'Ожидание строителей';
     }
@@ -229,11 +229,12 @@
       const check=this.canBuild(type,x,y);if(!check.ok)return check;
       const isRoad=type==='road',price=isRoad?2:DEF[type].cost;
       const boards=isRoad?1:DEF[type].boards;
+      const stone=this.scenario==='settlement'&&!isRoad?(DEF[type].stone||0):0;
       this.coins-=price; // Coin cost is paid on order, not the construction time.
-      const site={id:-(this.nextSite++),type,x,y,goods:dict(),required:{boards},
+      const site={id:-(this.nextSite++),type,x,y,goods:dict(),required:{boards,stone},
         progress:0,duration:isRoad?3.5:Math.max(8,10+DEF[type].boards*2.5),price};
       this.construction.push(site);
-      this.note((isRoad?'Участок дороги':DEF[type].name)+': заложена стройка. Нужны '+boards+' доски и работа строителей.');
+      this.note((isRoad?'Участок дороги':DEF[type].name)+': заложена стройка. Материалы: доски '+boards+(stone?', камень '+stone:'')+'; нужны строители.');
       return {ok:true,site};
     }
     finishSite(site){
@@ -249,7 +250,7 @@
         if(worker.site!==null)continue;
         const source={x:Math.round(worker.x),y:Math.round(worker.y)};
         for(const site of this.construction){
-          if(site.goods.boards<this.siteMaterials(site))continue;
+          if(Object.entries(site.required).some(([k,n])=>(site.goods[k]||0)<n))continue;
           const entrance=this.entrance(site),path=entrance&&this.route(source,entrance);
           if(!path)continue;
           worker.site=site.id;worker.path=path;worker.segment=0;
@@ -290,7 +291,7 @@
       }
       const site=this.siteAt(x,y);
       if(site){const have=site.goods.boards||0;return {title:'Стройка: '+(site.type==='road'?'дорога':DEF[site.type].name),
-        desc:this.siteStage(site)+'. Доски: '+have+'/'+this.siteMaterials(site)+'. Работа: '+Math.floor(site.progress/site.duration*100)+'%. Материалы идут по дороге, строители работают после доставки.'};}
+        desc:this.siteStage(site)+'. Доски: '+have+'/'+this.siteMaterials(site)+'. Камень: '+(site.goods.stone||0)+'/'+(site.required.stone||0)+'. Работа: '+Math.floor(site.progress/site.duration*100)+'%. Материалы идут по дороге, строители работают после доставки.'};}
       const field=this.fieldAt(x,y);
       if(field)return {title:'Поле: '+({wheat:'Пшеница',barley:'Ячмень',vegetables:'Овощи'}[field.crop]),desc:'Стадия: '+field.stage+'. Урожаев собрано: '+field.harvests+'. Полевые работы ведут назначенные фермеры.'};
       if(this.roads[id(x,y)])return {title:'Дорога',desc:'По ней носильщики перемещают реальные грузы между зданиями.'};
@@ -378,11 +379,14 @@
       // Construction is top priority, but not magical: every board travels on
       // a real carrier along the road to an entrance adjacent to the site.
       for(const site of this.construction){
-        const need=this.siteMaterials(site)-site.goods.boards-this.reservedTo(site.id,'boards');
-        if(need<=0||!this.entrance(site))continue;
-        const source=this.sourceFor(site,'boards');if(!source)continue;
-        const amount=Math.min(3,need,this.available(source,'boards'));
-        if(amount>0)return {source,target:site,res:'boards',amount};
+        if(!this.entrance(site))continue;
+        for(const [resource,required] of Object.entries(site.required)){
+          const need=required-(site.goods[resource]||0)-this.reservedTo(site.id,resource);
+          if(need<=0)continue;
+          const source=this.sourceFor(site,resource);if(!source)continue;
+          const amount=Math.min(3,need,this.available(source,resource));
+          if(amount>0)return {source,target:site,res:resource,amount};
+        }
       }
       // In settlement mode output moves through the headquarters first.
       // Every unit changes ownership at pickup and again at delivery.
@@ -502,8 +506,7 @@
         goods:{...w.goods},carriers:this.carriers.map(c=>({x:c.x,y:c.y,res:c.carrying?.res||null})),
         connected:this.buildings.filter(b=>this.connected(b)).length,total:this.buildings.length,
         scenario:this.scenario,freeWorkers:this.availableWorkers(),staff:{...this.staff},fields:this.fields.map(f=>({...f})),
-        sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,
-          boards:s.required.boards,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
+        sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,boards:s.required.boards,deliveredStone:s.goods.stone||0,stone:s.required.stone||0,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
     }
     save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,fields:this.fields,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
       construction:this.construction,builders:this.builders,nextSite:this.nextSite,
