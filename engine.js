@@ -6,23 +6,24 @@
 })(typeof globalThis==='object'?globalThis:this,function(){
   'use strict';
   const W=26,H=18;
-  const RES=['logs','boards','grain','flour','bread'];
-  const RES_NAME={logs:'Брёвна',boards:'Доски',grain:'Зерно',flour:'Мука',bread:'Хлеб'};
+  const RES=['logs','boards','stone','grain','vegetables','flour','bread'];
+  const RES_NAME={logs:'Брёвна',boards:'Доски',stone:'Камень',grain:'Зерно',vegetables:'Овощи',flour:'Мука',bread:'Хлеб'};
   const DEF={
     warehouse:{name:'Склад',symbol:'▣',cost:0,boards:0,max:100,recipe:null},
-    logger:{name:'Лесничество',symbol:'♣',cost:27,boards:1,max:12,recipe:{out:{logs:2},time:4}},
-    sawmill:{name:'Лесопилка',symbol:'▥',cost:38,boards:2,max:12,recipe:{in:{logs:2},out:{boards:1},time:6}},
-    farm:{name:'Ферма',symbol:'✿',cost:32,boards:1,max:12,recipe:{out:{grain:2},time:5}},
-    mill:{name:'Мельница',symbol:'✳',cost:42,boards:2,max:12,recipe:{in:{grain:2},out:{flour:1},time:6}},
-    bakery:{name:'Пекарня',symbol:'♨',cost:45,boards:2,max:12,recipe:{in:{flour:1,logs:1},out:{bread:3},time:7}},
-    house:{name:'Дом',symbol:'⌂',cost:25,boards:2,max:0,recipe:null},
-    academy:{name:'Академия',symbol:'✧',cost:75,boards:4,max:8,recipe:{in:{boards:1},point:'science',gain:4,time:9}},
-    theatre:{name:'Театр',symbol:'♫',cost:60,boards:3,max:8,recipe:{in:{bread:1},point:'culture',gain:3,time:9}},
-    market:{name:'Рынок',symbol:'⚖',cost:50,boards:2,max:8,recipe:{in:{bread:2},point:'wealth',gain:9,time:8}},
-    embassy:{name:'Посольство',symbol:'◆',cost:80,boards:4,max:8,recipe:{in:{bread:1,boards:1},point:'diplomacy',gain:3,time:10}},
-    barracks:{name:'Казармы',symbol:'⚑',cost:65,boards:3,max:8,recipe:{in:{bread:1,boards:1},point:'military',gain:3,time:10}}
+    logger:{name:'Лесничество',symbol:'♣',cost:27,boards:1,max:12,workers:1,recipe:{out:{logs:2},time:4}},
+    quarry:{name:'Каменоломня',symbol:'◆',cost:36,boards:2,max:12,workers:1,recipe:{out:{stone:2},time:6}},
+    sawmill:{name:'Лесопилка',symbol:'▥',cost:38,boards:2,max:12,workers:1,recipe:{in:{logs:2},out:{boards:1},time:6}},
+    farm:{name:'Ферма',symbol:'✿',cost:32,boards:1,max:12,workers:1,recipe:{out:{grain:2},time:5}},
+    mill:{name:'Мельница',symbol:'✳',cost:42,boards:2,stone:1,max:12,workers:1,recipe:{in:{grain:2},out:{flour:1},time:6}},
+    bakery:{name:'Пекарня',symbol:'♨',cost:45,boards:2,stone:2,max:12,workers:1,recipe:{in:{flour:1,logs:1},out:{bread:3},time:7}},
+    house:{name:'Дом',symbol:'⌂',cost:25,boards:2,stone:1,max:0,recipe:null},
+    academy:{name:'Академия',symbol:'✧',cost:75,boards:4,max:8,workers:1,recipe:{in:{boards:1},point:'science',gain:4,time:9}},
+    theatre:{name:'Театр',symbol:'♫',cost:60,boards:3,max:8,workers:1,recipe:{in:{bread:1},point:'culture',gain:3,time:9}},
+    market:{name:'Рынок',symbol:'⚖',cost:50,boards:2,max:8,workers:1,recipe:{in:{bread:2},point:'wealth',gain:9,time:8}},
+    embassy:{name:'Посольство',symbol:'◆',cost:80,boards:4,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'diplomacy',gain:3,time:10}},
+    barracks:{name:'Казармы',symbol:'⚑',cost:65,boards:3,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'military',gain:3,time:10}}
   };
-  const COLORS={warehouse:'#ffc671',logger:'#5eae79',sawmill:'#c79057',farm:'#8bbb61',mill:'#e4b76c',bakery:'#e49c65',house:'#96b4dc',academy:'#9f9ee8',theatre:'#e6a7ce',market:'#e8bc76',embassy:'#a1c8e6',barracks:'#df9593'};
+  const COLORS={warehouse:'#ffc671',quarry:'#a8a2a0',logger:'#5eae79',sawmill:'#c79057',farm:'#8bbb61',mill:'#e4b76c',bakery:'#e49c65',house:'#96b4dc',academy:'#9f9ee8',theatre:'#e6a7ce',market:'#e8bc76',embassy:'#a1c8e6',barracks:'#df9593'};
   const inside=(x,y)=>x>=0&&x<W&&y>=0&&y<H;
   const id=(x,y)=>y*W+x;
   const xy=i=>({x:i%W,y:Math.floor(i/W)});
@@ -31,16 +32,17 @@
   const distance=(a,b)=>Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
   function makeRng(seed){return function(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
   class Game {
-    constructor(seed=1729){
-      this.version=2;this.seed=seed|0;this.w=W;this.h=H;this.randomSeed=seed>>>0;
+    constructor(seed=1729,scenario='legacy'){
+      this.version=3;this.scenario=scenario;this.fields=[];this.staff={};this.seed=seed|0;this.w=W;this.h=H;this.randomSeed=seed>>>0;
       this.tiles=[];this.roads=[];this.buildings=[];this.construction=[];this.carriers=[];this.builders=[];this.nextBuilding=1;this.nextSite=1;
       this.coins=175;this.population=8;this.morale=73;this.tax=14;this.day=1;
       this.science=0;this.culture=0;this.diplomacy=0;this.military=0;
       this.stats={baked:0,developed:{wealth:0,science:0,culture:0,diplomacy:0,military:0}};
       this.mission={active:false,chosen:null,won:false};
       this.clock=0;this.dayClock=0;this.dispatchClock=0;this.log=[];this.excavated=[];
-      this.generate();this.initialize();
-      this.note('Поселение основано. Дороги связывают мастерские и склад.');
+      this.generate();
+      if(scenario==='settlement')this.initializeSettlement();else this.initialize();
+      this.note(scenario==='settlement'?'Поселение основано. Назначьте жителей, постройте первые производства и поля.':'Поселение основано. Дороги связывают мастерские и склад.');
     }
     generate(){
       const rng=makeRng(this.seed);
@@ -50,9 +52,11 @@
         if(edge&&r<.55)terrain='forest';
         if(y>=7&&y<=12&&x>=3&&x<=20)terrain='grass';
         if(y===6&&x>=6&&x<=9)terrain='forest';
+        if(y===7&&(x===11||x===12))terrain='forest';
+        if(x===16&&y===9)terrain='hills';
         if(x===21&&y>=3&&y<=6)terrain='hills';
         if((x===22&&y===4)||(x===2&&y===14))terrain='ruin';
-        this.tiles.push({terrain,wood:terrain==='forest'?40:0});
+        this.tiles.push({terrain,wood:terrain==='forest'?40:0,stone:terrain==='hills'?55:0});
         this.roads.push(false);
       }
     }
@@ -65,6 +69,54 @@
       ])this.addBuilding(type,x,y,goods);
       for(let i=0;i<3;i++)this.carriers.push({id:i+1,x:4,y:10,segment:0,path:[],job:null,carrying:null});
       for(let i=0;i<2;i++)this.builders.push({id:i+1,x:4,y:10,segment:0,path:[],site:null,phase:'idle'});
+    }
+    initializeSettlement(){
+      // A genuine new game: one headquarters, no pre-built industry.
+      this.coins=420;this.population=8;this.morale=78;
+      const store=this.addBuilding('warehouse',11,9,{boards:18,logs:6,bread:32});
+      for(let x=10;x<=15;x++)this.roads[id(x,10)]=true;
+      for(let i=0;i<2;i++)this.carriers.push({id:i+1,x:11,y:10,segment:0,path:[],job:null,carrying:null});
+      for(let i=0;i<2;i++)this.builders.push({id:i+1,x:11,y:10,segment:0,path:[],site:null,phase:'idle'});
+      this.mission={active:false,chosen:null,won:false};
+    }
+    employed(){return Object.values(this.staff).reduce((sum,n)=>sum+n,0);}
+    availableWorkers(){return Math.max(0,this.population-this.employed()-this.carriers.length-this.builders.length);}
+    assignWorkers(buildingId,count){
+      if(this.scenario!=='settlement')return {ok:false,error:'Назначения доступны в новом поселении'};
+      const b=this.buildings.find(b=>b.id===buildingId);
+      if(!b||!DEF[b.type].recipe)return {ok:false,error:'Здесь нет рабочих мест'};
+      const previous=this.staff[b.id]||0,cap=DEF[b.type].workers||1;
+      if(!Number.isInteger(count)||count<0||count>cap)return {ok:false,error:'Превышено число рабочих мест'};
+      if(count-previous>this.availableWorkers())return {ok:false,error:'Нет свободных жителей'};
+      this.staff[b.id]=count;this.note(DEF[b.type].name+': занято '+count+'/'+cap+' рабочих мест.');
+      return {ok:true};
+    }
+    fieldAt(x,y){return this.fields.find(f=>f.x===x&&f.y===y)||null;}
+    nearbyFarm(x,y){return this.buildings.find(b=>b.type==='farm'&&distance(b,{x,y})<=3)||null;}
+    placeField(x,y,crop='wheat'){
+      if(this.scenario!=='settlement')return {ok:false,error:'Поля доступны в новой игре'};
+      if(!inside(x,y)||this.tiles[id(x,y)].terrain!=='grass'||this.roads[id(x,y)]||
+        this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return {ok:false,error:'Нужен свободный луг'};
+      if(!['wheat','barley','vegetables'].includes(crop))return {ok:false,error:'Неизвестная культура'};
+      if(!this.nearbyFarm(x,y))return {ok:false,error:'Поле должно быть рядом с фермой (до 3 клеток)'};
+      if(this.coins<4)return {ok:false,error:'Для подготовки поля нужно 4 монеты'};
+      this.coins-=4;const field={x,y,crop,stage:'clearing',progress:0,harvests:0};
+      this.fields.push(field);this.note('Заложено поле: '+crop+'. Земледельцы начнут подготовку почвы.');
+      return {ok:true,field};
+    }
+    fieldFarm(field){return this.nearbyFarm(field.x,field.y);}
+    advanceFields(dt){
+      if(this.scenario!=='settlement')return;
+      for(const f of this.fields){
+        const farm=this.fieldFarm(f);
+        if(!farm||(this.staff[farm.id]||0)<1||!this.connected(farm)||f.stage==='ripe')continue;
+        f.progress+=dt;
+        const durations={clearing:4,sown:3,growing:f.crop==='vegetables'?18:f.crop==='barley'?12:15};
+        if(f.progress>=durations[f.stage]){
+          f.progress-=durations[f.stage];
+          f.stage=f.stage==='clearing'?'sown':f.stage==='sown'?'growing':'ripe';
+        }
+      }
     }
     startMission(){
       // The food chain starts broken. The player must act to restore it.
@@ -101,7 +153,7 @@
     siteMaterials(site){return site.required.boards||0;}
     siteStage(site){
       const have=site.goods.boards||0,need=this.siteMaterials(site);
-      if(have<need)return this.entrance(site)?'Доставка материалов':'Нет подъезда к стройке';
+      if(Object.entries(site.required).some(([k,n])=>(site.goods[k]||0)<n))return this.entrance(site)?'Доставка материалов':'Нет подъезда к стройке';
       const workers=this.builders.filter(b=>b.site===site.id&&b.phase==='work').length;
       return workers?'Работают строители':'Ожидание строителей';
     }
@@ -142,17 +194,25 @@
     connected(building){return Boolean(this.route(this.entrance(this.warehouse()),this.entrance(building)));}
     canBuild(type,x,y){
       if(!inside(x,y))return {ok:false,error:'За пределами карты'};
+      if(type==='field'){
+        if(this.scenario!=='settlement')return {ok:false,error:'Поля недоступны'};
+        if(!inside(x,y)||this.tiles[id(x,y)].terrain!=='grass'||this.roads[id(x,y)]||
+          this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return {ok:false,error:'Нужен свободный луг'};
+        if(!this.nearbyFarm(x,y))return {ok:false,error:'Нужна ферма рядом'};
+        return this.coins>=4?{ok:true}:{ok:false,error:'Не хватает монет'};
+      }
       if(type==='road'){
         if(this.roads[id(x,y)])return {ok:false,error:'Дорога уже проложена'};
-        if(this.buildingAt(x,y)||this.siteAt(x,y))return {ok:false,error:'Клетка уже занята'};
+        if(this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return {ok:false,error:'Клетка уже занята'};
         if(this.tiles[id(x,y)].terrain!=='grass')return {ok:false,error:'Здесь нельзя проложить дорогу'};
         if(this.coins<2)return {ok:false,error:'Недостаточно монет'};
         if(this.uncommittedBoards()<1)return {ok:false,error:'Не хватает досок на дорожную стройку'};
         return {ok:true};
       }
       if(!DEF[type]||type==='warehouse')return {ok:false,error:'Недоступное сооружение'};
-      if(this.buildingAt(x,y)||this.siteAt(x,y)||this.roads[id(x,y)])return {ok:false,error:'Клетка занята'};
-      if(this.tiles[id(x,y)].terrain!=='grass')return {ok:false,error:'Строить можно только на равнине'};
+      if(this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y)||this.roads[id(x,y)])return {ok:false,error:'Клетка занята'};
+      if(this.tiles[id(x,y)].terrain!=='grass'&&!(type==='quarry'&&this.tiles[id(x,y)].terrain==='hills'))return {ok:false,error:'Неподходящий участок для этого здания'};
+      if(type==='quarry'&&!this.findDeposit({x,y}))return {ok:false,error:'Каменоломне нужно месторождение рядом'};
       const w=this.warehouse();
       if(this.coins<DEF[type].cost)return {ok:false,error:'Не хватает монет'};
       if(this.uncommittedBoards()<DEF[type].boards)return {ok:false,error:'Не хватает свободных досок на складе'};
@@ -165,14 +225,16 @@
       return Math.max(0,this.warehouse().goods.boards-outstanding);
     }
     build(type,x,y){
+      if(type==='field')return this.placeField(x,y);
       const check=this.canBuild(type,x,y);if(!check.ok)return check;
       const isRoad=type==='road',price=isRoad?2:DEF[type].cost;
       const boards=isRoad?1:DEF[type].boards;
+      const stone=this.scenario==='settlement'&&!isRoad?(DEF[type].stone||0):0;
       this.coins-=price; // Coin cost is paid on order, not the construction time.
-      const site={id:-(this.nextSite++),type,x,y,goods:dict(),required:{boards},
+      const site={id:-(this.nextSite++),type,x,y,goods:dict(),required:{boards,stone},
         progress:0,duration:isRoad?3.5:Math.max(8,10+DEF[type].boards*2.5),price};
       this.construction.push(site);
-      this.note((isRoad?'Участок дороги':DEF[type].name)+': заложена стройка. Нужны '+boards+' доски и работа строителей.');
+      this.note((isRoad?'Участок дороги':DEF[type].name)+': заложена стройка. Материалы: доски '+boards+(stone?', камень '+stone:'')+'; нужны строители.');
       return {ok:true,site};
     }
     finishSite(site){
@@ -188,7 +250,7 @@
         if(worker.site!==null)continue;
         const source={x:Math.round(worker.x),y:Math.round(worker.y)};
         for(const site of this.construction){
-          if(site.goods.boards<this.siteMaterials(site))continue;
+          if(Object.entries(site.required).some(([k,n])=>(site.goods[k]||0)<n))continue;
           const entrance=this.entrance(site),path=entrance&&this.route(source,entrance);
           if(!path)continue;
           worker.site=site.id;worker.path=path;worker.segment=0;
@@ -212,7 +274,7 @@
       this.dispatchBuilders();
       for(const worker of this.builders)this.moveBuilder(worker,dt);
       for(const site of this.construction.slice()){
-        if(site.goods.boards<this.siteMaterials(site))continue;
+        if(Object.entries(site.required).some(([k,n])=>(site.goods[k]||0)<n))continue;
         // A worker on site makes real, time-consuming progress. Two work faster.
         const count=this.builders.filter(w=>w.site===site.id&&w.phase==='work').length;
         if(!count)continue;
@@ -229,11 +291,14 @@
       }
       const site=this.siteAt(x,y);
       if(site){const have=site.goods.boards||0;return {title:'Стройка: '+(site.type==='road'?'дорога':DEF[site.type].name),
-        desc:this.siteStage(site)+'. Доски: '+have+'/'+this.siteMaterials(site)+'. Работа: '+Math.floor(site.progress/site.duration*100)+'%. Материалы идут по дороге, строители работают после доставки.'};}
+        desc:this.siteStage(site)+'. Доски: '+have+'/'+this.siteMaterials(site)+'. Камень: '+(site.goods.stone||0)+'/'+(site.required.stone||0)+'. Работа: '+Math.floor(site.progress/site.duration*100)+'%. Материалы идут по дороге, строители работают после доставки.'};}
+      const field=this.fieldAt(x,y);
+      if(field)return {title:'Поле: '+({wheat:'Пшеница',barley:'Ячмень',vegetables:'Овощи'}[field.crop]),desc:'Стадия: '+field.stage+'. Урожаев собрано: '+field.harvests+'. Полевые работы ведут назначенные фермеры.'};
       if(this.roads[id(x,y)])return {title:'Дорога',desc:'По ней носильщики перемещают реальные грузы между зданиями.'};
       const t=this.tiles[id(x,y)];
       if(t.terrain==='ruin')return {title:'Древние руины',desc:this.excavated.includes(id(x,y))?'Экспедиция завершила описание находок.':'Среди разрушенных камней виден неизвестный знак. Исследуйте находку.'};
       if(t.terrain==='forest')return {title:'Лесной массив',desc:'Запас древесины: '+t.wood+'. Лесничества используют ближайшие участки.'};
+      if(t.terrain==='hills')return {title:'Каменное месторождение',desc:'Камня осталось: '+(t.stone||0)};
       const name={grass:'Луг',hills:'Холмы',water:'Водоём'};
       return {title:name[t.terrain],desc:'Местность мира; некоторые участки ограничивают застройку.'};
     }
@@ -254,11 +319,26 @@
       }
       return best;
     }
+    findDeposit(b){
+      let best=null,dist=Infinity;
+      for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++)for(let x=Math.max(0,b.x-3);x<=Math.min(W-1,b.x+3);x++){
+        const t=this.tiles[id(x,y)],d=distance({x,y},b);
+        if(t.terrain==='hills'&&(t.stone||0)>0&&d<dist){best=t;dist=d;}
+      }
+      return best;
+    }
     readyToProduce(b){
       const def=DEF[b.type],r=def?.recipe;if(!r||!this.connected(b))return false;
+      if(this.scenario==='settlement'&&(this.staff[b.id]||0)<(def.workers||1))return false;
+      if(b.type==='quarry'&&!this.findDeposit(b))return false;
+      if(b.type==='farm'&&this.scenario==='settlement'){
+        const field=this.fields.find(f=>f.stage==='ripe'&&distance(f,b)<=3&&
+          b.goods[f.crop==='vegetables'?'vegetables':'grain']+(f.crop==='barley'?3:2)<=def.max);
+        if(!field)return false;
+      }
       if(b.type==='logger'&&!this.findForest(b))return false;
       if(r.in&&Object.entries(r.in).some(([k,n])=>b.goods[k]<n))return false;
-      if(r.out&&Object.entries(r.out).some(([k,n])=>b.goods[k]+n>def.max))return false;
+      if(r.out&&!(b.type==='farm'&&this.scenario==='settlement')&&Object.entries(r.out).some(([k,n])=>b.goods[k]+n>def.max))return false;
       return true;
     }
     produce(b,dt){
@@ -269,11 +349,20 @@
       if(b.progress<r.time)return;
       b.progress-=r.time;
       if(!this.readyToProduce(b))return;
+      let outputs=r.out||{};
+      if(b.type==='farm'&&this.scenario==='settlement'){
+        const field=this.fields.find(f=>f.stage==='ripe'&&distance(f,b)<=3&&
+          b.goods[f.crop==='vegetables'?'vegetables':'grain']+(f.crop==='barley'?3:2)<=DEF[b.type].max);
+        if(!field)return;
+        outputs=field.crop==='vegetables'?{vegetables:2}:{grain:field.crop==='barley'?3:2};
+        field.stage='sown';field.progress=0;field.harvests++;
+      }
       for(const [k,n] of Object.entries(r.in||{}))b.goods[k]-=n;
-      for(const [k,n] of Object.entries(r.out||{}))b.goods[k]+=n;
+      for(const [k,n] of Object.entries(outputs))b.goods[k]+=n;
       if(b.type==='bakery')this.stats.baked+=r.out.bread;
       if(r.point)this.stats.developed[r.point]=(this.stats.developed[r.point]||0)+r.gain;
       if(b.type==='logger'){const forest=this.findForest(b);if(forest)forest.wood=Math.max(0,forest.wood-2);}
+      if(b.type==='quarry'){const rock=this.findDeposit(b);if(rock)rock.stone=Math.max(0,rock.stone-2);}
       if(r.point){if(r.point==='wealth')this.coins+=r.gain;else this[r.point]+=r.gain;}
     }
     // Reservations exclude cargo/jobs already allocated to a carrier.
@@ -283,18 +372,36 @@
     sourceFor(target,k){
       const targetEntrance=this.entrance(target);if(!targetEntrance)return null;
       return this.buildings
-        .filter(b=>b.id!==target.id&&this.available(b,k)>0&&this.entrance(b)&&this.route(this.entrance(b),targetEntrance))
+        .filter(b=>(this.scenario!=='settlement'||target.type==='warehouse'||b.type==='warehouse')&&b.id!==target.id&&this.available(b,k)>0&&this.entrance(b)&&this.route(this.entrance(b),targetEntrance))
         .sort((a,b)=>distance(a,target)-distance(b,target)||a.id-b.id)[0]||null;
     }
     chooseDelivery(){
       // Construction is top priority, but not magical: every board travels on
       // a real carrier along the road to an entrance adjacent to the site.
       for(const site of this.construction){
-        const need=this.siteMaterials(site)-site.goods.boards-this.reservedTo(site.id,'boards');
-        if(need<=0||!this.entrance(site))continue;
-        const source=this.sourceFor(site,'boards');if(!source)continue;
-        const amount=Math.min(3,need,this.available(source,'boards'));
-        if(amount>0)return {source,target:site,res:'boards',amount};
+        if(!this.entrance(site))continue;
+        for(const [resource,required] of Object.entries(site.required)){
+          const need=required-(site.goods[resource]||0)-this.reservedTo(site.id,resource);
+          if(need<=0)continue;
+          const source=this.sourceFor(site,resource);if(!source)continue;
+          const amount=Math.min(3,need,this.available(source,resource));
+          if(amount>0)return {source,target:site,res:resource,amount};
+        }
+      }
+      // In settlement mode output moves through the headquarters first.
+      // Every unit changes ownership at pickup and again at delivery.
+      if(this.scenario==='settlement'){
+        const store=this.warehouse();
+        for(const b of this.buildings){
+          if(b.type==='warehouse'||!this.connected(b))continue;
+          const outputs=DEF[b.type].recipe?.out||{};
+          for(const k of b.type==='farm'?['grain','vegetables']:Object.keys(outputs)){
+            const available=this.available(b,k);
+            if(available<2||store.goods[k]+this.reservedTo(store.id,k)>=100)continue;
+            const amount=Math.min(3,available,100-store.goods[k]-this.reservedTo(store.id,k));
+            if(amount>0)return {source:b,target:store,res:k,amount};
+          }
+        }
       }
       // Priority: feed real production inputs before storing manufactured goods.
       for(const b of this.buildings){
@@ -365,14 +472,30 @@
       this.day++;
       const stock=this.warehouse().goods;
       const need=Math.ceil(this.population/5);
-      const eaten=Math.min(need,stock.bread);stock.bread-=eaten;
+      const breadEaten=Math.min(need,stock.bread);stock.bread-=breadEaten;
+      const vegetableEaten=this.scenario==='settlement'?Math.min(need-breadEaten,stock.vegetables):0;
+      stock.vegetables-=vegetableEaten;
+      const eaten=breadEaten+vegetableEaten;
       if(eaten<need){this.morale=Math.max(0,this.morale-9);this.note('Не хватает хлеба. Население недовольно.');}
       else this.morale=Math.min(100,this.morale+(this.tax>23?-3:this.tax<10?3:1));
       this.coins+=Math.floor(this.population*this.tax/18);
+      if(this.scenario==='settlement'&&this.day%8===0){
+        for(const tile of this.tiles)if(tile.terrain==='forest')tile.wood=Math.min(40,(tile.wood||0)+1);
+      }
       this.morale=Math.max(0,Math.min(100,this.morale-(this.tax>23?3:0)));
       const capacity=8+this.count('house')*6;
       if(eaten===need&&this.morale>=55&&this.population<capacity&&this.day%3===0)this.population++;
       if(this.morale<20&&this.day%2===0&&this.population>3)this.population--;
+      if(this.scenario==='settlement'){
+        // A shrinking village cannot employ more people than it has.
+        this.population=Math.max(this.carriers.length+this.builders.length,this.population);
+        let surplus=this.employed()+this.carriers.length+this.builders.length-this.population;
+        if(surplus>0)for(const b of this.buildings.slice().reverse()){
+          if(surplus<=0)break;
+          const n=Math.min(this.staff[b.id]||0,surplus);
+          if(n){this.staff[b.id]-=n;surplus-=n;this.note(DEF[b.type].name+': часть работников освободила места из-за сокращения населения.');}
+        }
+      }
       if(this.day%4===0)this.note('День '+this.day+': '+this.population+' жителей · настроение '+this.morale+'%.');
     }
     step(dt){
@@ -382,6 +505,7 @@
       while(remain>0){
         const sub=Math.min(.1,remain);remain-=sub;
         this.clock+=sub;this.dayClock+=sub;this.dispatchClock+=sub;
+        this.advanceFields(sub);
         for(const b of this.buildings)this.produce(b,sub);
         for(const c of this.carriers)this.moveCarrier(c,sub);
         this.advanceConstruction(sub);
@@ -394,10 +518,10 @@
         tax:this.tax,science:this.science,culture:this.culture,diplomacy:this.diplomacy,military:this.military,
         goods:{...w.goods},carriers:this.carriers.map(c=>({x:c.x,y:c.y,res:c.carrying?.res||null})),
         connected:this.buildings.filter(b=>this.connected(b)).length,total:this.buildings.length,
-        sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,
-          boards:s.required.boards,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
+        scenario:this.scenario,freeWorkers:this.availableWorkers(),staff:{...this.staff},fields:this.fields.map(f=>({...f})),
+        sites:this.construction.map(s=>({id:s.id,type:s.type,x:s.x,y:s.y,delivered:s.goods.boards,boards:s.required.boards,deliveredStone:s.goods.stone||0,stone:s.required.stone||0,progress:s.progress,duration:s.duration,state:this.siteStage(s)}))};
     }
-    save(){return JSON.stringify({version:2,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
+    save(){return JSON.stringify({version:3,scenario:this.scenario,staff:this.staff,fields:this.fields,seed:this.seed,tiles:this.tiles,roads:this.roads,buildings:this.buildings,
       construction:this.construction,builders:this.builders,nextSite:this.nextSite,
       carriers:this.carriers,nextBuilding:this.nextBuilding,coins:this.coins,population:this.population,morale:this.morale,
       tax:this.tax,day:this.day,science:this.science,culture:this.culture,diplomacy:this.diplomacy,
@@ -407,14 +531,20 @@
       try{
         if(typeof raw!=='string'||raw.length>300000)return null;
         const s=JSON.parse(raw);
-        if(![1,2].includes(s.version)||!Array.isArray(s.tiles)||s.tiles.length!==W*H||
+        // v1/v2 persisted before stone was introduced; migrate on load.
+        if(s&&[1,2].includes(s.version)&&Array.isArray(s.buildings)&&Array.isArray(s.tiles)){
+          for(const b of s.buildings)if(b.goods){if(b.goods.stone===undefined)b.goods.stone=0;if(b.goods.vegetables===undefined)b.goods.vegetables=0;}
+          for(const c of s.construction||[])if(c.goods){if(c.goods.stone===undefined)c.goods.stone=0;if(c.goods.vegetables===undefined)c.goods.vegetables=0;}
+          for(const t of s.tiles)if(t.stone===undefined)t.stone=t.terrain==='hills'?55:0;
+        }
+        if(![1,2,3].includes(s.version)||!Array.isArray(s.tiles)||s.tiles.length!==W*H||
           !Array.isArray(s.roads)||s.roads.length!==W*H||!Array.isArray(s.buildings)||
-          !s.buildings.length||s.buildings.length>W*H||!Array.isArray(s.carriers)||s.carriers.length!==3||
+          !s.buildings.length||s.buildings.length>W*H||!Array.isArray(s.carriers)||(s.version===3?(s.carriers.length<1||s.carriers.length>6):s.carriers.length!==3)||
           !s.buildings.some(b=>b.type==='warehouse')||!Number.isFinite(s.coins)||
           !Number.isInteger(s.day)||s.day<1||!Number.isFinite(s.population)||
           !s.buildings.every(b=>DEF[b.type]&&inside(b.x,b.y)&&b.goods&&RES.every(k=>Number.isFinite(b.goods[k])&&b.goods[k]>=0)))return null;
-        const game=new Game(s.seed);
-        const fields=['tiles','roads','buildings','construction','builders','nextSite','carriers','nextBuilding','coins','population','morale','tax','day',
+        const game=new Game(s.seed,s.scenario==='settlement'?'settlement':'legacy');
+        const fields=['scenario','staff','fields','tiles','roads','buildings','construction','builders','nextSite','carriers','nextBuilding','coins','population','morale','tax','day',
           'science','culture','diplomacy','military','mission','stats','clock','dayClock','dispatchClock','log','excavated'];
         for(const f of fields)if(Object.prototype.hasOwnProperty.call(s,f))game[f]=s[f];
         // Existing v0.1 / 0.2 saves did not have a mission; preserve free play.
@@ -423,15 +553,21 @@
         if(!game.stats.developed||typeof game.stats.baked!=='number'||!Number.isFinite(game.stats.baked))return null;
         if(!game.carriers.every(c=>Number.isFinite(c.x)&&Number.isFinite(c.y)&&Array.isArray(c.path)&&c.path.length<500))return null;
         // Older saves did not have construction, so remain fully compatible.
-        if(s.version===2&&(!Array.isArray(s.construction)||!Array.isArray(s.builders)||
-          !Number.isInteger(s.nextSite)||s.nextSite<1||s.construction.length>W*H||s.builders.length!==2||
+        if(s.version>=2&&(!Array.isArray(s.construction)||!Array.isArray(s.builders)||
+          !Number.isInteger(s.nextSite)||s.nextSite<1||s.construction.length>W*H||(s.version===3?(s.builders.length<1||s.builders.length>6):s.builders.length!==2)||
           !s.construction.every(c=>Number.isInteger(c.id)&&c.id<0&&inside(c.x,c.y)&&
             (c.type==='road'||(DEF[c.type]&&c.type!=='warehouse'))&&c.goods&&
             Number.isFinite(c.goods.boards)&&c.goods.boards>=0&&c.required&&
             Number.isInteger(c.required.boards)&&c.required.boards>=0&&
             Number.isFinite(c.progress)&&c.progress>=0&&Number.isFinite(c.duration)&&c.duration>0)||
           !s.builders.every(w=>Number.isFinite(w.x)&&Number.isFinite(w.y)&&Array.isArray(w.path)&&w.path.length<500)))return null;
-        game.version=2;
+        if(s.version===3){
+          if(!['settlement','legacy'].includes(s.scenario)||!s.staff||typeof s.staff!=='object'||
+            !Array.isArray(s.fields)||s.fields.length>W*H||
+            !s.fields.every(f=>inside(f.x,f.y)&&['wheat','barley','vegetables'].includes(f.crop)&&
+              ['clearing','sown','growing','ripe'].includes(f.stage)&&Number.isFinite(f.progress)&&f.progress>=0))return null;
+        }
+        game.version=3;
         return game;
       }catch(_){return null;}
     }
