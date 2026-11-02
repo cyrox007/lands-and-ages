@@ -97,8 +97,22 @@ def check(browser,name,w,h,mobile):
     assert abs(box['height']-h)<2,(name,box,h)
     assert page.evaluate('window.__strategyDebug().mission.stage')==0
     assert page.locator('#missionTitle').inner_text()=='Почини главную дорогу'
+    hud=page.evaluate('''() => {
+      const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]};
+      return {header:box('.masthead'),stats:box('.top-stats'),dock:box('.game-dock'),
+        quest:box('.mission-card'),map:box('#gameMap'),
+        sidebar:getComputedStyle(document.querySelector('#buildPanel')).display,
+        missionOpen:document.querySelector('#missionToggle').getAttribute('aria-expanded')}
+    }''')
+    assert abs(hud['map'][2]-w)<2 and abs(hud['map'][3]-h)<2,(name,hud)
+    assert hud['dock'][1] > h*.75,(name,hud)
+    assert hud['sidebar']=='none' and hud['missionOpen']=='false',(name,hud)
+    assert hud['quest'][1]>hud['header'][1],(name,hud)
+    assert page.locator('#missionToggle').get_attribute('aria-expanded')=='false'
+    page.locator('#missionToggle').click()
+    assert page.locator('#missionToggle').get_attribute('aria-expanded')=='true'
     page.locator('#missionTool').click()
-    assert page.locator('[data-tool="road"]').get_attribute('aria-pressed')=='true'
+    assert page.locator('.game-dock [data-tool="road"]').get_attribute('aria-pressed')=='true'
     tap_cell(page,17,10,mobile)
     page.wait_for_function('window.__strategyDebug().sites.length===1')
     assert page.evaluate('window.__strategyDebug().stageAt(17,10)')=='foundation'
@@ -159,6 +173,7 @@ def test_complete_campaign(browser,mobile=False):
     page.wait_for_function('window.__strategyDebug().mission.stage>=1')
     page.evaluate('window.__strategyDebug().step(175)')
     page.wait_for_function('window.__strategyDebug().mission.stage===2')
+    page.locator('#missionToggle').click()
     page.locator('#missionTool').click()
     tap_cell(page,8,11,mobile)
     page.wait_for_function('window.__strategyDebug().sites.some(s=>s.type==="house")')
@@ -197,22 +212,23 @@ with sync_playwright() as pw:
         assert page.evaluate('document.documentElement.scrollHeight')<=h+1
         page.locator('[data-hud-panel="build"]').click()
         assert page.locator('.shell').get_attribute('data-panel')=='build'
-        page.locator('[data-tool="field"]').click()
-        assert page.locator('[data-tool="field"]').get_attribute('aria-pressed')=='true'
+        page.locator('[data-build-category="raw"]').click()
+        assert page.locator('[data-build-category="raw"]').get_attribute('aria-pressed')=='true'
+        page.locator('#buildPanel [data-tool="field"]').click()
+        assert page.locator('#buildPanel [data-tool="field"]').get_attribute('aria-pressed')=='true'
         page.locator('[data-crop="barley"]').click()
         assert page.locator('[data-crop="barley"]').get_attribute('aria-pressed')=='true'
         page.locator('[data-hud-panel="stocks"]').click()
         assert page.locator('#stoneStock').is_visible()
         # Actual new-game pointer flow: place a logger, finish its site and staff it.
         page.locator('[data-hud-panel="build"]').click()
-        page.locator('[data-tool="logger"]').click()
+        page.locator('[data-build-category="raw"]').click()
+        page.locator('#buildPanel [data-tool="logger"]').click()
         tap_cell(page,12,9,mobile)
         page.wait_for_function('window.__strategyDebug().sites.some(s=>s.type==="logger")')
         page.evaluate('window.__strategyDebug().step(45)')
         page.wait_for_function('window.__strategyDebug().buildings===2')
-        if page.locator('.shell').get_attribute('data-panel')!='build':
-            page.locator('[data-hud-panel="build"]').click()
-        page.locator('[data-tool="inspect"]').click()
+        page.locator('.game-dock [data-tool="inspect"]').click()
         tap_cell(page,12,9,mobile)
         page.wait_for_function('document.querySelector(".staff-controls") !== null')
         assert page.locator('.staff-controls').is_visible()
