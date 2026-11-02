@@ -504,12 +504,31 @@
   function updateMission(){
     const m=game.missionProgress(),card=$('missionCard'),focus=$('missionFocus'),choose=$('missionChoices'),tool=$('missionTool');
     if(!m.active){
-      $('missionStep').textContent='ПОСЕЛЕНИЕ · ПЕРВАЯ ЭПОХА';$('missionTitle').textContent='Создай работающую экономику';
-      $('missionText').textContent=game.scenario==='settlement'?'Начни с лесничества, каменоломни и фермы. Назначь жителей, заложи поля и организуй доставку на общий склад.':'Строй дороги, прокладывай цепочки снабжения и исследуй мир.';
-      $('missionDetail').textContent=game.scenario==='settlement'?'Цель: получить на общем складе брёвна, камень и зерно, затем запустить переработку.':'Тестовая кампания доступна через системное меню.';
-      $('missionFill').style.width=(game.scenario==='settlement'?
-  (['logs','stone','grain'].filter(k=>game.warehouse().goods[k]>0).length/3*100):100)+'%';
-  focus.hidden=true;tool.hidden=true;choose.hidden=true;return;
+      if(game.scenario==='settlement'){
+        const milestones=[
+          ['Построй лесничество и назначь лесоруба',game.buildings.some(b=>b.type==='logger'&&(game.staff[b.id]||0)>0)],
+          ['Построй каменоломню, проложи дорогу и назначь рабочего',game.buildings.some(b=>b.type==='quarry'&&(game.staff[b.id]||0)>0)],
+          ['Построй ферму и назначь земледельца',game.buildings.some(b=>b.type==='farm'&&(game.staff[b.id]||0)>0)],
+          ['Заложи поле и собери первый урожай',game.fields.some(f=>f.harvests>0)],
+          ['Доставь камень и овощи на общий склад',game.warehouse().goods.stone>0&&game.warehouse().goods.vegetables>0],
+          ['Построй мельницу и пекарню, испеки первый хлеб',game.stats.baked>=3]
+        ];
+        const complete=milestones.filter(m=>m[1]).length,upcoming=milestones.find(m=>!m[1]);
+        $('missionStep').textContent='РАЗВИТИЕ ПОСЕЛЕНИЯ · '+complete+'/6';
+        $('missionTitle').textContent=upcoming?'Следующий шаг':'Первое хозяйство создано!';
+        $('missionText').textContent=upcoming?upcoming[0]:'Все первичные ресурсы и переработка работают. Продолжай развивать поселение.';
+        $('missionDetail').textContent='Нажми на предприятие для назначения работников. Дороги и материалы должны физически соединять производство и склад.';
+        $('missionFill').style.width=(complete/6*100)+'%';
+        if(stageShown>=0&&complete>stageShown)notify('Цель поселения выполнена: '+complete+'/6');
+        stageShown=complete;
+      }else{
+        $('missionStep').textContent='СВОБОДНАЯ ИГРА';
+        $('missionTitle').textContent='Развивай поселение';
+        $('missionText').textContent='Строй дороги, прокладывай цепочки снабжения и исследуй мир.';
+        $('missionDetail').textContent='Тестовая кампания доступна через системное меню.';
+        $('missionFill').style.width='100%';
+      }
+      focus.hidden=true;tool.hidden=true;choose.hidden=true;return;
     }
     if(m.stage!==stageShown){
       if(stageShown>=0&&m.stage>stageShown)notify(m.done?'Победа! Первое испытание пройдено.':'Задача выполнена! Следующий шаг открыт.');
