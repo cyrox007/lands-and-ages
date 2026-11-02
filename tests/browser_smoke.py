@@ -18,7 +18,7 @@ visual=(root/'visual-model.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 
-def mount(page,prior=None):
+def mount(page,prior=None,boot="mission"):
     page.set_content(html)
     page.add_style_tag(content=css)
     page.evaluate('''(prior) => {
@@ -31,6 +31,7 @@ def mount(page,prior=None):
     page.add_script_tag(content=engine)
     page.add_script_tag(content=visual)
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
+    page.evaluate('(scenario) => { window.__strategyBoot=scenario; }',boot)
     page.add_script_tag(content=ui)
 
 def tap_cell(page,x,y,mobile):
@@ -61,7 +62,7 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().workerPose("porter",0).travelled')==t
     page.locator('#pauseBtn').click()
     assert page.evaluate('window.__strategyDebug().productionAt("bakery")') is False
-    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.4.4'
+    assert page.evaluate('window.__strategyDebug().visualVersion')=='0.5.0-dev'
     # Sprite atlases are genuine frame sheets. Their cropped poses have different pixels.
     pixel_diffs=page.evaluate('''() => {
       const modes=['worker-porter-walk','worker-porter-carry','worker-builder-walk','worker-builder-work'];
@@ -91,7 +92,9 @@ def check(browser,name,w,h,mobile):
     assert page.evaluate('window.__strategyDebug().roadKind(16,10)')=='end'
     assert page.evaluate('window.__strategyDebug().roadKind(15,10)')=='straight'
     assert page.evaluate('window.__strategyDebug().tileCache')>0
-    assert page.locator('#gameMap').bounding_box()['width']>min(250,w*.7)
+    box=page.locator('#gameMap').bounding_box()
+    assert abs(box['width']-w)<2,(name,box,w)
+    assert abs(box['height']-h)<2,(name,box,h)
     assert page.evaluate('window.__strategyDebug().mission.stage')==0
     assert page.locator('#missionTitle').inner_text()=='Почини главную дорогу'
     page.locator('#missionTool').click()
@@ -124,6 +127,7 @@ def check(browser,name,w,h,mobile):
     before=page.evaluate('window.__strategyDebug().zoom')
     page.locator('#zoomIn').click()
     assert page.evaluate('window.__strategyDebug().zoom')>before
+    page.locator('[data-hud-panel="settings"]').click()
     page.locator('#helpBtn').click()
     assert page.locator('#helpDialog').is_visible()
     page.locator('#closeHelp').click()
@@ -176,4 +180,30 @@ def test_complete_campaign(browser,mobile=False):
 with sync_playwright() as pw:
     browser=pw.chromium.launch(headless=True,args=['--no-sandbox'],executable_path=shutil.which('chromium') or None)
     for mobile in (False,True):test_complete_campaign(browser,mobile)
+    browser.close()
+# A genuinely new settlement boots with one building, full viewport and overlay HUD.
+with sync_playwright() as pw:
+    browser=pw.chromium.launch(headless=True,args=['--no-sandbox'],executable_path=shutil.which('chromium') or None)
+    for name,w,h,mobile in [('settlement-desktop',1280,850,False),('settlement-mobile',393,852,True)]:
+        context=browser.new_context(viewport={'width':w,'height':h},is_mobile=mobile,has_touch=mobile)
+        page=context.new_page();errors=[];page.on('pageerror',lambda e: errors.append(str(e)))
+        mount(page,boot='settlement')
+        page.wait_for_function('Boolean(window.__strategyDebug)')
+        assert page.evaluate('window.__strategyDebug().scenario')=='settlement'
+        assert page.evaluate('window.__strategyDebug().buildings')==1
+        assert page.evaluate('window.__strategyDebug().freeWorkers')==4
+        box=page.locator('#gameMap').bounding_box()
+        assert abs(box['width']-w)<2 and abs(box['height']-h)<2
+        assert page.evaluate('document.documentElement.scrollHeight')<=h+1
+        page.locator('[data-hud-panel="build"]').click()
+        assert page.locator('.shell').get_attribute('data-panel')=='build'
+        page.locator('[data-tool="field"]').click()
+        assert page.locator('[data-tool="field"]').get_attribute('aria-pressed')=='true'
+        page.locator('[data-crop="barley"]').click()
+        assert page.locator('[data-crop="barley"]').get_attribute('aria-pressed')=='true'
+        page.locator('[data-hud-panel="stocks"]').click()
+        assert page.locator('#stoneStock').is_visible()
+        assert not errors,(name,errors)
+        print(name,{'oneHQ':True,'fullViewport':True,'overlaidHUD':True,'errors':0})
+        context.close()
     browser.close()
