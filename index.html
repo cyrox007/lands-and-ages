@@ -124,12 +124,13 @@ dialog{max-height:85dvh}
  .top-stats .stat{flex:1 1 0!important;max-width:none!important;min-width:0!important;padding:3px!important;text-align:center!important;border:0!important}
  .top-stats .stat>span{font-size:7px!important;letter-spacing:0!important}
  .top-stats .stat>strong{font-size:13px!important;margin:0!important}
- .mission-card{top:101px!important;left:6px!important;width:min(275px,calc(100vw - 12px))!important;padding:8px 38px 8px 10px!important}
+ .mission-card{top:101px!important;left:6px!important;width:min(275px,calc(100vw - 130px))!important;padding:8px 38px 8px 10px!important}
  .mission-card.expanded{width:min(335px,calc(100vw - 12px))!important;max-height:58dvh!important;padding:10px!important}
  .mission-card>strong{font-size:11px!important}
  .mission-kicker{font-size:8px!important}
  .mission-toggle{width:27px!important;height:27px!important;top:7px!important;right:6px!important}
  .panel-head{top:101px!important;right:6px!important;padding:5px!important;gap:4px!important}
+ .shell:has(.mission-card.expanded) .panel-head{display:none!important}
  .map-navigation button{width:28px!important;height:28px!important;min-width:28px!important}
  .panel-head .map-arrows{display:none!important}
  .map-bottom{display:none!important}
@@ -144,7 +145,7 @@ dialog{max-height:85dvh}
 @media(max-height:510px){
  .mission-card{top:66px!important;max-height:calc(100dvh - 132px)!important}
  .panel-head{top:66px!important}
- .hud-panel{max-height:calc(100dvh - 143px)!important}
+ .hud-panel{max-height:calc(100dvh - 175px)!important}
  .game-dock button{min-height:42px!important}
 }
 
