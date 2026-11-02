@@ -180,16 +180,51 @@
     g.globalAlpha=1;
     tileArtCache.set(key,c);return c;
   }
+  // Natural surfaces are continuous washes across logical cells. Grid cells
+  // still exist for pathfinding, but are not rendered as different-colored
+  // "Minecraft" diamonds.
   function terrainTile(x,y){
-    const type=game.tiles[id(x,y)].terrain,p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
+    const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
     const variation=((x*19+y*31+x*y*7)%7+7)%7;
-    const art=tileArt(type,variation);
-    // Tiny overlap hides sub-pixel gaps from camera motion / fractional zoom.
-    ctx.drawImage(art,p.x-t*.502,p.y-h*.502,t*1.004,h*1.004);
-    if(type==='hills'){
-      poly([[p.x-t*.22,p.y+h*.06],[p.x-t*.015,p.y-h*.43],[p.x+t*.22,p.y+h*.06],[p.x,p.y+h*.22]],'#a48c70');
-      poly([[p.x-t*.22,p.y+h*.06],[p.x-t*.015,p.y-h*.43],[p.x,p.y+h*.22]],'#cdb38c');
-      line(p.x-t*.06,p.y-h*.23,p.x-t*.015,p.y-h*.38,'#e8d9b565',1.4*zoom);
+    const art=tileArt('grass',variation);
+    ctx.drawImage(art,p.x-t*.504,p.y-h*.504,t*1.008,h*1.008);
+  }
+  function landscapePatches(){
+    const t=tileSize(),h=tileHeight();
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const tile=game.tiles[id(x,y)],p=screen(x+.5,y+.5),v=(x*17+y*31)%7;
+      if(p.x<-t*2||p.y<-t*2||p.x>width+t*2||p.y>height+t*2)continue;
+      if(tile.terrain==='forest'){
+        blob(p.x,p.y,t*.49,h*.34,'#315c45',.18);
+        blob(p.x+t*.12,p.y-h*.04,t*.32,h*.25,'#416d4b',.12);
+      }else if(tile.terrain==='hills'){
+        // Uneven rocky escarpment with no square dirt boundary.
+        blob(p.x,p.y+h*.09,t*.59,h*.38,'#8d7b64',.60);
+        blob(p.x-t*.11,p.y-h*.04,t*.40,h*.27,'#c0ac8a',.55);
+        for(let k=0;k<3;k++){
+          const dx=t*((k-1)*.16+.03*(v%3)),dy=h*((k%2)*.09-.08);
+          const r=t*(.10+.035*((k+v)%3));
+          poly([[p.x+dx-r,p.y+dy+h*.05],[p.x+dx-r*.31,p.y+dy-h*(.19+.04*k)],
+            [p.x+dx+r*.78,p.y+dy-h*.08],[p.x+dx+r,p.y+dy+h*.12]],
+            ['#9d9386','#bdad94','#817d76'][k],null);
+          line(p.x+dx-r*.16,p.y+dy-h*.13,p.x+dx-r*.03,p.y+dy-h*.19,'#e1d0b6',.9*zoom);
+        }
+      }else if(tile.terrain==='water'){
+        // Overlapping banks connect neighboring water cells organically.
+        blob(p.x,p.y,t*.68,h*.54,'#426b60',.55);
+        blob(p.x,p.y,t*.57,h*.47,'#34839a',.90);
+        blob(p.x-t*.05,p.y-h*.04,t*.39,h*.29,'#68a6a8',.43);
+        for(let k=0;k<3;k++){
+          const sway=Math.sin(animationClock*1.6+k*2+v)*t*.012;
+          line(p.x-t*(.26-k*.10)+sway,p.y+h*(k*.07-.10),
+             p.x+t*(.09+k*.08)+sway,p.y+h*(k*.07-.10)-h*.025,
+             '#c1e0cb',Math.max(.7,1.05*zoom));
+        }
+        for(let k=0;k<3;k++){
+          const dx=t*((k-1)*.38),dy=h*.28;
+          line(p.x+dx,p.y+dy,p.x+dx+t*.035,p.y+dy-h*(.19+.025*k),'#b2ba78',1.1*zoom);
+        }
+      }
     }
   }
   function drawField(f){
@@ -380,7 +415,7 @@
     }
     const active=V.productionActive(b,connected,game.readyToProduce(b));
     if(active)drawProductionEffect(b,p,t,h);
-    if(game.scenario==='settlement'&&(game.staff[b.id]||0)>0){
+    if(game.scenario==='settlement'&&(game.staff[b.id]||0)>0&&!['logger','quarry','farm'].includes(b.type)){
       const pos=screen(b.x+.91,b.y+.79);
       drawCitizen(pos.x,pos.y+h*.06,t,active,b.type);
     }
@@ -480,6 +515,7 @@
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const pos=screen(x+.5,y+.5);if(visible(pos))terrainTile(x,y);
     }
+    landscapePatches();
     for(const field of game.fields||[])if(visible(screen(field.x+.5,field.y+.5)))drawField(field);
     for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(game.roads[id(x,y)]){
       if(visible(screen(x+.5,y+.5)))road(x,y);
@@ -498,6 +534,8 @@
     for(const site of game.construction)if(visible(screen(site.x+.5,site.y+.5)))objects.push({x:site.x,y:site.y,depth:site.x+site.y+.73,type:'site',site});
     for(const b of game.builders)if(visible(screen(b.x+.5,b.y+.5)))objects.push({x:b.x,y:b.y,depth:b.x+b.y+.90,type:'builder',b});
     for(const c of game.carriers)if(visible(screen(c.x+.5,c.y+.5)))objects.push({x:c.x,y:c.y,depth:c.x+c.y+.90,type:'carrier',c});
+    for(const agent of game.workAgents||[])if(visible(screen(agent.x,agent.y)))
+      objects.push({x:agent.x,y:agent.y,depth:agent.x+agent.y+.90,type:'resident-worker',agent});
     if(game.scenario==='settlement'){
       const home=game.warehouse(),count=Math.min(7,game.availableWorkers());
       for(let k=0;k<count;k++){
@@ -516,6 +554,7 @@
       else if(o.type==='building')drawBuilding(o.b);
       else if(o.type==='site')drawSite(o.site);
       else if(o.type==='builder')drawBuilder(o.b);
+      else if(o.type==='resident-worker')drawWorkAgent(o.agent);
       else drawCarrier(o.c);
     }
     const mission=game.missionProgress();
