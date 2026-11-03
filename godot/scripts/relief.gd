@@ -10,16 +10,16 @@ static func profile_at(world: RefCounted, point: Vector2) -> Dictionary:
 		return {}
 	var height: float = world.height_at(point)
 	var step := 0.75
-	var west := world.height_at(cfg.clamp_point(point - Vector2(step, 0.0)))
-	var east := world.height_at(cfg.clamp_point(point + Vector2(step, 0.0)))
-	var north := world.height_at(cfg.clamp_point(point - Vector2(0.0, step)))
-	var south := world.height_at(cfg.clamp_point(point + Vector2(0.0, step)))
-	var span_x := cfg.clamp_point(point + Vector2(step, 0.0)).x \
+	var west: float = world.height_at(cfg.clamp_point(point - Vector2(step, 0.0)))
+	var east: float = world.height_at(cfg.clamp_point(point + Vector2(step, 0.0)))
+	var north: float = world.height_at(cfg.clamp_point(point - Vector2(0.0, step)))
+	var south: float = world.height_at(cfg.clamp_point(point + Vector2(0.0, step)))
+	var span_x: float = cfg.clamp_point(point + Vector2(step, 0.0)).x \
 		- cfg.clamp_point(point - Vector2(step, 0.0)).x
-	var span_y := cfg.clamp_point(point + Vector2(0.0, step)).y \
+	var span_y: float = cfg.clamp_point(point + Vector2(0.0, step)).y \
 		- cfg.clamp_point(point - Vector2(0.0, step)).y
-	var dx := (east - west) / maxf(span_x, 0.001)
-	var dy := (south - north) / maxf(span_y, 0.001)
+	var dx: float = (east - west) / maxf(span_x, 0.001)
+	var dy: float = (south - north) / maxf(span_y, 0.001)
 	var grade := Vector2(dx, dy).length()
 	var bearing := Vector2(-dx, -dy).normalized()
 	var low := height
@@ -30,7 +30,7 @@ static func profile_at(world: RefCounted, point: Vector2) -> Dictionary:
 		Vector2(12, 0), Vector2(-12, 0), Vector2(0, 12), Vector2(0, -12),
 		Vector2(9, 9), Vector2(-9, 9), Vector2(9, -9), Vector2(-9, -9)
 	]:
-		var neighbour := world.height_at(cfg.clamp_point(point + offset))
+		var neighbour: float = world.height_at(cfg.clamp_point(point + offset))
 		low = minf(low, neighbour)
 		high = maxf(high, neighbour)
 		mean += neighbour
