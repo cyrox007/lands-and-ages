@@ -1029,11 +1029,20 @@
     const slots=[[.27,2.62],[.83,2.56],[1.43,2.65],[2.01,2.59],
       [.52,3.04],[1.10,3.10],[1.73,3.01]];
     const directions=['se','sw','ne','se','nw','sw','se'];
+    const occupied=new Set();
     return slots.slice(0,Math.min(slots.length,game.availableWorkers()))
-      .map(([dx,dy],id)=>({
-        id,x:home.x+dx,y:home.y+dy,direction:directions[id],
-        variant:PAINTED_ROLES[id%6]
-      }));
+      .flatMap(([dx,dy],id)=>{
+        let x=home.x+dx,y=home.y+dy;
+        if(!game.walkable(Math.floor(x),Math.floor(y))){
+          const free=Navigation.nearest(W,H,{x,y},(cx,cy)=>
+            game.walkable(cx,cy)&&!occupied.has(cx+':'+cy));
+          if(!free)return [];
+          x=free.x+.5;y=free.y+.5;
+        }
+        occupied.add(Math.floor(x)+':'+Math.floor(y));
+        return [{id,x,y,direction:directions[id],
+          variant:PAINTED_ROLES[id%6]}];
+      });
   }
   function drawVillager(person){
     const p=screen(person.x,person.y),t=tileSize(),h=tileHeight();
