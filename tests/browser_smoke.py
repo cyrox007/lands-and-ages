@@ -582,6 +582,7 @@ with sync_playwright() as pw:
         page.add_style_tag(content=legacy_css)
         page.evaluate('''() => Object.defineProperty(window,'localStorage',{configurable:true,value:{
           getItem(){return null},setItem(){},removeItem(){}}})''')
+        page.add_script_tag(content=navigation)
         page.add_script_tag(content=engine)
         page.add_script_tag(content=visual)
         page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
