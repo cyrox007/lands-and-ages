@@ -11,6 +11,7 @@ const WaterMesh = preload("res://scripts/water_mesh.gd")
 const Boundary = preload("res://scripts/world_boundary.gd")
 const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
+const LandscapeEvents = preload("res://scripts/landscape_events.gd")
 
 const VIEW_RADIUS := 4
 const BUILD_PER_FRAME := 2
@@ -22,6 +23,8 @@ var _world_model: RefCounted
 var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
+var _landscape_events: RefCounted
+var _last_event := "Изменений ландшафта нет"
 var _view_mode := 4
 var _days_pending := 0
 var _water_material: StandardMaterial3D
@@ -45,6 +48,7 @@ func _ready() -> void:
 	_surface.rebuild()
 	_climate = Climate.new(_world_model, _hydro)
 	_climate.rebuild()
+	_landscape_events = LandscapeEvents.new(_world_model)
 	_climate.set_day(1)
 	_hydro.apply_rainfall_map(_climate.rainfall_map())
 	_surface.advance_climate_day(_climate)
@@ -106,7 +110,7 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 5: климат, местная погода и биомы связаны с природной картой."
+	info.text = "Этап 6.1: карта изменяется, гидрология и климат перестраиваются."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
 	var day_button := Button.new()
@@ -121,6 +125,11 @@ func _setup_interface() -> void:
 	view_button.text = "Слой: рельеф / почва / влага / температура / биом"
 	view_button.pressed.connect(_cycle_view)
 	column.add_child(view_button)
+	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
+		var event_button := Button.new()
+		event_button.text = "Изменить рельеф: " + kind
+		event_button.pressed.connect(_apply_landscape_event.bind(kind))
+		column.add_child(event_button)
 	var hint := Label.new()
 	hint.text = "WASD / стрелки — перемещение · колесо — масштаб · пальцем — сдвиг"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -235,13 +244,21 @@ func _create_chunk(coord: Vector2i) -> void:
 	_active[coord] = node
 
 
-func _on_world_changed(_chunks: Array[Vector2i], _revision: int) -> void:
-	# Грунты и климат читают один рельеф; водосбор пересчитывается первым.
+func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
+	# Система мира обновляется от одного изменения высот, не от GPU.
 	_hydro.rebuild()
-	_surface.rebuild()
 	_climate.rebuild()
 	_hydro.apply_rainfall_map(_climate.rainfall_map())
+	_surface.rebuild(chunks)
+	_surface.synchronize_climate(_climate)
 	_refresh_visible(true)
+
+
+func _apply_landscape_event(kind: String) -> void:
+	var result: Dictionary = _landscape_events.apply(kind, _center, 18.0, 3.0)
+	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
+		if not result.is_empty() else "%s: нет подходящего участка" % kind
+	_update_hud()
 
 
 func _queue_days(number: int) -> void:
@@ -293,6 +310,7 @@ func _update_hud() -> void:
 	_status.text += "Снег %.0f%% · промерзание %.0f%% · потенциал роста %.0f%%\n" % [
 		float(ground["snow"]) * 100.0, float(ground["frost"]) * 100.0,
 		float(ground["growth_potential"]) * 100.0]
+	_status.text += "%s\n" % _last_event
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), _days_pending]
