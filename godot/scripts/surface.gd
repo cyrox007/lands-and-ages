@@ -166,14 +166,21 @@ func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
 		_moisture[i] = 1.0 if hydro.has_water(i) else _moisture[i]
 
 
-func synchronize_climate(climate: RefCounted) -> void:
-	# После изменения рельефа обновляем температуру без нового игрового дня.
+func synchronize_climate(climate: RefCounted,
+		affected_rows: Array[int] = []) -> void:
+	# Температура изменяется на строках, затронутых рельефом.
+	# При изменении морской связности обновляем весь мир.
 	ensure_ready()
-	for i in range(_air_temperature.size()):
-		var air: float = climate.temperature_at_index(i)
-		_air_temperature[i] = air
-	# Смена рельефа сама по себе не переключает снег или лёд.
-	# Снежный покров меняется только во время физического шага.
+	if affected_rows.is_empty():
+		for i in range(_air_temperature.size()):
+			_air_temperature[i] = climate.temperature_at_index(i)
+	else:
+		var width: int = world.config.width
+		for y in affected_rows:
+			for x in range(width):
+				var i := y * width + x
+				_air_temperature[i] = climate.temperature_at_index(i)
+	# Смена высоты сама по себе не меняет снег или лёд.
 	revision += 1
 	surface_changed.emit(revision)
 
