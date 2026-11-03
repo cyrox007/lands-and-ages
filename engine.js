@@ -5,6 +5,8 @@
   if(root)root.StrategyEngine=api;
 })(typeof globalThis==='object'?globalThis:this,function(){
   'use strict';
+  const Nav=typeof module==='object'&&module.exports?
+    require('./navigation.js'):globalThis.StrategyNavigation;
   const W=26,H=18,SETTLEMENT_RADIUS=9;
   const RES=['logs','boards','stone','grain','vegetables','flour','bread'];
   const RES_NAME={logs:'Брёвна',boards:'Доски',stone:'Камень',grain:'Зерно',vegetables:'Овощи',flour:'Мука',bread:'Хлеб'};
@@ -375,22 +377,77 @@
       }
       return opts.length?{x:opts[0][0],y:opts[0][1]}:null;
     }
+    // Склад, дома, недостроенные объекты и природные преграды не проходимы.
+    walkable(x,y){
+      if(!inside(x,y))return false;
+      const cell=this.tiles[id(x,y)];
+      if(['forest','hills','water','ruin'].includes(cell.terrain))return false;
+      if(this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return false;
+      // Кусты изображаются на тех же клетках, поэтому тоже участвуют в коллизии.
+      if(!this.roads[id(x,y)]&&(x*31+y*47+x*y*11)%13===0)return false;
+      return true;
+    }
+    // Производственная логистика передвигается только по завершённым дорогам.
     route(from,to){
-      if(!from||!to)return null;
-      const start=id(from.x,from.y),goal=id(to.x,to.y);
-      if(!this.roads[start]||!this.roads[goal])return null;
-      const seen=new Int32Array(W*H).fill(-1),q=[start];seen[start]=start;
-      for(let i=0;i<q.length;i++){
-        const v=q[i];if(v===goal)break;
-        const {x,y}=xy(v);
-        for(const [nx,ny] of adj(x,y)){
-          const n=id(nx,ny);if(seen[n]!==-1||!this.roads[n])continue;
-          seen[n]=v;q.push(n);
+      return Nav.route(W,H,from,to,(x,y)=>this.roads[id(x,y)]&&
+        !this.buildingAt(x,y)&&!this.siteAt(x,y));
+    }
+    walkRoute(from,to){
+      const path=Nav.route(W,H,from,to,(x,y)=>this.walkable(x,y));
+      return path?.map(Nav.centre)||null;
+    }
+    approachPath(from,object){
+      const path=Nav.approach(W,H,from,object,(x,y)=>this.walkable(x,y));
+      return path?.map(Nav.centre)||null;
+    }
+    // Точки взаимодействия выбираются рядом с объектом, не внутри него.
+    approachCells(object){
+      return Nav.perimeter(object,W,H).filter(p=>this.walkable(p.x,p.y));
+    }
+    recoverAgent(agent){
+      if(this.walkable(Math.floor(agent.x),Math.floor(agent.y)))return true;
+      // Миграция старого сохранения: раньше рабочие появлялись внутри склада.
+      const safe=Nav.nearest(W,H,agent,(x,y)=>this.walkable(x,y));
+      if(!safe)return false;
+      agent.x=safe.x+.5;agent.y=safe.y+.5;
+      agent.path=[];agent.segment=0;
+      return true;
+    }
+    // Движение проходит по центрам соседних свободных клеток.
+    advanceAgentPath(agent,object,dt){
+      if(!Array.isArray(agent.path)||!agent.path.length){
+        agent.path=this.approachPath(agent,object);
+        agent.segment=0;
+        if(!agent.path)return false;
+      }
+      let remaining=dt*1.65;
+      while(remaining>0&&agent.segment<agent.path.length-1){
+        const next=agent.path[agent.segment+1];
+        if(!this.walkable(Math.floor(next.x),Math.floor(next.y))){
+          agent.path=[];agent.segment=0;
+          return false;
+        }
+        const dx=next.x-agent.x,dy=next.y-agent.y,dist=Math.hypot(dx,dy);
+        if(dist<.00001){
+          agent.x=next.x;agent.y=next.y;agent.segment++;
+          continue;
+        }
+        agent.facing=Nav.facing({x:0,y:0},{x:dx,y:dy},agent.facing);
+        if(remaining>=dist){
+          agent.x=next.x;agent.y=next.y;agent.segment++;remaining-=dist;
+        }else{
+          agent.x+=dx/dist*remaining;agent.y+=dy/dist*remaining;
+          remaining=0;
         }
       }
-      if(seen[goal]<0)return null;
-      const path=[];for(let p=goal;p!==start;p=seen[p])path.push(xy(p));
-      path.push(xy(start));return path.reverse();
+      if(agent.segment<agent.path.length-1)return false;
+      const last=agent.path.at(-1);
+      agent.x=last.x;agent.y=last.y;
+      const width=object.size?.w||1,height=object.size?.h||1;
+      agent.facing=Nav.facing(agent,{x:object.x+width/2,y:object.y+height/2},
+        agent.facing);
+      agent.path=[];agent.segment=0;
+      return true;
     }
     connected(building){
       if(building?.type==='mill'&&!['operational','damaged'].includes(this.millState(building).phase))return false;
