@@ -196,11 +196,15 @@ dialog{max-height:85dvh}
     #reliefBtn{width:auto;min-width:82px;white-space:nowrap;
       padding:7px 9px;color:#ebddbc;border:1px solid #77926d}
     #reliefBtn[aria-pressed="true"]{background:#60774e;color:#fff5d4}
+    #seasonBtn[hidden]{display:none!important}
+    #seasonBtn{width:auto;padding:7px 9px;border:1px solid #77926d;
+      color:#ebddbc;background:#29493b;border-radius:6px;white-space:nowrap}
     @media(max-width:750px){#reliefBtn{min-width:62px;padding:5px 6px;
       font-size:10px}}
   </style>
   <script defer src="world-terrain.js?v=0.6.0-heightfield"></script>
-  <script defer src="world-relief-preview.js?v=0.6.0-mesh"></script>
+  <script defer src="world-environment.js?v=0.6.0-climate"></script>
+  <script defer src="world-relief-preview.js?v=0.6.0-chunks"></script>
   <script defer src="navigation.js?v=0.5.22-trunk-contact"></script>
   <script defer src="engine.js?v=0.5.22-trunk-contact"></script>
   <script defer src="visual-model.js?v=0.5.4-visual-depth"></script>
@@ -238,7 +242,8 @@ dialog{max-height:85dvh}
     <div class="main-grid">
       <section class="map-panel" aria-label="Игровая карта">
         <div class="panel-head" aria-label="Управление камерой"><div class="map-navigation"><button id="zoomOut" title="Уменьшить масштаб" aria-label="Уменьшить масштаб">−</button><span id="zoomLabel">100%</span><button id="zoomIn" title="Увеличить масштаб" aria-label="Увеличить масштаб">+</button></div><button id="reliefBtn" type="button" aria-pressed="false"
-          title="Просмотр настоящих высот на тестовой карте">⛰ Рельеф</button><div class="map-arrows" aria-label="Перемещение камеры"><button data-pan="left" aria-label="Карта влево">←</button><button data-pan="up" aria-label="Карта вверх">↑</button><button data-pan="down" aria-label="Карта вниз">↓</button><button data-pan="right" aria-label="Карта вправо">→</button></div></div>
+          title="Просмотр большого природного мира">⛰ Рельеф</button><button id="seasonBtn"
+          type="button" hidden title="Переключить сезон природного мира без изменения времени игры">◷ Сезон</button><div class="map-arrows" aria-label="Перемещение камеры"><button data-pan="left" aria-label="Карта влево">←</button><button data-pan="up" aria-label="Карта вверх">↑</button><button data-pan="down" aria-label="Карта вниз">↓</button><button data-pan="right" aria-label="Карта вправо">→</button></div></div>
         <div class="map-container"><canvas id="gameMap" aria-label="Карта. Выберите инструмент и коснитесь клетки для действия, проведите пальцем для перемещения карты." tabindex="0"></canvas><div id="mapOverlay" class="map-overlay" hidden>ПАУЗА</div><div id="assetsStatus" class="assets-status" aria-live="polite">Загрузка 2.5D…</div><div class="map-compass" aria-hidden="true">N ↑</div><div class="map-watermark" aria-hidden="true">ИГРА 0.5.0-rc.0 · ПЕРВОЕ ИСПЫТАНИЕ</div></div>
         <div class="map-bottom" role="status"><span id="mapHint">Осмотр: коснись клетки карты.</span></div>
       </section>
