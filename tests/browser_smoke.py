@@ -784,7 +784,7 @@ with sync_playwright() as pw:
         after_idle=page.evaluate('window.__strategyDebug().reliefDrawCount')
         assert after_idle==before_idle,(name,'статичный мир рисуется без изменений',before_idle,after_idle)
         page.locator('#zoomOut').evaluate('(button) => button.click()')
-        page.wait_for_function('(before) => window.__strategyDebug().reliefDrawCount>before',after_idle)
+        page.wait_for_function('(before) => window.__strategyDebug().reliefDrawCount>before',arg=after_idle)
         page.locator('#seasonBtn').evaluate('(button) => button.click()')
         assert page.evaluate('window.__strategyDebug().reliefSummary().season')=='Лето'
         assert page.evaluate('window.__strategyDebug().reliefSurface(90,90).soil.fertility>=0')
