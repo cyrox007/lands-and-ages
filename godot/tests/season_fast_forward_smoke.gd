@@ -108,6 +108,30 @@ func _test_season() -> void:
 	reference.free()
 
 
+func _test_four_seasons() -> void:
+	var scene := _make_scene()
+	var initial_day: int = scene._climate.day
+	var chunks: int = scene._pending.size()
+	for i in range(4):
+		scene._queue_days(Climate.SEASON_DAYS)
+	_check(scene._days_pending == Climate.YEAR_DAYS,
+		"Несколько быстрых нажатий объединяются в одну очередь времени")
+	for day in range(Climate.YEAR_DAYS):
+		scene._process(1.0 / 60.0)
+		if day < Climate.YEAR_DAYS - 1:
+			_check(scene._chunk_rebuilds == 0,
+				"Несколько сезонов не запускают промежуточный рендер")
+	_check(scene._climate.day == initial_day + Climate.YEAR_DAYS,
+		"За год пройдены все дни по порядку")
+	_check(scene._visual_refreshes == 1,
+		"Четыре сезона дают одну итоговую перестройку карты")
+	_check(scene._chunk_rebuilds <= chunks,
+		"Годовая перемотка не создаёт избыточных GPU-мешей")
+	print("Этап 7.1: год 96 дней, GPU-обновлений ",
+		scene._visual_refreshes, ", построено мешей ", scene._chunk_rebuilds)
+	scene.free()
+
+
 func _test_compact_hud() -> void:
 	var scene := _make_scene()
 	scene._setup_interface()
@@ -126,6 +150,7 @@ func _test_compact_hud() -> void:
 
 func _initialize() -> void:
 	_test_season()
+	_test_four_seasons()
 	_test_compact_hud()
 	if not failures.is_empty():
 		for reason in failures:
