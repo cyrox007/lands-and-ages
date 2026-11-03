@@ -1,13 +1,18 @@
 extends RefCounted
-## Детерминированные высоты. Формулы согласованы с world-terrain.js.
-## Хранение вершин не зависит от порядка загрузки чанков.
+## Единый генератор природного рельефа: формы местности и географический край.
+## Нет старых переключаемых генераторов: мир находится в активной разработке.
 
 const Config = preload("res://scripts/world_config.gd")
-const ReliefV2 = preload("res://scripts/terrain_v2.gd")
+const Boundary = preload("res://scripts/world_boundary.gd")
 const WIDTH := Config.DEFAULT_WIDTH
 const HEIGHT := Config.DEFAULT_HEIGHT
 const SEED := Config.DEFAULT_SEED
 const HEIGHT_SCALE := Config.DEFAULT_HEIGHT_SCALE
+const FEATURE_STEP := 72.0
+const FORM_NAMES := [
+	"равнина", "низина", "холмы", "плоскогорье",
+	"горы", "долина", "овраг"
+]
 
 static func hash2(x: int, y: int, seed: int) -> float:
 	var n: int = (x * 374761393 + y * 668265263 + seed * 1442695041) & 0xffffffff
@@ -23,45 +28,106 @@ static func _noise(x: float, y: float, seed: int) -> float:
 	var v := smoothstep(0.0, 1.0, y - float(j))
 	var a := lerpf(hash2(i, j, seed), hash2(i + 1, j, seed), u)
 	var b := lerpf(hash2(i, j + 1, seed), hash2(i + 1, j + 1, seed), u)
-	return (lerpf(a, b, v) * 2.0) - 1.0
+	return lerpf(a, b, v) * 2.0 - 1.0
 
 
-static func _gaussian(x: float, y: float, cx: float, cy: float, rx: float, ry: float) -> float:
-	var a := (x - cx) / rx
-	var b := (y - cy) / ry
-	return exp(-2.0 * (a * a + b * b))
+static func _form_index(gx: int, gy: int, seed: int) -> int:
+	# Чередование предотвращает исчезновение целого вида форм на большой карте.
+	# Координаты центров, развороты и подробности остаются случайными по seed.
+	return posmod(gx * 3 + gy * 5 + seed, FORM_NAMES.size())
+
+
+static func _feature(x: float, y: float, gx: int, gy: int, seed: int) -> Vector3:
+	var jitter_x := (hash2(gx, gy, seed + 11) - 0.5) * 0.32
+	var jitter_y := (hash2(gx, gy, seed + 12) - 0.5) * 0.32
+	var cx := (float(gx) + 0.5 + jitter_x) * FEATURE_STEP
+	var cy := (float(gy) + 0.5 + jitter_y) * FEATURE_STEP
+	var angle := hash2(gx, gy, seed + 13) * TAU
+	var offset := Vector2(x - cx, y - cy)
+	var along := (offset.x * cos(angle) + offset.y * sin(angle)) / 34.0
+	var across := (-offset.x * sin(angle) + offset.y * cos(angle)) / 30.0
+	var kind := _form_index(gx, gy, seed)
+	var r := Vector2(along, across).length()
+	var envelope := 1.0 - smoothstep(0.64, 1.31, r)
+	if envelope <= 0.0:
+		return Vector3.ZERO
+	var detail := _noise(x / 12.0, y / 12.0, seed + gx * 37 + gy * 41 + 141)
+	var height_change := 0.0
+	var flatten := 0.0
+	match kind:
+		0:
+			# Равнина — область с подавленной мелкой неровностью.
+			flatten = 0.82 * envelope
+			height_change = -0.25 * envelope
+		1:
+			# Широкая низина без искусственно плоского дна.
+			height_change = -2.9 * envelope
+		2:
+			height_change = 3.1 * envelope * (0.82 + 0.18 * detail)
+		3:
+			# Пологая широкая вершина и отчётливый край плоскогорья.
+			var top := 1.0 - smoothstep(0.69, 1.16, r)
+			height_change = 5.3 * top + detail * 0.1 * top
+			flatten = 0.68 * top
+		4:
+			# Гребни гор создаются связными полосами, а не клеточными пиками.
+			var ridge := 0.78 + 0.22 * pow(sin(along * 7.0 + across * 3.7), 2.0)
+			height_change = 9.0 * envelope * ridge + detail * 0.7 * envelope
+		5:
+			# Долина продолжается вдоль оси и мягко расширяется на выходе.
+			var axis := across + 0.16 * sin(along * 3.4 + angle)
+			var reach := 1.0 - smoothstep(0.78, 1.45, absf(along))
+			height_change = -3.1 * exp(-1.6 * axis * axis) * reach
+		6:
+			# Овраг уже долины и имеет более крутые стенки.
+			var axis := across + 0.16 * sin(along * 4.3 + angle)
+			var reach := 1.0 - smoothstep(0.81, 1.50, absf(along))
+			height_change = -4.7 * exp(-22.0 * axis * axis) * reach
+	return Vector3(height_change, flatten, envelope)
+
+
+static func sample(x: float, y: float, seed: int) -> Dictionary:
+	# Крупные и мелкие шумы не зависят от размеров карты.
+	var coarse := 0.85 * _noise(x / 92.0, y / 92.0, seed + 1001)
+	var medium := 0.29 * _noise(x / 24.0, y / 24.0, seed + 1002)
+	var fine := 0.09 * _noise(x / 6.0, y / 6.0, seed + 1003)
+	var flatten := 0.0
+	var sum_features := 0.0
+	var dominant := -1
+	var strongest := 0.0
+	var home_x := floori(x / FEATURE_STEP)
+	var home_y := floori(y / FEATURE_STEP)
+	for gy in range(home_y - 1, home_y + 2):
+		for gx in range(home_x - 1, home_x + 2):
+			var effect := _feature(x, y, gx, gy, seed)
+			sum_features += effect.x
+			flatten = maxf(flatten, effect.y)
+			if effect.z > strongest:
+				strongest = effect.z
+				dominant = _form_index(gx, gy, seed)
+	var elevation := coarse + (medium + fine) * (1.0 - flatten) + sum_features
+	return {
+		"height": elevation,
+		"form": FORM_NAMES[dominant] if dominant >= 0 and strongest >= 0.12 else "переход",
+		"influence": strongest
+	}
+
+
+static func height_at(x: float, y: float, seed: int) -> float:
+	return float(sample(x, y, seed)["height"])
+
+
+static func form_at(x: float, y: float, seed: int) -> String:
+	return str(sample(x, y, seed)["form"])
+
+
+static func vertex_height_on_map(x: int, y: int, width: int, height: int, seed: int) -> float:
+	var base := height_at(float(x), float(y), seed)
+	return Boundary.height_at(float(x), float(y), width, height, seed, base)
 
 
 static func vertex_height(x: int, y: int, seed: int = SEED) -> float:
 	return vertex_height_on_map(x, y, WIDTH, HEIGHT, seed)
-
-
-static func vertex_height_on_map(x: int, y: int, width: int, height: int,
-		seed: int, generation: int = Config.DEFAULT_GENERATOR) -> float:
-	if generation == 2:
-		return ReliefV2.height_at(float(x), float(y), seed)
-	return _legacy_height(x, y, width, height, seed)
-
-
-static func _legacy_height(x: int, y: int, width: int, height: int, seed: int) -> float:
-	var u := float(x) / float(width)
-	var v := float(y) / float(height)
-	var hills := _gaussian(u, v, 0.21, 0.28, 0.16, 0.24)
-	var lowland := _gaussian(u, v, 0.14, 0.76, 0.19, 0.18)
-	var mesa_radius := Vector2((u - 0.71) / 0.15, (v - 0.28) / 0.21).length()
-	var plateau := 1.0 - smoothstep(0.78, 1.37, mesa_radius)
-	var curved := 0.50 + 0.045 * sin(v * 12.5 + 1.2)
-	var trench := exp(-0.5 * pow((u - curved) / 0.035, 2.0))
-	var ravine := trench * smoothstep(0.12, 0.26, v) * (1.0 - smoothstep(0.78, 0.96, v))
-	var mountains := _gaussian(u, v, 0.85, 0.73, 0.17, 0.30)
-	var ridge := _gaussian(u, v, 0.90, 0.59, 0.092, 0.16)
-	var gentle := 0.30 * _noise(float(x) / 6.0, float(y) / 6.0, seed)
-	gentle += 0.12 * _noise(float(x) / 2.6, float(y) / 2.6, seed + 17)
-	var undulation := 0.24 + gentle
-	var hill_height := 2.9 * hills * (0.78 + 0.22 * cos(u * 52.0 + v * 19.0))
-	var mountain_height := 6.9 * mountains * (0.72 + 0.28 * pow(sin(u * 62.0 - v * 33.0), 2.0))
-	return undulation * (1.0 - 0.82 * plateau) + hill_height - 2.6 * lowland \
-		+ 4.9 * plateau - 3.2 * ravine + mountain_height + 2.6 * ridge
 
 
 static func ground_height(x: float, y: float, seed: int = SEED) -> float:

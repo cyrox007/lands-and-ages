@@ -4,6 +4,7 @@ extends RefCounted
 
 signal water_changed(revision: int)
 
+const Boundary = preload("res://scripts/world_boundary.gd")
 const RIVER_THRESHOLD := 180.0
 const LAKE_THRESHOLD := 0.06
 const FLOOD_START := 1.5
@@ -27,12 +28,13 @@ var _order := PackedInt32Array()
 var _rank := PackedInt32Array()
 var _catchment := PackedFloat32Array()
 var _river := PackedByteArray()
+var _ocean := PackedByteArray()
 var _lake := PackedByteArray()
 var _flood := PackedByteArray()
 var _water_level := PackedFloat32Array()
 var _wetness := PackedFloat32Array()
 var _heap: Array[int] = []
-var _summary := {"lakes": 0, "rivers": 0, "flooded": 0}
+var _summary := {"lakes": 0, "rivers": 0, "flooded": 0, "ocean": 0}
 
 
 func _init(source: RefCounted) -> void:
@@ -159,6 +161,7 @@ func rebuild() -> void:
 			_catchment[lower] += _catchment[current]
 
 	_terrain_revision = world.revision
+	_mark_ocean()
 	_recalculate_water()
 	revision += 1
 	water_changed.emit(revision)
@@ -182,6 +185,37 @@ func set_rainfall(value: float) -> bool:
 	return true
 
 
+func _mark_ocean() -> void:
+	_ocean.resize(_ground.size())
+	_ocean.fill(0)
+	# Море заполняет только отрицательные отметки, связанные с краем.
+	var queue: Array[int] = []
+	for y in range(_height):
+		for x in range(_width):
+			if x > 0 and y > 0 and x < _width - 1 and y < _height - 1:
+				continue
+			var i := y * _width + x
+			if _ground[i] < Boundary.SEA_LEVEL:
+				_ocean[i] = 1
+				queue.append(i)
+	var cursor := 0
+	while cursor < queue.size():
+		var current := queue[cursor]
+		cursor += 1
+		var x := current % _width
+		var y := current / _width
+		for offset in DIRECTIONS:
+			var nx: int = x + offset.x
+			var ny: int = y + offset.y
+			if nx < 0 or ny < 0 or nx >= _width or ny >= _height:
+				continue
+			var next: int = ny * _width + nx
+			if _ocean[next] != 0 or _ground[next] >= Boundary.SEA_LEVEL:
+				continue
+			_ocean[next] = 1
+			queue.append(next)
+
+
 func _recalculate_water() -> void:
 	var count := _width * _height
 	_river.resize(count)
@@ -198,6 +232,11 @@ func _recalculate_water() -> void:
 	var sources: Array[int] = []
 	var stage := 0.04 + maxf(0.0, rainfall - 1.0) * 0.10
 	for i in range(count):
+		if _ocean[i] != 0:
+			_water_level[i] = Boundary.SEA_LEVEL
+			_wetness[i] = 1.0
+			sources.append(i)
+			continue
 		var lake_depth := _spill[i] - _ground[i]
 		var is_lake := lake_depth > LAKE_THRESHOLD
 		var is_river := _catchment[i] * rainfall >= RIVER_THRESHOLD
@@ -246,11 +285,13 @@ func _recalculate_water() -> void:
 	var lakes := 0
 	var rivers := 0
 	var floods := 0
+	var ocean := 0
 	for i in range(count):
 		lakes += int(_lake[i] != 0)
 		rivers += int(_river[i] != 0 and _lake[i] == 0)
 		floods += int(_flood[i] != 0)
-	_summary = {"lakes": lakes, "rivers": rivers, "flooded": floods}
+		ocean += int(_ocean[i] != 0)
+	_summary = {"lakes": lakes, "rivers": rivers, "flooded": floods, "ocean": ocean}
 
 	# Влажность здесь — признак соседства воды, а не свойства почвы.
 	for i in range(count):
@@ -285,6 +326,7 @@ func water_at(cell: Vector2i) -> Dictionary:
 		"discharge": _catchment[i] * rainfall,
 		"lake": _lake[i] != 0,
 		"river": _river[i] != 0,
+		"ocean": _ocean[i] != 0,
 		"flooded": _flood[i] != 0,
 		"water_level": surface if not is_nan(surface) else null,
 		"depth": maxf(0.0, surface - _ground[i]) if not is_nan(surface) else 0.0,
@@ -294,6 +336,10 @@ func water_at(cell: Vector2i) -> Dictionary:
 
 func has_water(index: int) -> bool:
 	return index >= 0 and index < _water_level.size() and not is_nan(_water_level[index])
+
+
+func ocean_at(index: int) -> bool:
+	return index >= 0 and index < _ocean.size() and _ocean[index] != 0
 
 
 func lake_at(index: int) -> bool:

@@ -9,7 +9,6 @@ const DEFAULT_SEED := 1729
 const DEFAULT_CHUNK := 16
 const DEFAULT_REGION := 64
 const DEFAULT_HEIGHT_SCALE := 0.9
-const DEFAULT_GENERATOR := 2
 
 var width: int
 var height: int
@@ -17,22 +16,18 @@ var seed: int
 var chunk_size: int
 var region_size: int
 var height_scale: float
-var generator_version: int
 
 
 func _init(p_width: int = DEFAULT_WIDTH, p_height: int = DEFAULT_HEIGHT,
 		p_seed: int = DEFAULT_SEED, p_chunk: int = DEFAULT_CHUNK,
-		p_region: int = DEFAULT_REGION, p_height_scale: float = DEFAULT_HEIGHT_SCALE,
-		p_generator: int = DEFAULT_GENERATOR) -> void:
+		p_region: int = DEFAULT_REGION, p_height_scale: float = DEFAULT_HEIGHT_SCALE) -> void:
 	assert(valid_dimensions(p_width, p_height, p_chunk, p_region, p_height_scale))
-	assert(p_generator == 1 or p_generator == 2)
 	width = p_width
 	height = p_height
 	seed = p_seed
 	chunk_size = p_chunk
 	region_size = p_region
 	height_scale = p_height_scale
-	generator_version = p_generator
 
 
 static func valid_dimensions(w: int, h: int, chunk: int, region: int, scale: float) -> bool:
@@ -122,7 +117,7 @@ func to_data() -> Dictionary:
 	return {
 		"width": width, "height": height, "seed": seed,
 		"chunk_size": chunk_size, "region_size": region_size,
-		"height_scale": height_scale, "generator_version": generator_version
+		"height_scale": height_scale
 	}
 
 
@@ -143,15 +138,8 @@ static func from_data(data: Dictionary) -> RefCounted:
 		return null
 	if float(int(data["seed"])) != float(data["seed"]):
 		return null
-	# Отсутствующее поле означает прежний генератор этапа 1.
-	var generation := 1
+	# Не допускаем случайного открытия файлов с удалённым прототипным генератором.
 	if data.has("generator_version"):
-		if not (data["generator_version"] is int or data["generator_version"] is float):
-			return null
-		generation = int(data["generator_version"])
-		if float(generation) != float(data["generator_version"]):
-			return null
-	if generation != 1 and generation != 2:
 		return null
 	return load("res://scripts/world_config.gd").new(w, h, int(data["seed"]),
-		chunk, region, scale, generation)
+		chunk, region, scale)

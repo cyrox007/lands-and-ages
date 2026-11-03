@@ -26,13 +26,16 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i) -
 				continue
 			var level: float = hydro.level_at(index) + 0.018
 			var lake: bool = hydro.lake_at(index)
+			var ocean: bool = hydro.ocean_at(index)
 			var river: bool = hydro.river_at(index)
 			var color := Color(0.17, 0.39, 0.58, 0.87)
-			if lake:
+			if ocean:
+				color = Color(0.12, 0.29, 0.47, 0.88)
+			elif lake:
 				color = Color(0.14, 0.33, 0.49, 0.90)
 			elif not river:
 				color = Color(0.23, 0.54, 0.65, 0.82)
-			if lake or not river:
+			if ocean or lake or not river:
 				var a: Vector3 = world.config.to_scene(Vector2(x, y), level)
 				var b: Vector3 = world.config.to_scene(Vector2(x + 1, y), level)
 				var c: Vector3 = world.config.to_scene(Vector2(x + 1, y + 1), level)
