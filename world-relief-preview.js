@@ -153,17 +153,27 @@
     return 'hsl('+h+','+s+'%,'+
       Math.max(21,Math.min(91,l*lighting+variation)).toFixed(1)+'%)';
   }
-  function renderChunk(model,environment,cx,cy,day,size=CHUNK_SIZE){
+  function renderChunk(model,environment,cx,cy,day,size=CHUNK_SIZE,
+    rasterScale=1,showContours=true){
     const x0=cx*size,y0=cy*size;
     if(x0<0||y0<0||x0>=model.width||y0>=model.height)
       throw new RangeError('Чанк вне карты');
     const w=Math.min(size,model.width-x0),h=Math.min(size,model.height-y0);
-    const left=-h*TILE/2-3,top=-(model.maximum+2)*HEIGHT_SCALE-3;
+    let lowest=Infinity,highest=-Infinity;
+    for(let y=y0;y<=y0+h;y++)for(let x=x0;x<=x0+w;x++){
+      const z=model.vertexAt(x,y);
+      lowest=Math.min(lowest,z);
+      highest=Math.max(highest,z);
+    }
+    const left=-h*TILE/2-3,top=-(highest+2)*HEIGHT_SCALE-3;
+    const logicalWidth=Math.ceil((w+h)*TILE/2+6);
+    const logicalHeight=Math.ceil((w+h)*TILE/4+
+      (highest-lowest+4)*HEIGHT_SCALE+6);
     const canvas=document.createElement('canvas');
-    canvas.width=Math.ceil((w+h)*TILE/2+6);
-    canvas.height=Math.ceil((w+h)*TILE/4+
-      (model.maximum-model.minimum+4)*HEIGHT_SCALE+6);
+    canvas.width=Math.ceil(logicalWidth*rasterScale);
+    canvas.height=Math.ceil(logicalHeight*rasterScale);
     const ctx=canvas.getContext('2d',{alpha:true});
+    ctx.setTransform(rasterScale,0,0,rasterScale,0,0);
     const vertex=(x,y)=>Terrain.project(x-x0,y-y0,model.vertexAt(x,y),
       {tileWidth:TILE,heightScale:HEIGHT_SCALE,originX:-left,originY:-top});
     const entries=[];
@@ -182,8 +192,9 @@
       for(const triangle of tile.triangles)
         polygon(ctx,triangle,fill,'rgba(30,39,36,.11)');
     }
-    contours(ctx,model,entries);
-    return {x:x0,y:y0,left,top,canvas,day,tiles:entries.length};
+    if(showContours)contours(ctx,model,entries);
+    return {x:x0,y:y0,left,top,canvas,logicalWidth,logicalHeight,day,
+      tiles:entries.length};
   }
   function drawVisible(model,environment,ctx,{width,height,zoom,screen,worldAt,
     day,cache=new Map(),chunkSize=CHUNK_SIZE}){
@@ -219,22 +230,39 @@
       chunks.push({cx,cy});
     }
     chunks.sort((a,b)=>a.cx+a.cy-b.cx-b.cy||a.cx-b.cx);
+    // Масштаб растра не превышает реальный экранный масштаб.
+    const rasterScale=Math.max(.5,Math.min(1,Math.round(zoom*4)/4));
+    const showContours=zoom>=.95;
+    const visibleKeys=new Set(chunks.map(({cx,cy})=>
+      day+':'+rasterScale+':'+Number(showContours)+':'+cx+':'+cy));
     let rendered=0;
     for(const {cx,cy} of chunks){
-      const key=day+':'+cx+':'+cy;
+      const key=day+':'+rasterScale+':'+Number(showContours)+':'+cx+':'+cy;
       let chunk=cache.get(key);
       if(!chunk){
-        chunk=renderChunk(model,environment,cx,cy,day,chunkSize);
+        chunk=renderChunk(model,environment,cx,cy,day,chunkSize,
+          rasterScale,showContours);
         cache.set(key,chunk);rendered++;
-        if(cache.size>CACHE_LIMIT)cache.delete(cache.keys().next().value);
       }else{
         cache.delete(key);cache.set(key,chunk);
       }
       const p=screen(chunk.x,chunk.y);
       ctx.drawImage(chunk.canvas,p.x+chunk.left*zoom,p.y+chunk.top*zoom,
-        chunk.canvas.width*zoom,chunk.canvas.height*zoom);
+        chunk.logicalWidth*zoom,chunk.logicalHeight*zoom);
     }
-    return {visibleChunks:chunks.length,renderedChunks:rendered,cachedChunks:cache.size};
+    // Нельзя выселять видимые чанки прямо во время прохода:
+    // при числе видимых чанков больше 16 иначе возникает вечная перегенерация.
+    const limit=Math.max(CACHE_LIMIT,visibleKeys.size+4);
+    for(const key of cache.keys()){
+      if(cache.size<=limit)break;
+      if(!visibleKeys.has(key))cache.delete(key);
+    }
+    let pixels=0;
+    for(const chunk of cache.values())
+      pixels+=chunk.canvas.width*chunk.canvas.height;
+    return {visibleChunks:chunks.length,renderedChunks:rendered,
+      cachedChunks:cache.size,rasterScale,
+      estimatedCacheMiB:Math.round(pixels*4/1048576*10)/10};
   }
   function pickAt(model,px,py,{screen,worldAt,zoom=1}){
     const candidates=new Set();
