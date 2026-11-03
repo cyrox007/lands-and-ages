@@ -20,6 +20,11 @@ var hydro: RefCounted
 var day := 0
 var revision := 0
 var _terrain_revision := -1
+var _ocean_revision := -1
+var full_rebuilds := 0
+var partial_rebuilds := 0
+var last_rebuild_rows := 0
+var last_updated_rows: Array[int] = []
 var _width := 0
 var _height := 0
 var _mean := PackedFloat32Array()
@@ -80,8 +85,41 @@ func ensure_ready() -> void:
 		rebuild()
 
 
-func rebuild() -> void:
+func rebuild_if_stale(affected_chunks: Array[Vector2i] = []) -> bool:
+	if _terrain_revision == world.revision:
+		return false
+	rebuild(affected_chunks)
+	return true
+
+
+func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	hydro.ensure_ready()
+	# Морская связность не менялась: морское влияние сохранено.
+	# Ветровая тень идёт с запада, поэтому обновляем целые строки,
+	# а не только высоты непосредственно в изменённых чанках.
+	var partial: bool = _terrain_revision >= 0 \
+		and _width == world.config.width \
+		and _height == world.config.height \
+		and _ocean_revision == hydro.ocean_revision \
+		and not affected_chunks.is_empty()
+	if partial:
+		var rows := {}
+		for chunk in affected_chunks:
+			var bounds: Rect2i = world.config.chunk_rect(chunk)
+			for y in range(bounds.position.y, bounds.end.y):
+				rows[y] = true
+		if not rows.is_empty():
+			last_updated_rows.clear()
+			for y in rows.keys():
+				_rebuild_row(y)
+				last_updated_rows.append(y)
+			_terrain_revision = world.revision
+			partial_rebuilds += 1
+			last_rebuild_rows = rows.size()
+			_calculate_day(rows)
+			return
+	full_rebuilds += 1
+	last_updated_rows.clear()
 	_width = world.config.width
 	_height = world.config.height
 	var count := _width * _height
@@ -120,40 +158,51 @@ func rebuild() -> void:
 				distance[next] = distance[current] + 1
 				queue.append(next)
 
-	# Преобладающий западный ветер: наветренные склоны получают влагу,
-	# а за протяжёнными хребтами возникает плавная дождевая тень.
+	for i in range(count):
+		_marine[i] = exp(-float(distance[i]) / 42.0)
 	for y in range(_height):
-		var peak := -100.0
-		var previous := 0.0
-		for x in range(_width):
-			var i := y * _width + x
-			var height: float = world.height_at(Vector2(x + 0.5, y + 0.5))
-			_altitude[i] = height
-			var latitude := (float(y) + 0.5) / float(_height)
-			var marine := exp(-float(distance[i]) / 42.0)
-			_marine[i] = marine
-			var relief_shadow := clampf((peak - height - 1.0) * 0.065, 0.0, 0.38)
-			var windward := clampf((height - previous) * 0.018, 0.0, 0.12)
-			var broad := _smooth_noise(x / 90.0, y / 90.0, world.config.seed + 314)
-			_mean[i] = lerpf(-9.0, 27.0, latitude) \
-				- maxf(0.0, height) * 0.78 + broad * 1.8
-			# В тёплых удалённых от моря районах испаряемость выше,
-			# поэтому образуются протяжённые засушливые внутренние области.
-			var continental_dryness := 0.24 + 0.95 * smoothstep(
-				0.35, 0.90, latitude)
-			_humidity[i] = clampf(0.45 + marine * 0.40 \
-				- (1.0 - marine) * continental_dryness * latitude \
-				- relief_shadow + windward + broad * 0.055, 0.05, 0.97)
-			peak = maxf(height, peak - WIND_STEP)
-			previous = height
+		_rebuild_row(y)
+	_ocean_revision = hydro.ocean_revision
+	last_rebuild_rows = _height
 	_terrain_revision = world.revision
 	_calculate_day()
 
 
-func _calculate_day() -> void:
+# Дневная погода и геология используют единую формулу при полной
+# и частичной перестройке, чтобы не возникали расхождения по seed.
+func _rebuild_row(y: int) -> void:
+	# Преобладающий западный ветер: наветренные склоны получают влагу,
+	# а за протяжёнными хребтами возникает плавная дождевая тень.
+	var peak := -100.0
+	var previous := 0.0
+	for x in range(_width):
+		var i := y * _width + x
+		var height: float = world.height_at(Vector2(x + 0.5, y + 0.5))
+		_altitude[i] = height
+		var latitude := (float(y) + 0.5) / float(_height)
+		var marine: float = _marine[i]
+		var relief_shadow := clampf((peak - height - 1.0) * 0.065, 0.0, 0.38)
+		var windward := clampf((height - previous) * 0.018, 0.0, 0.12)
+		var broad := _smooth_noise(x / 90.0, y / 90.0, world.config.seed + 314)
+		_mean[i] = lerpf(-9.0, 27.0, latitude) \
+			- maxf(0.0, height) * 0.78 + broad * 1.8
+		# В тёплых удалённых от моря районах испаряемость выше,
+		# поэтому образуются протяжённые засушливые внутренние области.
+		var continental_dryness := 0.24 + 0.95 * smoothstep(
+			0.35, 0.90, latitude)
+		_humidity[i] = clampf(0.45 + marine * 0.40 \
+			- (1.0 - marine) * continental_dryness * latitude \
+			- relief_shadow + windward + broad * 0.055, 0.05, 0.97)
+		peak = maxf(height, peak - WIND_STEP)
+		previous = height
+
+
+func _calculate_day(rows: Dictionary = {}) -> void:
 	# Волны медленно перемещаются в пространстве, а не выпадают из
 	# независимого генератора для каждой клетки.
 	for y in range(_height):
+		if not rows.is_empty() and not rows.has(y):
+			continue
 		var latitude := (float(y) + 0.5) / float(_height)
 		for x in range(_width):
 			var i := y * _width + x

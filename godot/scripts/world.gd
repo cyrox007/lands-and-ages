@@ -17,7 +17,8 @@ const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 
 const VIEW_RADIUS := 4
-const BUILD_PER_FRAME := 2
+const MAX_BUILDS_PER_FRAME := 8
+const MESH_BUDGET_US := 4200
 const CAMERA_SPEED := 32.0
 const MIN_ZOOM := 16.0
 const MAX_ZOOM := 105.0
@@ -45,6 +46,9 @@ var _terrain_holder: Node3D
 var _ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
+var _terrain_dirty := {}
+var _last_chunk_build_us := 0
+var _chunk_rebuilds := 0
 var _chunk_center := Vector2i(-1, -1)
 var _status: Label
 var _hud_timer := 0.0
@@ -190,8 +194,20 @@ func _process(delta: float) -> void:
 		_simulate_one_day()
 		_days_pending -= 1
 		_refresh_visible(true)
-	for i in range(mini(BUILD_PER_FRAME, _pending.size())):
+	# Внешние системы могут изменить ландшафт без нажатия кнопки:
+	# их сигнал тоже должен попасть в текущий кадр.
+	if not _terrain_dirty.is_empty():
+		_flush_world_changes()
+	# Видеокарта не должна получать десятки мешей за один кадр.
+	# На быстром ПК обновляем больше чанков, на телефоне — меньше.
+	var frame_start := Time.get_ticks_usec()
+	var built := 0
+	while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
 		_create_chunk(_pending.pop_front())
+		built += 1
+		if Time.get_ticks_usec() - frame_start >= MESH_BUDGET_US:
+			break
+	_last_chunk_build_us = Time.get_ticks_usec() - frame_start
 	_hud_timer += delta
 	if _hud_timer > 0.3:
 		_update_hud()
@@ -235,24 +251,30 @@ func _refresh_visible(force: bool) -> void:
 	var desired := {}
 	for cy in range(center_chunk.y - VIEW_RADIUS, center_chunk.y + VIEW_RADIUS + 1):
 		for cx in range(center_chunk.x - VIEW_RADIUS, center_chunk.x + VIEW_RADIUS + 1):
-			if not _world_model.config.chunk_rect(Vector2i(cx, cy)).has_area():
-				continue
-			desired[Vector2i(cx, cy)] = true
+			var coord := Vector2i(cx, cy)
+			if _world_model.config.chunk_rect(coord).has_area():
+				desired[coord] = true
+	# Невидимые чанки удаляем, видимые сохраняем до готовности новой сетки.
 	for coord in _active.keys():
-		if force or not desired.has(coord):
+		if not desired.has(coord):
 			_active[coord].queue_free()
 			_active.erase(coord)
-	_pending.clear()
+	var scheduled := {}
+	for coord in _pending:
+		if desired.has(coord):
+			scheduled[coord] = true
 	for coord in desired.keys():
-		if not _active.has(coord):
-			_pending.append(coord)
+		if force or not _active.has(coord):
+			scheduled[coord] = true
+	_pending.clear()
+	for coord in scheduled.keys():
+		_pending.append(coord)
 	_pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - center_chunk).length_squared() < (b - center_chunk).length_squared())
 
 
 func _create_chunk(coord: Vector2i) -> void:
-	if _active.has(coord):
-		return
+	var old_node: Node3D = _active.get(coord)
 	var node := Node3D.new()
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
@@ -270,16 +292,38 @@ func _create_chunk(coord: Vector2i) -> void:
 		water_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(water_node)
 	_terrain_holder.add_child(node)
+	if old_node != null:
+		old_node.queue_free()
 	_active[coord] = node
+	_chunk_rebuilds += 1
 
 
 func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
-	# Система мира обновляется от одного изменения высот, не от GPU.
-	_hydro.rebuild()
-	_climate.rebuild()
+	# За сутки может измениться несколько склонов: копим чанки,
+	# не пересчитываем весь водосбор на каждый сигнал отдельно.
+	for chunk in chunks:
+		_terrain_dirty[chunk] = true
+
+
+func _flush_world_changes() -> void:
+	if _terrain_dirty.is_empty():
+		return
+	var chunks: Array[Vector2i] = []
+	for coord in _terrain_dirty.keys():
+		chunks.append(coord)
+	_terrain_dirty.clear()
+	# Гидрология имеет глобальные зависимости (priority-flood),
+	# поэтому пока используем безопасный полный пересчёт по необходимости.
+	_hydro.ensure_ready()
+	# Изменённое русло может затронуть чанки за пределами удара.
+	for coord in _hydro.take_changed_water_chunks():
+		if not chunks.has(coord):
+			chunks.append(coord)
+	_climate.rebuild_if_stale(chunks)
 	_surface.rebuild(chunks)
-	_surface.synchronize_climate(_climate)
-	_hydro.apply_rainfall_map(_surface.runoff_map())
+	_surface.synchronize_climate(_climate, _climate.last_updated_rows)
+	# Rebuild гидрологии уже использует сохранённый сток:
+	# второй apply_rainfall_map здесь был лишним.
 	_refresh_visible(true)
 
 
@@ -287,6 +331,7 @@ func _apply_landscape_event(kind: String) -> void:
 	var result: Dictionary = _landscape_events.apply(kind, _center, 18.0, 3.0)
 	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
 		if not result.is_empty() else "%s: нет подходящего участка" % kind
+	_flush_world_changes()
 	_update_hud()
 
 
@@ -319,6 +364,7 @@ func _simulate_one_day() -> void:
 		_disaster_status = "%s · день %d · %s · интенсивность %.0f%%" % [
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
+	_flush_world_changes()
 
 
 func _cycle_view() -> void:
@@ -376,6 +422,11 @@ func _update_hud() -> void:
 		_disaster_status, _natural_disasters.total_events]
 	_status.text += "%s\n" % _process_status
 	_status.text += "%s\n" % _last_event
+	_status.text += "Почва: %d клеток · климат: %d строк · гидро: %d пересчётов\n" % [
+		_surface.last_rebuilt_cells, _climate.last_rebuild_rows,
+		_hydro.full_rebuilds]
+	_status.text += "GPU: %d мешей · кадр %.1f мс\n" % [
+		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0]
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), _days_pending]
