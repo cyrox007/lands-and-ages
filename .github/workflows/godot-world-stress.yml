@@ -1,0 +1,52 @@
+name: Приёмка мира Godot — этап 7.5
+
+on:
+  push:
+    paths:
+      - "godot/**"
+      - ".github/workflows/godot-world-stress.yml"
+  pull_request:
+    paths:
+      - "godot/**"
+      - ".github/workflows/godot-world-stress.yml"
+
+jobs:
+  longrun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --version
+      - name: Проверить импорт сцены и скриптов
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/world-stress-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/world-stress-import.log; then
+            exit 1
+          fi
+      - name: Многолетние испытания, память, сохранения, GPU
+        timeout-minutes: 18
+        run: |
+          set -o pipefail
+          timeout 1050s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_longrun_smoke.gd 2>&1 | tee /tmp/world-longrun.log
+          grep -q "Этап 7.5:.*успешно" /tmp/world-longrun.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-longrun.log; then
+            exit 1
+          fi
+      - name: Сохранить результаты измерений
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-7-5-metrics
+          path: godot/tests/world-stress-metrics.json
+          if-no-files-found: warn
