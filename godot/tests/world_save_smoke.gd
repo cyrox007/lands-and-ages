@@ -45,11 +45,29 @@ func _make_world() -> Dictionary:
 	}
 
 
+func _report_difference(label: String, first: Dictionary, second: Dictionary) -> void:
+	if first == second:
+		return
+	for key in first.keys():
+		if first[key] == second.get(key):
+			continue
+		if first[key] is String and String(first[key]).length() > 120:
+			print("Различие ", label, "/", key, ": байт ",
+				String(first[key]).length(), "/", String(second.get(key, "")).length(),
+				" · начало ", String(first[key]).substr(0, 80),
+				" / ", String(second.get(key, "")).substr(0, 80))
+		else:
+			print("Различие ", label, "/", key, ": ",
+				first[key], " / ", second.get(key))
+
+
 func _same(a: Dictionary, b: Dictionary) -> void:
 	_check(a["world"].to_data() == b["world"].to_data(),
 		"Высоты и параметры мира сохраняются")
+	_report_difference("гидрология", a["hydro"].to_snapshot(), b["hydro"].to_snapshot())
 	_check(a["hydro"].to_snapshot() == b["hydro"].to_snapshot(),
 		"Местный сток возвращается без округления")
+	_report_difference("почва", a["surface"].to_snapshot(), b["surface"].to_snapshot())
 	_check(a["surface"].to_snapshot() == b["surface"].to_snapshot(),
 		"Снег, грунт, влага, сток и наносы восстанавливаются побитово")
 	_check(a["climate"].to_data() == b["climate"].to_data(),
