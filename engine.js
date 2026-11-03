@@ -403,12 +403,22 @@
       return {x:object.x+size.w/2,y:object.y+size.h/2};
     }
     approachPath(from,object){
-      const path=Nav.approach(W,H,from,object,(x,y)=>this.walkable(x,y));
-      if(!path)return null;
-      // Центр соседней клетки — лишь узел маршрута. Рабочее место ближе к
-      // видимому стволу и остаётся внутри проходимой клетки.
-      const contact=Nav.contactPoint(path.at(-1),this.interactionAnchor(object));
-      return [...path.map(Nav.centre),contact];
+      const anchor=this.interactionAnchor(object);
+      const forest=this.tiles[id(object.x,object.y)]?.terrain==='forest';
+      let best=null,score=Infinity;
+      for(const point of this.approachCells(object)){
+        const path=Nav.route(W,H,from,point,(x,y)=>this.walkable(x,y));
+        if(!path)continue;
+        const contact=Nav.contactPoint(point,anchor);
+        const gap=Nav.screenDistance(contact,anchor);
+        // Если с этой стороны топор до ствола не дотянется, не рубим воздух.
+        if(forest&&gap>28)continue;
+        const cost=path.length+gap/20;
+        if(cost>=score)continue;
+        best=[...path.map(Nav.centre),contact];
+        score=cost;
+      }
+      return best;
     }
     // Точки взаимодействия выбираются рядом с объектом, не внутри него.
     approachCells(object){
