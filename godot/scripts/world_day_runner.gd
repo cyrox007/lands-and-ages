@@ -12,6 +12,7 @@ var natural_disasters: RefCounted
 
 var last_result: Dictionary = {}
 var last_profile_us: Dictionary = {}
+var last_statistics: Dictionary = {}
 var last_duration_us := 0
 
 
@@ -47,6 +48,8 @@ func run_day() -> void:
 	# Метод исполняется WorkerThreadPool, пока GPU читает лишь старые
 	# готовые меши. Сцену и её узлы здесь не трогаем.
 	var start := Time.get_ticks_usec()
+	var before_rebuilds: int = hydro.full_rebuilds
+	var before_ground_cells: int = hydro.total_ground_cells
 	var previous := start
 	climate.set_day(climate.day + 1)
 	var climate_us := Time.get_ticks_usec() - previous
@@ -69,6 +72,10 @@ func run_day() -> void:
 	var changed := synchronize_world()
 	var synchronization_us := Time.get_ticks_usec() - previous
 	last_duration_us = Time.get_ticks_usec() - start
+	last_statistics = {
+		"пересчёты водосборов": hydro.full_rebuilds - before_rebuilds,
+		"прочитано высот": hydro.total_ground_cells - before_ground_cells
+	}
 	last_profile_us = {
 		"климат": climate_us,
 		"почва": surface_us,
