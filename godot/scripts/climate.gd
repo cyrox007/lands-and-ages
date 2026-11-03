@@ -39,6 +39,21 @@ static func season_name(index: int) -> String:
 	return SEASONS[posmod(index / SEASON_DAYS, SEASONS.size())]
 
 
+static func snowfall_fraction(air_temperature: float) -> float:
+	# В околонулевом диапазоне возможны смешанные осадки.
+	# При +2 °C и выше новых снеговых осадков нет.
+	return 1.0 - smoothstep(-1.5, 2.0, air_temperature)
+
+
+static func _seasonal_rain_factor(day_of_year: int, latitude: float) -> float:
+	# В холодных широтах весна и осень влажнее лета и зимы.
+	# К югу постепенно переходим к летнему дождливому сезону.
+	var phase := TAU * float(day_of_year % YEAR_DAYS) / float(YEAR_DAYS)
+	var temperate := 0.80 + 0.30 * cos(phase * 2.0)
+	var southern := 0.84 + 0.43 * sin(phase)
+	return lerpf(temperate, southern, smoothstep(0.25, 0.85, latitude))
+
+
 static func _smooth_noise(x: float, y: float, seed: int) -> float:
 	var x0 := floori(x)
 	var y0 := floori(y)
@@ -134,7 +149,8 @@ func _calculate_day() -> void:
 		var latitude := (float(y) + 0.5) / float(_height)
 		for x in range(_width):
 			var i := y * _width + x
-			var season := sin(TAU * float(day) / float(YEAR_DAYS))
+			var season := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
+			var rain_factor := _seasonal_rain_factor(day, latitude)
 			var amplitude := lerpf(13.0, 6.0, latitude) * \
 				(1.0 - _marine[i] * 0.28)
 			var front := _smooth_noise((float(x) + float(day) * 1.8) / 55.0,
@@ -144,7 +160,7 @@ func _calculate_day() -> void:
 			_temperature[i] = _mean[i] + season * amplitude + front * 3.1
 			var threshold := 0.11 - _humidity[i] * 0.20
 			_rain[i] = clampf(maxf(0.0, local * 0.9 + front * 0.4 - threshold)
-				* _humidity[i] * 2.5, 0.0, 3.0)
+				* _humidity[i] * 2.5 * rain_factor, 0.0, 3.0)
 	revision += 1
 	weather_changed.emit(day)
 
@@ -177,13 +193,20 @@ func weather_at(cell: Vector2i) -> Dictionary:
 		return {}
 	var temp: float = _temperature[i]
 	var rain: float = _rain[i]
+	var snow_share := snowfall_fraction(temp)
 	return {
 		"temperature": temp,
 		"annual_temperature": _mean[i],
 		"humidity": _humidity[i],
 		"precipitation": rain,
-		"weather": ("снег" if temp <= 0.0 else "дождь") if rain > 0.08 else "без осадков",
+		"rainfall": rain * (1.0 - snow_share),
+		"snowfall": rain * snow_share,
+		"weather": ("снег" if snow_share >= 0.75 else
+			("мокрый снег" if snow_share > 0.15 else "дождь"))
+			if rain > 0.08 else "без осадков",
 		"season": season_name(day),
+		"seasonal_precipitation_factor": _seasonal_rain_factor(day,
+			(float(cell.y) + 0.5) / float(_height)),
 		"marine_influence": _marine[i]
 	}
 
