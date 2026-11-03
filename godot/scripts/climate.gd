@@ -135,7 +135,7 @@ func rebuild() -> void:
 				- maxf(0.0, height) * 0.78 + broad * 1.8
 			# В тёплых удалённых от моря районах испаряемость выше,
 			# поэтому образуются протяжённые засушливые внутренние области.
-			var continental_dryness := 0.24 + 0.58 * smoothstep(
+			var continental_dryness := 0.24 + 0.95 * smoothstep(
 				0.35, 0.90, latitude)
 			_humidity[i] = clampf(0.45 + marine * 0.40 \
 				- (1.0 - marine) * continental_dryness * latitude \
