@@ -194,6 +194,10 @@ func _process(delta: float) -> void:
 		_simulate_one_day()
 		_days_pending -= 1
 		_refresh_visible(true)
+	# Внешние системы могут изменить ландшафт без нажатия кнопки:
+	# их сигнал тоже должен попасть в текущий кадр.
+	if not _terrain_dirty.is_empty():
+		_flush_world_changes()
 	# Видеокарта не должна получать десятки мешей за один кадр.
 	# На быстром ПК обновляем больше чанков, на телефоне — меньше.
 	var frame_start := Time.get_ticks_usec()
