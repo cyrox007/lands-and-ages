@@ -1,0 +1,87 @@
+extends RefCounted
+## Суточная физика мира. Не обращается к сцене, камере и GPU.
+## При работе в потоке главный поток не читает физические модели.
+
+var world: RefCounted
+var hydro: RefCounted
+var surface: RefCounted
+var climate: RefCounted
+var weather_events: RefCounted
+var natural_processes: RefCounted
+var natural_disasters: RefCounted
+
+var last_result: Dictionary = {}
+var last_profile_us: Dictionary = {}
+var last_duration_us := 0
+
+
+func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
+		weather: RefCounted, lightning: RefCounted, erosion: RefCounted,
+		disasters: RefCounted) -> void:
+	world = map
+	hydro = water
+	surface = ground
+	climate = weather
+	weather_events = lightning
+	natural_processes = erosion
+	natural_disasters = disasters
+
+
+func synchronize_world() -> bool:
+	# Водосборы могут меняться далеко от деформированной вершины.
+	# Приводим все взаимозависимые модели к одной ревизии.
+	var chunks: Array[Vector2i] = world.take_dirty_chunks()
+	if chunks.is_empty():
+		return false
+	hydro.ensure_ready()
+	for chunk in hydro.take_changed_water_chunks():
+		if not chunks.has(chunk):
+			chunks.append(chunk)
+	climate.rebuild_if_stale(chunks)
+	surface.rebuild(chunks)
+	surface.synchronize_climate(climate, climate.last_updated_rows)
+	return true
+
+
+func run_day() -> void:
+	# Метод исполняется WorkerThreadPool, пока GPU читает лишь старые
+	# готовые меши. Сцену и её узлы здесь не трогаем.
+	var start := Time.get_ticks_usec()
+	var previous := start
+	climate.set_day(climate.day + 1)
+	var climate_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
+	surface.advance_climate_day(climate)
+	var surface_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
+	hydro.apply_rainfall_map(surface.runoff_map())
+	var hydro_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
+	var strikes: Array[Dictionary] = weather_events.advance_day(climate.day)
+	var lightning_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
+	var erosion: Dictionary = natural_processes.advance_day(climate.day)
+	var erosion_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
+	var hazards: Array[Dictionary] = natural_disasters.advance_day(climate.day)
+	var disasters_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
+	var changed := synchronize_world()
+	var synchronization_us := Time.get_ticks_usec() - previous
+	last_duration_us = Time.get_ticks_usec() - start
+	last_profile_us = {
+		"климат": climate_us,
+		"почва": surface_us,
+		"гидрология": hydro_us,
+		"молнии": lightning_us,
+		"эрозия": erosion_us,
+		"бедствия": disasters_us,
+		"согласование": synchronization_us
+	}
+	last_result = {
+		"day": climate.day,
+		"strikes": strikes,
+		"erosion": erosion,
+		"hazards": hazards,
+		"terrain_changed": changed
+	}
