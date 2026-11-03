@@ -2,6 +2,8 @@ extends Node3D
 ## Самостоятельный GPU-полигон: мир виден через чанки, экономика не подключена.
 
 const Terrain = preload("res://scripts/terrain.gd")
+const WorldConfig = preload("res://scripts/world_config.gd")
+const WorldMap = preload("res://scripts/world_map.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 
@@ -11,9 +13,9 @@ const CAMERA_SPEED := 32.0
 const MIN_ZOOM := 16.0
 const MAX_ZOOM := 105.0
 
-var _seed := Terrain.SEED
 var _day := 1
-var _center := Vector2(128.0, 96.0)
+var _world_model: RefCounted
+var _center := Vector2.ZERO
 var _camera: Camera3D
 var _terrain_holder: Node3D
 var _ground_material: StandardMaterial3D
@@ -27,6 +29,9 @@ var _hud_timer := 0.0
 
 
 func _ready() -> void:
+	_world_model = WorldMap.new(WorldConfig.new())
+	_world_model.vertices_changed.connect(_on_world_changed)
+	_center = Vector2(_world_model.config.width, _world_model.config.height) * 0.5
 	_setup_environment()
 	_setup_materials()
 	_terrain_holder = Node3D.new()
@@ -154,23 +159,23 @@ func _change_zoom(multiplier: float) -> void:
 
 func _move_center(amount: Vector2) -> void:
 	_center = Vector2(
-		clampf(_center.x + amount.x, 0.0, float(Terrain.WIDTH)),
-		clampf(_center.y + amount.y, 0.0, float(Terrain.HEIGHT)))
+		clampf(_center.x + amount.x, 0.0, float(_world_model.config.width) - 0.001),
+		clampf(_center.y + amount.y, 0.0, float(_world_model.config.height) - 0.001))
 	_update_camera()
-	var next_chunk := Vector2i(floori(_center.x / float(Chunk.SIZE)),
-		floori(_center.y / float(Chunk.SIZE)))
+	var next_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
+		floori(_center.y / float(_world_model.config.chunk_size)))
 	if next_chunk != _chunk_center:
 		_refresh_visible(false)
 
 
 func _refresh_visible(force: bool) -> void:
-	var center_chunk := Vector2i(floori(_center.x / float(Chunk.SIZE)),
-		floori(_center.y / float(Chunk.SIZE)))
+	var center_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
+		floori(_center.y / float(_world_model.config.chunk_size)))
 	_chunk_center = center_chunk
 	var desired := {}
 	for cy in range(center_chunk.y - VIEW_RADIUS, center_chunk.y + VIEW_RADIUS + 1):
 		for cx in range(center_chunk.x - VIEW_RADIUS, center_chunk.x + VIEW_RADIUS + 1):
-			if cx < 0 or cy < 0 or cx * Chunk.SIZE >= Terrain.WIDTH or cy * Chunk.SIZE >= Terrain.HEIGHT:
+			if not _world_model.config.chunk_rect(Vector2i(cx, cy)).has_area():
 				continue
 			desired[Vector2i(cx, cy)] = true
 	for coord in _active.keys():
@@ -191,13 +196,22 @@ func _create_chunk(coord: Vector2i) -> void:
 	var node := Node3D.new()
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
-	ground.mesh = Chunk.create_mesh(coord.x, coord.y, _day, _seed)
+	ground.mesh = Chunk.create_mesh(coord.x, coord.y, _day, _world_model)
 	ground.material_override = _ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
-	node.add_child(Chunk.create_trees(coord.x, coord.y, _day, _trunk_mesh, _crown_mesh, _seed))
+	node.add_child(Chunk.create_trees(coord.x, coord.y, _day, _trunk_mesh, _crown_mesh, _world_model.config.seed))
 	_terrain_holder.add_child(node)
 	_active[coord] = node
+
+
+func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
+	for coord in chunks:
+		if not _active.has(coord):
+			continue
+		_active[coord].queue_free()
+		_active.erase(coord)
+	_refresh_visible(false)
 
 
 func _next_season() -> void:
@@ -211,7 +225,7 @@ func _update_hud() -> void:
 		return
 	_status.text = "ЗЕМЛИ И ЭПОХИ · GPU-полигон\n"
 	_status.text += "Карта %d×%d · регионы 12 · seed %d\n" % [
-		Terrain.WIDTH, Terrain.HEIGHT, _seed]
+		_world_model.config.width, _world_model.config.height, _world_model.config.seed]
 	_status.text += "%s · день %d · FPS %d · чанки %d/%d" % [
 		Climate.season_name(_day), _day, Engine.get_frames_per_second(),
 		_active.size(), _active.size() + _pending.size()]

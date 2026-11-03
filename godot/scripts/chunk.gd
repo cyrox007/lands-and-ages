@@ -26,12 +26,15 @@ static func cover_color(surface: Dictionary) -> Color:
 	return Color(0.39, 0.34, 0.28)
 
 
-static func create_mesh(cx: int, cy: int, day: int, seed: int = Terrain.SEED) -> ArrayMesh:
-	var x0 := cx * SIZE
-	var y0 := cy * SIZE
-	var width := mini(SIZE, Terrain.WIDTH - x0)
-	var height := mini(SIZE, Terrain.HEIGHT - y0)
-	assert(width > 0 and height > 0, "Чанк вне границ мира")
+static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null) -> ArrayMesh:
+	if world == null:
+		world = load("res://scripts/world_map.gd").new()
+	var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
+	assert(bounds.has_area(), "Чанк вне границ мира")
+	var x0 := bounds.position.x
+	var y0 := bounds.position.y
+	var width := bounds.size.x
+	var height := bounds.size.y
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -40,11 +43,12 @@ static func create_mesh(cx: int, cy: int, day: int, seed: int = Terrain.SEED) ->
 		for i in range(width + 1):
 			var x := x0 + i
 			var y := y0 + j
-			var h := Terrain.vertex_height(x, y, seed)
-			var data := Climate.surface_at(mini(x, Terrain.WIDTH - 1),
-				mini(y, Terrain.HEIGHT - 1), day, seed)
-			vertices.push_back(Vector3(float(x), h * Terrain.HEIGHT_SCALE, float(y)))
-			normals.push_back(Terrain.normal_at(x, y, seed))
+			var vertex := Vector2i(x, y)
+			var h: float = world.vertex_at(vertex)
+			var data := Climate.surface_at(mini(x, world.config.width - 1),
+				mini(y, world.config.height - 1), day, world.config.seed)
+			vertices.push_back(world.config.to_scene(Vector2(float(x), float(y)), h))
+			normals.push_back(world.normal_at(vertex))
 			colors.push_back(cover_color(data))
 	var stride := width + 1
 	for j in range(height):
