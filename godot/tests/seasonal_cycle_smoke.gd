@@ -34,7 +34,11 @@ func _run() -> void:
 	for y in range(0, world.config.height, 8):
 		for x in range(0, world.config.width, 8):
 			biomes[climate.biome_at(Vector2i(x, y), surface)] = true
-	_check(biomes.size() >= 4, "На стартовой карте сосуществуют несколько биомов")
+	_check(biomes.size() >= 7, "На стартовой карте есть широкий набор биомов")
+	_check(biomes.has("пустыня") and biomes.has("полупустыня"),
+		"В тёплом континентальном районе есть пустыни и полупустыни")
+	_check(biomes.has("тундра") and biomes.has("умеренный лес"),
+		"Холодные и умеренные зоны сосуществуют")
 	print("Биомы стартовой карты: ", biomes.keys())
 
 	# Поля температуры меняются на большой территории, но без резких скачков
