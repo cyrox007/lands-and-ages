@@ -44,6 +44,9 @@ func _ready() -> void:
 	_surface.rebuild()
 	_climate = Climate.new(_world_model, _hydro)
 	_climate.rebuild()
+	_climate.set_day(1)
+	_hydro.apply_rainfall_map(_climate.rainfall_map())
+	_surface.advance_climate_day(_climate)
 	_center = Vector2(_world_model.config.width, _world_model.config.height) * 0.5
 	_setup_environment()
 	_setup_materials()
