@@ -5,6 +5,7 @@ const WorldMap = preload("res://scripts/world_map.gd")
 const Hydrology = preload("res://scripts/hydrology.gd")
 const Surface = preload("res://scripts/surface.gd")
 const Chunk = preload("res://scripts/chunk.gd")
+const WaterMesh = preload("res://scripts/water_mesh.gd")
 
 var failures: Array[String] = []
 
@@ -102,6 +103,22 @@ func _run() -> void:
 		Vector2(float(dry.x) + 0.5, float(dry.y) + 0.5))),
 		"Поверхностная погода не меняет геометрию рельефа")
 
+	# Ледяная вода остаётся отдельной поверхностью с другим отображением.
+	var ice_cell := Vector2i(-1, -1)
+	for y in range(world.config.height):
+		for x in range(world.config.width):
+			var candidate := Vector2i(x, y)
+			if hydro.has_water(hydro.cell_index(candidate)):
+				ice_cell = candidate
+				break
+		if ice_cell.x >= 0:
+			break
+	if ice_cell.x >= 0:
+		var frozen_chunk := world.config.chunk_of(ice_cell)
+		for i in range(4):
+			surface.advance_day(0.0, -14.0)
+		var icy: ArrayMesh = WaterMesh.create_mesh(world, hydro, frozen_chunk, surface)
+		_check(icy.get_surface_count() > 0, "Лёд отображается самостоятельным слоем воды")
 	var first := Chunk.create_mesh(0, 0, 1, world, surface, 1)
 	var second := Chunk.create_mesh(0, 0, 1, world, surface, 2)
 	_check(first.get_surface_count() == 1 and second.get_surface_count() == 1,
