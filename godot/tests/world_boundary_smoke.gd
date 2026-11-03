@@ -94,7 +94,7 @@ func _run() -> void:
 		var water_mesh := WaterMesh.create_mesh(world, hydro, ocean_chunk)
 		_check(water_mesh.get_surface_count() > 0,
 			"Море отображается отдельным GPU-мешем")
-		var saved := JSON.parse_string(JSON.stringify(world.to_data()))
+		var saved: Dictionary = JSON.parse_string(JSON.stringify(world.to_data()))
 		var loaded = WorldMap.from_data(saved)
 		_check(loaded != null, "Карта с естественной границей восстанавливается")
 		if loaded != null:
