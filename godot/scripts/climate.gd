@@ -133,8 +133,12 @@ func rebuild() -> void:
 			var broad := _smooth_noise(x / 90.0, y / 90.0, world.config.seed + 314)
 			_mean[i] = lerpf(-9.0, 27.0, latitude) \
 				- maxf(0.0, height) * 0.78 + broad * 1.8
+			# В тёплых удалённых от моря районах испаряемость выше,
+			# поэтому образуются протяжённые засушливые внутренние области.
+			var continental_dryness := 0.24 + 0.58 * smoothstep(
+				0.35, 0.90, latitude)
 			_humidity[i] = clampf(0.45 + marine * 0.40 \
-				- (1.0 - marine) * 0.24 * latitude \
+				- (1.0 - marine) * continental_dryness * latitude \
 				- relief_shadow + windward + broad * 0.055, 0.05, 0.97)
 			peak = maxf(height, peak - WIND_STEP)
 			previous = height
