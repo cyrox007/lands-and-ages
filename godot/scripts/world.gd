@@ -23,6 +23,7 @@ var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
 var _view_mode := 4
+var _days_pending := 0
 var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
@@ -110,11 +111,11 @@ func _setup_interface() -> void:
 	column.add_child(info)
 	var day_button := Button.new()
 	day_button.text = "Следующий день"
-	day_button.pressed.connect(func(): _advance_days(1))
+	day_button.pressed.connect(func(): _queue_days(1))
 	column.add_child(day_button)
 	var season_button := Button.new()
 	season_button.text = "Вперёд на сезон (+24 дня)"
-	season_button.pressed.connect(func(): _advance_days(Climate.SEASON_DAYS))
+	season_button.pressed.connect(func(): _queue_days(Climate.SEASON_DAYS))
 	column.add_child(season_button)
 	var view_button := Button.new()
 	view_button.text = "Слой: рельеф / почва / влага / температура / биом"
@@ -144,6 +145,13 @@ func _process(delta: float) -> void:
 		movement.y += 1.0
 	if movement.length_squared() > 0.0:
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
+	# Большие переходы по календарю считаются по одному дню за кадр,
+	# чтобы управление камерой и интерфейс не блокировались на сезон.
+	if _days_pending > 0:
+		_simulate_one_day()
+		_days_pending -= 1
+		if _days_pending == 0:
+			_refresh_visible(true)
 	for i in range(mini(BUILD_PER_FRAME, _pending.size())):
 		_create_chunk(_pending.pop_front())
 	_hud_timer += delta
@@ -236,13 +244,14 @@ func _on_world_changed(_chunks: Array[Vector2i], _revision: int) -> void:
 	_refresh_visible(true)
 
 
-func _advance_days(number: int) -> void:
-	for step in range(number):
-		_climate.set_day(_climate.day + 1)
-		_hydro.apply_rainfall_map(_climate.rainfall_map())
-		_surface.advance_climate_day(_climate)
-	_refresh_visible(true)
-	_update_hud()
+func _queue_days(number: int) -> void:
+	_days_pending = mini(96, _days_pending + number)
+
+
+func _simulate_one_day() -> void:
+	_climate.set_day(_climate.day + 1)
+	_hydro.apply_rainfall_map(_climate.rainfall_map())
+	_surface.advance_climate_day(_climate)
 
 
 func _cycle_view() -> void:
@@ -284,6 +293,6 @@ func _update_hud() -> void:
 	_status.text += "Снег %.0f%% · промерзание %.0f%% · потенциал роста %.0f%%\n" % [
 		float(ground["snow"]) * 100.0, float(ground["frost"]) * 100.0,
 		float(ground["growth_potential"]) * 100.0]
-	_status.text += "FPS %d · чанки %d/%d" % [
+	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
-		_active.size() + _pending.size()]
+		_active.size() + _pending.size(), _days_pending]
