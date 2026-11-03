@@ -423,7 +423,7 @@ with sync_playwright() as pw:
               return total;
             };
             const full=count(source),lower=count(source,96,144);
-            # Проверяем все 32 кадра, а не только несколько удачных поз.
+            // Проверяем все 32 кадра, а не только несколько удачных поз.
             const variants=[];
             for(let direction=0;direction<4;direction++)
               for(let phase=0;phase<8;phase++)
