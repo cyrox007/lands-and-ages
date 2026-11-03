@@ -70,7 +70,7 @@ func _push(index: int) -> void:
 
 func _pop() -> int:
 	var first := _heap[0]
-	var last := _heap.pop_back()
+	var last: int = _heap.pop_back()
 	if _heap.is_empty():
 		return first
 	var pos := 0
@@ -136,11 +136,11 @@ func rebuild() -> void:
 		var cx := current % _width
 		var cy := current / _width
 		for offset in DIRECTIONS:
-			var nx := cx + offset.x
-			var ny := cy + offset.y
+			var nx: int = cx + offset.x
+			var ny: int = cy + offset.y
 			if nx < 0 or ny < 0 or nx >= _width or ny >= _height:
 				continue
-			var next := ny * _width + nx
+			var next: int = ny * _width + nx
 			if visited[next] != 0:
 				continue
 			visited[next] = 1
@@ -225,11 +225,11 @@ func _recalculate_water() -> void:
 			var x := current % _width
 			var y := current / _width
 			for offset in DIRECTIONS:
-				var nx := x + offset.x
-				var ny := y + offset.y
+				var nx: int = x + offset.x
+				var ny: int = y + offset.y
 				if nx < 0 or ny < 0 or nx >= _width or ny >= _height:
 					continue
-				var near := ny * _width + nx
+				var near: int = ny * _width + nx
 				var level := _water_level[current] - 0.02
 				if _ground[near] >= level - 0.01:
 					continue
@@ -248,8 +248,8 @@ func _recalculate_water() -> void:
 		var x := i % _width
 		var y := i / _width
 		for offset in DIRECTIONS:
-			var nx := x + offset.x
-			var ny := y + offset.y
+			var nx: int = x + offset.x
+			var ny: int = y + offset.y
 			if nx < 0 or ny < 0 or nx >= _width or ny >= _height:
 				continue
 			if not is_nan(_water_level[ny * _width + nx]):
