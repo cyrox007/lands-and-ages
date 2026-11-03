@@ -54,7 +54,11 @@
   const Frames=window.StrategyProfessionFrames;
   const Ground=window.StrategyUnitGround;
   const Terrain=window.StrategyTerrain,Relief=window.StrategyReliefPreview;
-  let reliefMode=false,reliefModel=null,reliefMesh=null;
+  const Environment=window.StrategyEnvironment;
+  const WORLD_W=256,WORLD_H=192;
+  let reliefMode=false,reliefModel=null,reliefEnvironment=null,reliefCamera=null;
+  let reliefDay=1,reliefDrawStats=null;
+  const reliefCache=new Map();
   // Лесоруб использует реальные растровые кадры, без дорисовки суставов и топора.
   const LOGGER_STATES=['idle','walk','fell_tree','carry_logs'];
   const loggerAtlases={};
@@ -1470,19 +1474,20 @@
     ctx.strokeText(tip,center.x,yy);ctx.fillText(tip,center.x,yy);
     ctx.restore();
   }
-  // Просмотр высот работает на существующей карте, но отдельно от экономики.
+  // Большой природный мир автономен: старая экономика остаётся без изменений.
   function reliefWorld(){
     if(!reliefModel||reliefModel.seed!==game.seed){
-      reliefModel=Terrain.create(W,H,game.seed);
-      reliefMesh=Relief.render(reliefModel);
+      reliefModel=Terrain.create(WORLD_W,WORLD_H,game.seed);
+      reliefEnvironment=Environment.create(reliefModel);
+      reliefCache.clear();
     }
-    return {model:reliefModel,mesh:reliefMesh};
+    return {model:reliefModel,environment:reliefEnvironment};
   }
   function drawRelief(){
-    const {model,mesh}=reliefWorld(),origin=screen(0,0);
-    ctx.drawImage(mesh.canvas,origin.x-mesh.originX*zoom,
-      origin.y-mesh.originY*zoom,mesh.width*zoom,mesh.height*zoom);
-
+    const {model,environment}=reliefWorld();
+    reliefDrawStats=Relief.drawVisible(model,environment,ctx,{
+      width,height,zoom,screen,worldAt,day:reliefDay,cache:reliefCache
+    });
     ctx.save();ctx.textAlign='center';
     for(const region of model.regions){
       const z=model.heightAt(region.x,region.y);
@@ -1497,26 +1502,40 @@
       ctx.fillRect(p.x-boxWidth/2,p.y-28,boxWidth,19);
       ctx.fillStyle='#f3e8cd';ctx.fillText(text,p.x,p.y-14);
     }
+    const day=environment.seasonAt(reliefDay);
+    const rx=Math.max(0,Math.min(model.width-1,Math.floor(camera.x)));
+    const ry=Math.max(0,Math.min(model.height-1,Math.floor(camera.y)));
+    const climate=environment.weatherAt(rx,ry,reliefDay);
     ctx.textAlign='left';
-    const caption='ВЫСОТНЫЙ ПОЛИГОН · F1 · 6 ФОРМ РЕЛЬЕФА';
+    const caption='ПРИРОДНЫЙ МИР '+WORLD_W+'×'+WORLD_H+' · '+
+      day.name.toUpperCase()+' · '+Math.round(climate.temperature)+'°C';
     ctx.font='bold 11px sans-serif';
-    const captionWidth=ctx.measureText(caption).width+19;
     const top=height<540?94:86;
-    ctx.fillStyle='rgba(18,37,31,.92)';ctx.fillRect(10,top,captionWidth,29);
+    ctx.fillStyle='rgba(18,37,31,.92)';
+    ctx.fillRect(10,top,ctx.measureText(caption).width+25,29);
     ctx.fillStyle='#f3e4bb';ctx.fillText(caption,20,top+19);
     ctx.restore();
   }
   function setReliefMode(enabled){
-    reliefMode=Boolean(enabled);
-    const button=$('reliefBtn');
-    button.setAttribute('aria-pressed',String(reliefMode));
-    button.textContent=reliefMode?'◈ Игра':'⛰ Рельеф';
-    if(reliefMode){
+    enabled=Boolean(enabled);
+    if(enabled===reliefMode)return;
+    if(enabled){
+      reliefCamera={x:camera.x,y:camera.y,zoom};
+      reliefDay=game.day;
+      camera.x=WORLD_W/2;camera.y=WORLD_H/2;
+      zoom=Math.min(zoom,.85);
       reliefWorld();selectTool('inspect');setPanel('none');
-      $('mapHint').textContent='Полигон рельефа: проведи по карте, увеличивай и нажимай на склон. Игра временно остановлена.';
+      $('mapHint').textContent='Мир 256×192: двигай карту, выбери поверхность или переключи сезон. Экономика в режиме просмотра остановлена.';
     }else{
-      $('mapHint').textContent='Осмотр: коснись клетки карты. Рельеф пока не влияет на экономику.';
+      camera.x=reliefCamera.x;camera.y=reliefCamera.y;zoom=reliefCamera.zoom;
+      reliefCamera=null;
+      $('mapHint').textContent='Осмотр: коснись клетки карты. Природный мир пока не влияет на экономику.';
     }
+    reliefMode=enabled;
+    $('reliefBtn').setAttribute('aria-pressed',String(enabled));
+    $('reliefBtn').textContent=enabled?'◈ Игра':'⛰ Рельеф';
+    $('seasonBtn').hidden=!enabled;
+    $('zoomLabel').textContent=Math.round(zoom*100)+'%';
     draw();
   }
   function draw(){
@@ -1818,21 +1837,23 @@
     if(Math.hypot(p.x-pointer.x,p.y-pointer.y)>7)pointer.moved=true;
     if(pointer.moved){touchPlacement=null;const deltaX=(p.x-pointer.prevX)/(tileSize()/2);
       const deltaY=(p.y-pointer.prevY)/(tileHeight()/2);
-      camera.x=clamp(camera.x-(deltaX+deltaY)/2,-3,W+3);
-      camera.y=clamp(camera.y-(deltaY-deltaX)/2,-3,H+3);hover=null;}
+      camera.x=clamp(camera.x-(deltaX+deltaY)/2,-3,(reliefMode?WORLD_W:W)+3);
+      camera.y=clamp(camera.y-(deltaY-deltaX)/2,-3,(reliefMode?WORLD_H:H)+3);hover=null;}
     pointer.prevX=p.x;pointer.prevY=p.y;
   });
   const endPointer=e=>{
     if(!pointer||e.pointerId!==pointer.id)return;
     const p=canvasPointer(e);if(!pointer.moved&&e.type==='pointerup'){
       if(reliefMode){
-        const {model,mesh}=reliefWorld();
-        const position=Relief.pick(model,mesh,p.x,p.y,screen(0,0),zoom);
+        const {model,environment}=reliefWorld();
+        const position=Relief.pickAt(model,p.x,p.y,{screen,worldAt,zoom});
         if(position){
-          const region=model.regions.find(r=>r.id===position.region);
-          notify((region?.name||'Поверхность')+
-            ' · высота '+position.z.toFixed(2)+
-            ' · координаты '+position.x.toFixed(1)+', '+position.y.toFixed(1));
+          const surface=environment.surfaceAt(position.cell.x,position.cell.y,reliefDay);
+          const name={grass:'трава',bare:'голая почва',rock:'камень',
+            sand:'песок',snow:'снег',ice:'лёд',water:'вода'}[surface.cover];
+          notify((name||'Поверхность')+' · высота '+position.z.toFixed(1)+
+            ' · '+surface.temperature.toFixed(1)+'°C · плодородность '+
+            Math.round(surface.soil.fertility*100)+'%');
         }
         pointer=null;return;
       }
@@ -1896,10 +1917,18 @@
   }));
   document.querySelectorAll('[data-pan]').forEach(b=>b.addEventListener('click',()=>{
     const delta={left:[-2,0],right:[2,0],up:[0,-2],down:[0,2]}[b.dataset.pan];
-    camera.x=clamp(camera.x+delta[0],-1,W+1);camera.y=clamp(camera.y+delta[1],-1,H+1);
+    camera.x=clamp(camera.x+delta[0],-1,(reliefMode?WORLD_W:W)+1);camera.y=clamp(camera.y+delta[1],-1,(reliefMode?WORLD_H:H)+1);
   }));
   $('zoomIn').addEventListener('click',()=>zoomBy(.2));$('zoomOut').addEventListener('click',()=>zoomBy(-.2));
   $('reliefBtn').addEventListener('click',()=>setReliefMode(!reliefMode));
+  $('seasonBtn').addEventListener('click',()=>{
+    if(!reliefMode)return;
+    reliefDay+=reliefEnvironment.seasonDays;
+    reliefCache.clear();
+    const season=reliefEnvironment.seasonAt(reliefDay);
+    notify('Природный мир: '+season.name.toLowerCase()+', год '+season.year+'. Игра не перемотана.');
+    draw();
+  });
   $('taxSlider').addEventListener('input',e=>{game.setTax(Number(e.target.value));$('taxValue').textContent=game.tax+'%';persist();});
   function setPaused(value){
     paused=Boolean(value);
@@ -1928,7 +1957,7 @@
     if(e.key==='+'||e.key==='=')zoomBy(.15);
     if(e.key==='-')zoomBy(-.15);
     const pan={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.code];
-    if(pan){e.preventDefault();camera.x=clamp(camera.x+pan[0],-1,W+1);camera.y=clamp(camera.y+pan[1],-1,H+1);}
+    if(pan){e.preventDefault();camera.x=clamp(camera.x+pan[0],-1,(reliefMode?WORLD_W:W)+1);camera.y=clamp(camera.y+pan[1],-1,(reliefMode?WORLD_H:H)+1);}
   });
   document.addEventListener('visibilitychange',()=>{if(document.hidden){setPaused(true);persist();}});
   window.addEventListener('blur',()=>{setPaused(true);persist();});
@@ -1961,12 +1990,16 @@
       M.stageLayout(name,tileSize(),tileHeight()),
     touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',
     reliefEnabled:reliefMode,
-    reliefSummary:()=>Relief.summary(reliefWorld().model),
+    reliefSummary:()=>({...Relief.summary(reliefWorld().model),
+      climateRegions:reliefWorld().environment.regions.length,
+      season:reliefWorld().environment.seasonAt(reliefDay).name}),
     reliefPoint:(x,y)=>({height:reliefWorld().model.heightAt(x,y),
       slope:reliefWorld().model.slopeAt(x,y),
       region:reliefWorld().model.regionAt(x,y)}),
-    reliefPick:(x,y)=>{const {model,mesh}=reliefWorld();
-      return Relief.pick(model,mesh,x,y,screen(0,0),zoom);},
+    reliefSurface:(x,y)=>reliefWorld().environment.surfaceAt(x,y,reliefDay),
+    reliefWeather:(x,y)=>reliefWorld().environment.weatherAt(x,y,reliefDay),
+    reliefDay,reliefDrawStats,
+    reliefPick:(x,y)=>Relief.pickAt(reliefWorld().model,x,y,{screen,worldAt,zoom}),
     toggleRelief:()=>setReliefMode(!reliefMode),visualVersion:'0.5.8-resource-sprites',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);

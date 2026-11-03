@@ -11,9 +11,10 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:world-terrain|world-relief-preview|navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|unit-ground|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:world-terrain|world-environment|world-relief-preview|navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|unit-ground|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 terrain=(root/'world-terrain.js').read_text('utf8')
+environment=(root/'world-environment.js').read_text('utf8')
 relief_preview=(root/'world-relief-preview.js').read_text('utf8')
 navigation=(root/'navigation.js').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
@@ -50,6 +51,7 @@ def mount(page,prior=None,boot="mission"):
       }});
     }''',prior)
     page.add_script_tag(content=terrain)
+    page.add_script_tag(content=environment)
     page.add_script_tag(content=relief_preview)
     page.add_script_tag(content=navigation)
     page.add_script_tag(content=engine)
@@ -605,6 +607,7 @@ with sync_playwright() as pw:
         page.evaluate('''() => Object.defineProperty(window,'localStorage',{configurable:true,value:{
           getItem(){return null},setItem(){},removeItem(){}}})''')
         page.add_script_tag(content=terrain)
+        page.add_script_tag(content=environment)
         page.add_script_tag(content=relief_preview)
         page.add_script_tag(content=navigation)
         page.add_script_tag(content=engine)
@@ -765,14 +768,22 @@ with sync_playwright() as pw:
           return {summary:s,pick,
             active:document.querySelector('#reliefBtn').getAttribute('aria-pressed')};
         }""")
-        assert state['summary']['vertices']==27*19,(name,state)
+        assert state['summary']['vertices']==257*193,(name,state)
+        assert state['summary']['climateRegions']==12,(name,state)
         assert state['summary']['connected'] is False,(name,state)
         assert state['summary']['minimum'] < -2,(name,state)
         assert state['summary']['maximum'] > 6,(name,state)
         for kind in ('plain','lowland','hills','ravine','plateau','mountains'):
             assert state['summary']['regions'].get(kind,0)>3,(name,kind,state)
         assert state['active']=='true'
+        assert state['summary']['season']=='Весна',(name,state)
         assert state['pick'] is not None,(name,state)
+        assert page.evaluate('window.__strategyDebug().reliefDrawStats.cachedChunks<=16')
+        page.locator('#seasonBtn').evaluate('(button) => button.click()')
+        assert page.evaluate('window.__strategyDebug().reliefSummary().season')=='Лето'
+        assert page.evaluate('window.__strategyDebug().reliefSurface(90,90).soil.fertility>=0')
+        assert page.evaluate('window.__strategyDebug().reliefWeather(90,90).wind.speed>=0')
+
         assert abs(state['pick']['x']-8.4)<.4,(name,state)
         assert abs(state['pick']['y']-6.3)<.4,(name,state)
         page.wait_for_timeout(200)
