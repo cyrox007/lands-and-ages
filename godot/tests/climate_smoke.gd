@@ -118,9 +118,13 @@ func _run() -> void:
 	_check(float(surface.profile_at(thaw_cell)["snow"]) > 0.1,
 		"В мороз и снегопад образуется снежный покров")
 	surface.advance_day(0.0, 30.0)
+	_check(float(surface.profile_at(thaw_cell)["snow"]) > 0.0,
+		"Накопленный снег не исчезает за один тёплый день")
+	for i in range(5):
+		surface.advance_day(0.0, 30.0)
 	_check(float(surface.profile_at(thaw_cell)["snow"]) == 0.0
 		and float(surface.profile_at(thaw_cell)["frost"]) == 0.0,
-		"В местной жаре +30 °C не остаётся снега и промерзания")
+		"После продолжительной жары снег и промерзание исчезают")
 	# Продолжение интеграции с климатом требует совпадения календаря.
 	surface.day = 0
 	climate.set_day(1)
