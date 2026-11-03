@@ -396,9 +396,19 @@
       const path=Nav.route(W,H,from,to,(x,y)=>this.walkable(x,y));
       return path?.map(Nav.centre)||null;
     }
+    interactionAnchor(object){
+      const tile=inside(object.x,object.y)?this.tiles[id(object.x,object.y)]:null;
+      if(tile?.terrain==='forest')return Nav.treeTrunk(object.x,object.y);
+      const size=object.size||{w:1,h:1};
+      return {x:object.x+size.w/2,y:object.y+size.h/2};
+    }
     approachPath(from,object){
       const path=Nav.approach(W,H,from,object,(x,y)=>this.walkable(x,y));
-      return path?.map(Nav.centre)||null;
+      if(!path)return null;
+      // Центр соседней клетки — лишь узел маршрута. Рабочее место ближе к
+      // видимому стволу и остаётся внутри проходимой клетки.
+      const contact=Nav.contactPoint(path.at(-1),this.interactionAnchor(object));
+      return [...path.map(Nav.centre),contact];
     }
     // Точки взаимодействия выбираются рядом с объектом, не внутри него.
     approachCells(object){
@@ -443,9 +453,7 @@
       if(agent.segment<agent.path.length-1)return false;
       const last=agent.path.at(-1);
       agent.x=last.x;agent.y=last.y;
-      const width=object.size?.w||1,height=object.size?.h||1;
-      agent.facing=Nav.facing(agent,{x:object.x+width/2,y:object.y+height/2},
-        agent.facing);
+      agent.facing=Nav.facing(agent,this.interactionAnchor(object),agent.facing);
       agent.path=[];agent.segment=0;
       return true;
     }
@@ -736,6 +744,10 @@
           const arrived=this.advanceAgentPath(a,destination,dt);
           if(!arrived)continue;
           if(a.phase==='out'){
+            const anchor=this.interactionAnchor(a.target);
+            if(!Nav.atContact(a,a.target,anchor)){
+              a.path=[];a.segment=0;continue;
+            }
             a.phase='work';a.progress=0;
           }else{
             if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
@@ -745,7 +757,13 @@
         }
         if(a.phase!=='work')continue;
         if(!a.target){a.phase='return';continue;}
-        a.facing=Nav.facing(a,Nav.centre(a.target),a.facing);
+        const anchor=this.interactionAnchor(a.target);
+        if(!Nav.atContact(a,a.target,anchor)){
+          // Исправляем старые сохранения, где рубка началась посреди поля.
+          a.phase='out';a.path=[];a.segment=0;
+          continue;
+        }
+        a.facing=Nav.facing(a,anchor,a.facing);
         if((this.staff[b.id]||0)<1){
           a.phase='return';a.path=[];continue;
         }
