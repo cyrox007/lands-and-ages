@@ -20,6 +20,8 @@ var revision := 0
 var ocean_revision := 0
 var full_rebuilds := 0
 var flow_updates := 0
+var last_ground_cells := 0
+var _geometry_dirty := {}
 var last_changed_chunks: Array[Vector2i] = []
 var _pending_changed_chunks := {}
 var _terrain_revision := -1
@@ -46,6 +48,14 @@ var _summary := {"lakes": 0, "rivers": 0, "flooded": 0, "ocean": 0}
 
 func _init(source: RefCounted) -> void:
 	world = source
+	# Отдельный журнал изменений высот живёт до полной перестройки стока.
+	# Графическая очередь может очищаться независимо от гидрологии.
+	world.vertices_changed.connect(_on_vertices_changed)
+
+
+func _on_vertices_changed(chunks: Array[Vector2i], _revision: int) -> void:
+	for chunk in chunks:
+		_geometry_dirty[chunk] = true
 
 
 func cell_index(cell: Vector2i) -> int:
@@ -116,7 +126,10 @@ func rebuild() -> void:
 	_width = world.config.width
 	_height = world.config.height
 	var count := _width * _height
+	var partial_ground := _terrain_revision >= 0 \
+		and _ground.size() == count and not _geometry_dirty.is_empty()
 	_ground.resize(count)
+	last_ground_cells = 0
 	_spill.resize(count)
 	_downstream.resize(count)
 	_downstream.fill(-1)
@@ -130,11 +143,23 @@ func rebuild() -> void:
 	var visited := PackedByteArray()
 	visited.resize(count)
 
-	# Высота клетки берётся из той же треугольной поверхности, что видит GPU.
-	for y in range(_height):
-		for x in range(_width):
-			var index := y * _width + x
-			_ground[index] = world.height_at(Vector2(float(x) + 0.5, float(y) + 0.5))
+	# Меняем высоты только в соседних с деформацией чанках.
+	# Сам Priority-Flood остаётся глобальным: водоразделы могут сдвинуться далеко.
+	if partial_ground:
+		for chunk in _geometry_dirty.keys():
+			var bounds: Rect2i = world.config.chunk_rect(chunk)
+			for y in range(bounds.position.y, bounds.end.y):
+				for x in range(bounds.position.x, bounds.end.x):
+					_ground[y * _width + x] = world.height_at(
+						Vector2(float(x) + 0.5, float(y) + 0.5))
+					last_ground_cells += 1
+	else:
+		for y in range(_height):
+			for x in range(_width):
+				_ground[y * _width + x] = world.height_at(
+					Vector2(float(x) + 0.5, float(y) + 0.5))
+		last_ground_cells = count
+	_geometry_dirty.clear()
 
 	# Priority-flood: внешняя граница — выходы водосбора.
 	# Каждая вновь открытая клетка связывается с уже извлечённой из очереди.
