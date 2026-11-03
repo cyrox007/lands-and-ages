@@ -41,14 +41,16 @@ func _run() -> void:
 	var center := Vector2(26.0, 28.0)
 	var center_vertex := Vector2i(26, 28)
 	var old_center_height: float = world.vertex_at(center_vertex)
-	var changes: Array[Vector2i] = []
-	world.vertices_changed.connect(func(chunks: Array[Vector2i], _revision: int) -> void:
-		changes = chunks.duplicate()
+	var signals := {"count": 0}
+	world.vertices_changed.connect(func(_chunks: Array[Vector2i], _revision: int) -> void:
+		signals["count"] = int(signals["count"]) + 1
 	)
 	var first: Dictionary = events.apply("поднятие", center, 20.0, 4.0)
 	_check(not first.is_empty(), "Региональное поднятие принято")
 	_check(int(first.get("vertices", 0)) > 100, "Изменяется целый район, не клетка")
-	_check(changes.size() > 1, "Событие пересекает несколько чанков")
+	var changes: Array[Vector2i] = world.take_dirty_chunks()
+	_check(changes.size() > 1 and int(signals["count"]) == 1,
+		"Событие пересекает чанки и оповещает подписчиков один раз")
 	_check(world.vertex_at(center_vertex) > old_center_height + 3.9,
 		"Высота центра физически выросла")
 	_check(is_equal_approx(world.vertex_at(far), old_far_height),
