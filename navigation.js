@@ -105,5 +105,39 @@
     return null;
   }
 
-  return {SIDES,cell,centre,distance,facing,route,perimeter,approach,nearest};
+  // Положение видимого ствола совпадает с разбросом в рендере деревьев.
+  function treeCentre(x,y){
+    const dx=((x*23+y*37+x*y*3)%19-9)*.037;
+    const dy=((x*17+y*13+x*y*5)%17-8)*.037;
+    return {x:x+.5+dx,y:y+.5+dy};
+  }
+
+  function treeTrunk(x,y){
+    const base=treeCentre(x,y);
+    // Нижняя точка спрайта находится выше экранной опоры рабочего на 0,1h.
+    return {x:base.x-.1,y:base.y-.1};
+  }
+
+  function contactPoint(approachCell,anchor,margin=.08){
+    const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
+    return {
+      x:clamp(anchor.x,approachCell.x+margin,approachCell.x+1-margin),
+      y:clamp(anchor.y,approachCell.y+margin,approachCell.y+1-margin)
+    };
+  }
+
+  function screenDistance(from,to,tileSize=82){
+    const dx=from.x-to.x,dy=from.y-to.y;
+    return Math.hypot((dx-dy)*tileSize/2,(dx+dy)*tileSize/4);
+  }
+
+  function atContact(agent,target,anchor,tolerance=.09){
+    const workerCell=cell(agent),targetCell=cell(target);
+    if(distance(workerCell,targetCell)!==1)return false;
+    const contact=contactPoint(workerCell,anchor);
+    return Math.hypot(agent.x-contact.x,agent.y-contact.y)<=tolerance;
+  }
+
+  return {SIDES,cell,centre,distance,facing,route,perimeter,approach,nearest,
+    treeCentre,treeTrunk,contactPoint,screenDistance,atContact};
 });
