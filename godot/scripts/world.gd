@@ -13,6 +13,7 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const LandscapeEvents = preload("res://scripts/landscape_events.gd")
 const NaturalProcesses = preload("res://scripts/natural_processes.gd")
+const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 
 const VIEW_RADIUS := 4
@@ -27,6 +28,8 @@ var _surface: RefCounted
 var _climate: RefCounted
 var _landscape_events: RefCounted
 var _natural_processes: RefCounted
+var _natural_disasters: RefCounted
+var _disaster_status := "Сильных природных событий пока не было"
 var _weather_events: RefCounted
 var _weather_status := "Молний пока не было"
 var _lightning_light: OmniLight3D
@@ -58,6 +61,8 @@ func _ready() -> void:
 	_climate.rebuild()
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
+		_world_model, _hydro, _surface, _climate)
+	_natural_disasters = NaturalDisasters.new(
 		_world_model, _hydro, _surface, _climate)
 	_weather_events = WeatherEvents.new(
 		_world_model, _climate, _surface, _hydro)
@@ -129,7 +134,7 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 6.4: ливни, грозы, молнии, паводки, болота и речные дельты."
+	info.text = "Этап 6.5: бури, засухи, паводки, лавины, сели и тектонические события."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
 	var day_button := Button.new()
@@ -308,6 +313,12 @@ func _simulate_one_day() -> void:
 	if not event.is_empty():
 		_process_status = "%s, день %d: %s" % [
 			event["process"], event["day"], event["cell"]]
+	var hazards: Array[Dictionary] = _natural_disasters.advance_day(_climate.day)
+	if not hazards.is_empty():
+		var latest: Dictionary = hazards[hazards.size() - 1]
+		_disaster_status = "%s · день %d · %s · интенсивность %.0f%%" % [
+			latest["kind"], latest["day"], latest["cell"],
+			float(latest["severity"]) * 100.0]
 
 
 func _cycle_view() -> void:
@@ -361,6 +372,8 @@ func _update_hud() -> void:
 	_status.text += "Ветер %.1f · изменённых вершин %d\n" % [
 		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
 	_status.text += "%s\n" % _weather_status
+	_status.text += "%s · событий всего %d\n" % [
+		_disaster_status, _natural_disasters.total_events]
 	_status.text += "%s\n" % _process_status
 	_status.text += "%s\n" % _last_event
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
