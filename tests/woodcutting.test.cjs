@@ -11,9 +11,15 @@ function sizeOfWebP(filename){
   const data=fs.readFileSync(path.join(root,filename));
   assert.equal(data.toString('ascii',0,4),'RIFF');
   assert.equal(data.toString('ascii',8,12),'WEBP');
-  assert.equal(data.toString('ascii',12,16),'VP8X');
-  return {width:data.readUIntLE(24,3)+1,
+  const codec=data.toString('ascii',12,16);
+  if(codec==='VP8X')return {width:data.readUIntLE(24,3)+1,
     height:data.readUIntLE(27,3)+1,bytes:data.length};
+  // Lossless WebP хранит размеры в первых четырёх байтах VP8L.
+  assert.equal(codec,'VP8L');
+  assert.equal(data[20],0x2f);
+  const a=data[21],b=data[22],c=data[23],d=data[24];
+  return {width:1+a+((b&63)<<8),
+    height:1+(b>>6)+(c<<2)+((d&15)<<10),bytes:data.length};
 }
 
 test('все четыре состояния лесоруба имеют растровые кадры 4×8',()=>{
