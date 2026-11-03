@@ -17,6 +17,9 @@ const DIRECTIONS := [
 var world: RefCounted
 var rainfall := 1.0
 var revision := 0
+var ocean_revision := 0
+var full_rebuilds := 0
+var flow_updates := 0
 var _terrain_revision := -1
 var _width := 0
 var _height := 0
@@ -102,6 +105,8 @@ func _seed_border(index: int, visited: PackedByteArray) -> void:
 
 
 func rebuild() -> void:
+	var previous_ocean := _ocean.duplicate()
+	full_rebuilds += 1
 	_width = world.config.width
 	_height = world.config.height
 	var count := _width * _height
@@ -167,6 +172,8 @@ func rebuild() -> void:
 		_local_rain.clear()
 	_recalculate_flow()
 	_mark_ocean()
+	if previous_ocean != _ocean:
+		ocean_revision += 1
 	_recalculate_water()
 	revision += 1
 	water_changed.emit(revision)
@@ -212,6 +219,7 @@ func apply_rainfall_map(values: PackedFloat32Array) -> bool:
 
 
 func _recalculate_flow() -> void:
+	flow_updates += 1
 	_discharge.resize(_catchment.size())
 	if _local_rain.is_empty():
 		for i in range(_discharge.size()):
