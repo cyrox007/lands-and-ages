@@ -4,7 +4,7 @@ import re,json,base64
 root=Path(__file__).resolve().parent
 html=(root/'index.html').read_text('utf8')
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','<style>'+ (root/'style.css').read_text('utf8')+'</style>',html)
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|woodcutting|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in sorted((root/'assets').glob('*.webp'))}
 assert len(assets)==12
 mill_files={'start':'mill-states-start.webp',
@@ -23,9 +23,9 @@ hq_sprite='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/buildings/headquarters/headquarters-level1.webp').read_bytes()).decode('ascii')
 painted_people='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/characters/painted-people.webp').read_bytes()).decode('ascii')
-worker_portraits={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
+logger_atlases={state:'data:image/webp;base64,'+base64.b64encode(\n    (root/'assets/characters/logger'/('logger-'+state+'.webp')).read_bytes()).decode('ascii')\n    for state in ('idle','walk','fell_tree','carry_logs')}\nworker_portraits={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
                   for p in sorted((root/'assets/workers').glob('*.webp')) if p.stem!='walk-reference-se'}
-scripts=('window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
+scripts=('window.StrategyLoggerAtlases='+json.dumps(logger_atlases,separators=(',',':'))+';\n'+\n         'window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
          'window.StrategyPaintedPeople='+json.dumps(painted_people)+';\n'+
          'window.StrategyWorkerPortraits='+json.dumps(worker_portraits)+';\n'+
          'window.StrategyResourceAtlas='+json.dumps(resources)+';\n'+
@@ -40,7 +40,6 @@ scripts=('window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
          (root/'painted-motion.js').read_text('utf8')+'\n;\n'+
          (root/'profession-actions.js').read_text('utf8')+'\n;\n'+
          (root/'profession-frames.js').read_text('utf8')+'\n;\n'+
-         (root/'woodcutting.js').read_text('utf8')+'\n;\n'+
          (root/'ui.js').read_text('utf8'))
 assert '</script' not in scripts.lower()
 html=html.replace('</body>','<script>'+scripts+'</script>\n</body>')
