@@ -205,8 +205,19 @@
     const endCx=Math.min(maxCx,Math.floor(bounds.maxX/chunkSize));
     const endCy=Math.min(maxCy,Math.floor(bounds.maxY/chunkSize));
     const chunks=[];
-    for(let cy=minCy;cy<=endCy;cy++)
-      for(let cx=minCx;cx<=endCx;cx++)chunks.push({cx,cy});
+    for(let cy=minCy;cy<=endCy;cy++)for(let cx=minCx;cx<=endCx;cx++){
+      const x0=cx*chunkSize,y0=cy*chunkSize;
+      const w=Math.min(chunkSize,model.width-x0);
+      const h=Math.min(chunkSize,model.height-y0);
+      const anchor=screen(x0,y0);
+      const left=anchor.x-(h*TILE/2+3)*zoom;
+      const top=anchor.y-((model.maximum+2)*HEIGHT_SCALE+3)*zoom;
+      const right=left+((w+h)*TILE/2+6)*zoom;
+      const bottom=top+((w+h)*TILE/4+
+        (model.maximum-model.minimum+4)*HEIGHT_SCALE+6)*zoom;
+      if(right<0||bottom<0||left>width||top>height)continue;
+      chunks.push({cx,cy});
+    }
     chunks.sort((a,b)=>a.cx+a.cy-b.cx-b.cy||a.cx-b.cx);
     let rendered=0;
     for(const {cx,cy} of chunks){
