@@ -1,7 +1,7 @@
 extends RefCounted
 ## Геометрические показатели поверхности. Не хранит грунты, биомы и климат.
 
-const TerrainV2 = preload("res://scripts/terrain_v2.gd")
+const Terrain = preload("res://scripts/terrain.gd")
 
 
 static func profile_at(world: RefCounted, point: Vector2) -> Dictionary:
@@ -36,12 +36,9 @@ static func profile_at(world: RefCounted, point: Vector2) -> Dictionary:
 		mean += neighbour
 		samples += 1
 	mean /= float(samples)
-	var origin := "старый генератор"
-	var influence := 0.0
-	if cfg.generator_version == 2:
-		var feature := TerrainV2.sample(point.x, point.y, cfg.seed)
-		origin = str(feature["form"])
-		influence = float(feature["influence"])
+	var feature := Terrain.sample(point.x, point.y, cfg.seed)
+	var origin: String = feature["form"]
+	var influence: float = feature["influence"]
 	return {
 		"height": height,
 		"grade": grade,

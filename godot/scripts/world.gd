@@ -8,6 +8,7 @@ const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 const Hydrology = preload("res://scripts/hydrology.gd")
 const WaterMesh = preload("res://scripts/water_mesh.gd")
+const Boundary = preload("res://scripts/world_boundary.gd")
 
 const VIEW_RADIUS := 4
 const BUILD_PER_FRAME := 2
@@ -92,7 +93,7 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 3: сток, реки и озёра. Осадки — испытательный множитель, не погода."
+	info.text = "Берег и горные рубежи ограничивают мир. Водные пространства доступны с подходящими средствами."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
 	var rain_button := Button.new()
@@ -230,16 +231,19 @@ func _update_hud() -> void:
 	var profile := Relief.profile_at(_world_model, _center)
 	var water: Dictionary = _hydro.water_at(_world_model.config.cell_at(_center))
 	var amounts: Dictionary = _hydro.water_count()
-	_status.text = "ЗЕМЛИ И ЭПОХИ · ГИДРОЛОГИЯ\n"
-	_status.text += "Карта %d×%d · генератор v%d · seed %d\n" % [
+	_status.text = "ЗЕМЛИ И ЭПОХИ · ПРИРОДНЫЕ РУБЕЖИ\n"
+	_status.text += "Карта %d×%d · seed %d\n" % [
 		_world_model.config.width, _world_model.config.height,
-		_world_model.config.generator_version, _world_model.config.seed]
+		_world_model.config.seed]
 	_status.text += "%s · высота %.2f · уклон %.1f°\n" % [
 		profile["form"], profile["height"], profile["slope_degrees"]]
 	_status.text += "Водосбор %.0f · вода %.2f · осадки ×%.1f\n" % [
 		water["catchment"], water["depth"], _hydro.rainfall]
-	_status.text += "Озёра %d · реки %d · разливы %d\n" % [
-		amounts["lakes"], amounts["rivers"], amounts["flooded"]]
+	_status.text += "Море %d · озёра %d · реки %d\n" % [
+		amounts["ocean"], amounts["lakes"], amounts["rivers"]]
+	var edge := Boundary.geography_at(_center.x, _center.y,
+		_world_model.config.width, _world_model.config.height, _world_model.config.seed)
+	_status.text += "Местность: %s\n" % edge["zone"]
 	_status.text += "FPS %d · чанки %d/%d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size()]

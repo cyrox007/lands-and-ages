@@ -6,7 +6,7 @@ signal vertices_changed(chunks: Array[Vector2i], revision: int)
 
 const Config = preload("res://scripts/world_config.gd")
 const Terrain = preload("res://scripts/terrain.gd")
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const MIN_HEIGHT := -64.0
 const MAX_HEIGHT := 64.0
 const HEIGHT_UNITS := 1000000.0
@@ -41,7 +41,7 @@ func _base_height(coord: Vector2i) -> float:
 	if _base_cache.has(key):
 		return float(_base_cache[key])
 	var value := Terrain.vertex_height_on_map(coord.x, coord.y,
-		config.width, config.height, config.seed, config.generator_version)
+		config.width, config.height, config.seed)
 	if _base_cache.size() >= BASE_CACHE_LIMIT:
 		_base_cache.clear()
 	_base_cache[key] = value

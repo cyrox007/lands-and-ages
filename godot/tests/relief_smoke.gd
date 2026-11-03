@@ -1,11 +1,11 @@
 extends SceneTree
-## Приёмка рельефа: семь форм, гладкие переходы, уклоны и сохранения v1.
+## Приёмка единого генератора: семь форм, уклоны, seed и сохранения.
 ## Не проверяет почвы, воду, климат, растительность и экономику.
 
 const Config = preload("res://scripts/world_config.gd")
 const WorldMap = preload("res://scripts/world_map.gd")
 const Terrain = preload("res://scripts/terrain.gd")
-const Landforms = preload("res://scripts/terrain_v2.gd")
+const Landforms = preload("res://scripts/terrain.gd")
 const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 
@@ -23,7 +23,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	var world := WorldMap.new(Config.new())
-	_check(world.config.generator_version == 2, "По умолчанию используется генератор v2")
+	_check(world.config.width == 256, "Используется единый генератор")
 	_check(Landforms.FORM_NAMES.size() == 7, "Семь географических форм")
 	var seen := {}
 	var minimum := INF
@@ -83,8 +83,10 @@ func _run() -> void:
 		var c := WorldMap.new(Config.new(256, 192, seed + 1))
 		for pos in [Vector2i(7, 13), Vector2i(61, 73), Vector2i(144, 101)]:
 			var first: float = a.vertex_at(pos)
+			# Географический край зависит от размеров; внутренний рельеф сохраняет seed.
+		if pos.x > 44 and pos.y > 44 and pos.x < 212 and pos.y < 148:
 			_check(is_equal_approx(first, b.vertex_at(pos)),
-				"Генератор не зависит от расширения карты")
+				"Рельеф вдали от краёв сохраняется при расширении карты")
 			_check(is_equal_approx(first, a.vertex_at(pos)),
 				"Повторный запрос не изменяет мир")
 			if not is_equal_approx(first, c.vertex_at(pos)):
@@ -118,24 +120,19 @@ func _run() -> void:
 	_check(vertices_left[9 * 17 + 16].is_equal_approx(vertices_right[9 * 17]),
 		"Изменение общей вершины одинаково в двух GPU-чанках")
 
-	# Сохранения первого этапа без версии генератора читаются по старой формуле.
-	var old_config := Config.new(256, 192, 1729, 16, 64, 0.9, 1)
-	var legacy := WorldMap.new(old_config)
-	var old_height: float = legacy.vertex_at(Vector2i(30, 40))
-	_check(is_equal_approx(old_height, Terrain.vertex_height_on_map(30, 40,
-		256, 192, 1729, 1)), "Генератор v1 остался доступным")
-	var saved := legacy.to_data()
-	saved["config"].erase("generator_version")
-	var restored = WorldMap.from_data(JSON.parse_string(JSON.stringify(saved)))
-	_check(restored != null, "Старый файл карты читается")
-	if restored != null:
-		_check(restored.config.generator_version == 1, "Старый мир остаётся на v1")
-		_check(is_equal_approx(restored.vertex_at(Vector2i(30, 40)), old_height),
-			"Геометрия старого мира не изменилась")
+	# В разработке действует один алгоритм. Старые прототипные снимки отвергаются.
+	var rejected: Dictionary = world.to_data()
+	rejected["config"]["generator_version"] = 1
+	_check(Config.from_data(rejected["config"]) == null, "Старый генератор отклоняется")
+	rejected.erase("config")
+	_check(WorldMap.from_data(rejected) == null, "Неполный снимок отклоняется")
+	var obsolete: Dictionary = world.to_data()
+	obsolete["version"] = 1
+	_check(WorldMap.from_data(obsolete) == null, "Прототипная версия не загружается")
 	var restored_new = WorldMap.from_data(JSON.parse_string(JSON.stringify(world.to_data())))
 	_check(restored_new != null, "Новый мир сохраняется")
 	if restored_new != null:
-		_check(restored_new.config.generator_version == 2, "В сохранении зафиксирована v2")
+		_check(restored_new.config.width == world.config.width, "Размеры карты восстановлены")
 		_check(is_equal_approx(restored_new.vertex_at(edit), original + 1.0),
 			"Изменение высоты восстановлено")
 
