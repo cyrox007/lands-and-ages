@@ -396,9 +396,29 @@
       const path=Nav.route(W,H,from,to,(x,y)=>this.walkable(x,y));
       return path?.map(Nav.centre)||null;
     }
+    interactionAnchor(object){
+      const tile=inside(object.x,object.y)?this.tiles[id(object.x,object.y)]:null;
+      if(tile?.terrain==='forest')return Nav.treeTrunk(object.x,object.y);
+      const size=object.size||{w:1,h:1};
+      return {x:object.x+size.w/2,y:object.y+size.h/2};
+    }
     approachPath(from,object){
-      const path=Nav.approach(W,H,from,object,(x,y)=>this.walkable(x,y));
-      return path?.map(Nav.centre)||null;
+      const anchor=this.interactionAnchor(object);
+      const forest=this.tiles[id(object.x,object.y)]?.terrain==='forest';
+      let best=null,score=Infinity;
+      for(const point of this.approachCells(object)){
+        const path=Nav.route(W,H,from,point,(x,y)=>this.walkable(x,y));
+        if(!path)continue;
+        const contact=Nav.contactPoint(point,anchor);
+        const gap=Nav.screenDistance(contact,anchor);
+        // Если с этой стороны топор до ствола не дотянется, не рубим воздух.
+        if(forest&&gap>28)continue;
+        const cost=path.length+gap/20;
+        if(cost>=score)continue;
+        best=[...path.map(Nav.centre),contact];
+        score=cost;
+      }
+      return best;
     }
     // Точки взаимодействия выбираются рядом с объектом, не внутри него.
     approachCells(object){
@@ -443,9 +463,7 @@
       if(agent.segment<agent.path.length-1)return false;
       const last=agent.path.at(-1);
       agent.x=last.x;agent.y=last.y;
-      const width=object.size?.w||1,height=object.size?.h||1;
-      agent.facing=Nav.facing(agent,{x:object.x+width/2,y:object.y+height/2},
-        agent.facing);
+      agent.facing=Nav.facing(agent,this.interactionAnchor(object),agent.facing);
       agent.path=[];agent.segment=0;
       return true;
     }
@@ -736,6 +754,10 @@
           const arrived=this.advanceAgentPath(a,destination,dt);
           if(!arrived)continue;
           if(a.phase==='out'){
+            const anchor=this.interactionAnchor(a.target);
+            if(!Nav.atContact(a,a.target,anchor)){
+              a.path=[];a.segment=0;continue;
+            }
             a.phase='work';a.progress=0;
           }else{
             if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
@@ -745,7 +767,13 @@
         }
         if(a.phase!=='work')continue;
         if(!a.target){a.phase='return';continue;}
-        a.facing=Nav.facing(a,Nav.centre(a.target),a.facing);
+        const anchor=this.interactionAnchor(a.target);
+        if(!Nav.atContact(a,a.target,anchor)){
+          // Исправляем старые сохранения, где рубка началась посреди поля.
+          a.phase='out';a.path=[];a.segment=0;
+          continue;
+        }
+        a.facing=Nav.facing(a,anchor,a.facing);
         if((this.staff[b.id]||0)<1){
           a.phase='return';a.path=[];continue;
         }

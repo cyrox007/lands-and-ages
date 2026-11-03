@@ -683,10 +683,22 @@ with sync_playwright() as pw:
               diffFrame:diff(cells[0],cells[3]),
               diffFacing:diff(cells[0],cells[8])};
           }
+          const worker=window.__strategyDebug().woodcutters().find(w=>w.phase==='work');
+          result.worker=worker?{
+            atContact:worker.atContact,
+            visualGap:window.StrategyNavigation.screenDistance(worker,worker.contact),
+            direction:worker.direction,
+            position:{x:worker.x,y:worker.y},
+            target:worker.target
+          }:null;
           result.draws=window.__strategyDebug().loggerRasterDraws();
           return result;
         }""")
         assert observed['draws']>0,(name,observed)
+        assert observed['worker'] is not None,(name,observed)
+        assert observed['worker']['atContact'],(name,'рубка воздуха',observed['worker'])
+        assert observed['worker']['visualGap']<=28.1,(name,'слишком далеко от ствола',observed['worker'])
+        assert observed['worker']['direction'] in ('se','sw','ne','nw')
         for state in ('idle','walk','fell_tree','carry_logs'):
             item=observed[state]
             assert item['width']==768 and item['height']==576,(name,state,item)
