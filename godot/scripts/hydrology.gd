@@ -537,7 +537,8 @@ func to_snapshot() -> Dictionary:
 	ensure_ready()
 	return {
 		"version": 1, "world_signature": JSON.stringify(world.to_data()),
-		"rainfall": rainfall,
+		"rainfall_exact": Marshalls.raw_to_base64(
+			PackedFloat64Array([rainfall]).to_byte_array()),
 		"local_rain": Marshalls.raw_to_base64(_local_rain.to_byte_array())
 	}
 
@@ -546,10 +547,13 @@ func load_snapshot(data: Dictionary) -> bool:
 	if data.get("version") != 1 \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
-	var raw_rain: Variant = data.get("rainfall")
-	if not (raw_rain is int or raw_rain is float):
+	if not (data.get("rainfall_exact") is String):
 		return false
-	var amount := float(raw_rain)
+	var exact: PackedFloat64Array = SnapshotCodec.decode_float64(
+		data["rainfall_exact"], 1)
+	if exact.size() != 1:
+		return false
+	var amount: float = exact[0]
 	if not is_finite(amount) or amount < 0.0 or amount > 3.0:
 		return false
 	if not (data.get("local_rain") is String):
