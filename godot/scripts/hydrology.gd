@@ -21,6 +21,7 @@ var ocean_revision := 0
 var full_rebuilds := 0
 var flow_updates := 0
 var last_changed_chunks: Array[Vector2i] = []
+var _pending_changed_chunks := {}
 var _terrain_revision := -1
 var _width := 0
 var _height := 0
@@ -197,8 +198,19 @@ func rebuild() -> void:
 				dirty[world.config.chunk_of(cell)] = true
 		for chunk in dirty.keys():
 			last_changed_chunks.append(chunk)
+			_pending_changed_chunks[chunk] = true
 	revision += 1
 	water_changed.emit(revision)
+
+
+func take_changed_water_chunks() -> Array[Vector2i]:
+	# Если физические события запросили гидрологию несколько раз за
+	# сутки, все удалённые изменения воды дойдут до грунтов.
+	var result: Array[Vector2i] = []
+	for chunk in _pending_changed_chunks.keys():
+		result.append(chunk)
+	_pending_changed_chunks.clear()
+	return result
 
 
 func ensure_ready() -> void:
