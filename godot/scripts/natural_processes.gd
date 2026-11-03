@@ -69,9 +69,25 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 	var slide_risk := clampf((drop - 0.8) / 3.0, 0.0, 1.0) \
 		* clampf((moisture - 0.62) / 0.38, 0.0, 1.0) \
 		* clampf(depth / 1.2, 0.0, 1.0)
+	# Берег разрушается только там, где суша соприкасается с морем.
+	var coast_target := Vector2i(-1, -1)
+	for offset in [Vector2i(-1, 0), Vector2i(1, 0),
+			Vector2i(0, -1), Vector2i(0, 1)]:
+		var neighbor: Vector2i = cell + offset
+		if world.config.contains_cell(neighbor) \
+				and hydro.ocean_at(hydro.cell_index(neighbor)):
+			coast_target = neighbor
+			break
+	var coast_risk := 0.0
+	if coast_target.x >= 0 and resistant > 0.0:
+		coast_risk = clampf((wind_speed - 6.0) / 12.0, 0.0, 1.0) \
+			* clampf(depth / 1.4, 0.0, 1.0) \
+			* (1.0 - snow * 0.7) * resistant
 	return {
-		"water": water_risk, "wind": wind_risk, "slide": slide_risk,
-		"downstream": next, "wind_target": east, "drop": drop
+		"water": water_risk, "wind": wind_risk,
+		"slide": slide_risk, "coast": coast_risk,
+		"downstream": next, "wind_target": east,
+		"coast_target": coast_target, "drop": drop
 	}
 
 
@@ -92,8 +108,10 @@ func advance_day(day: int) -> Dictionary:
 		var risk: Dictionary = estimate_at(cell)
 		if risk.is_empty():
 			continue
-		for kind in ["water", "wind", "slide"]:
+		for kind in ["water", "wind", "slide", "coast"]:
 			var score: float = risk[kind]
+			if kind == "coast" and day % 12 != 0:
+				continue
 			if kind == "slide" and day % 24 != 0:
 				continue
 			if score > best_score:
@@ -125,8 +143,8 @@ func _move_sediment(plan: Dictionary) -> Dictionary:
 	var kind: String = plan["kind"]
 	var source: Vector2i = plan["cell"]
 	var risk: Dictionary = plan["risk"]
-	var target: Vector2i = risk["downstream"] if kind == "water" \
-		else risk["wind_target"]
+	var target: Vector2i = risk["downstream"] if kind == "water" else (
+		risk["coast_target"] if kind == "coast" else risk["wind_target"])
 	if not world.config.contains_vertex(target) or source == target:
 		return {}
 	var a: float = world.vertex_at(source)
@@ -136,13 +154,18 @@ func _move_sediment(plan: Dictionary) -> Dictionary:
 		amount = minf(amount, maxf(0.0, a - b) * 0.20)
 	if amount < 0.0005:
 		return {}
-	# Перенос грунта консервативный в единицах высотной сетки.
-	# Любая неудачная запись отменяет сразу оба конца переноса.
-	if not world.apply_vertex_changes({source: a - amount, target: b + amount}):
+	# Surface проверяет наличие грунта, меняет геометрию одним пакетом
+	# и сохраняет происхождение нанесённого/снятого материала.
+	if not surface.transfer_sediment(source, target, amount):
 		return {}
+	var description := "водная эрозия"
+	if kind == "wind":
+		description = "ветровой перенос"
+	elif kind == "coast":
+		description = "береговая эрозия"
 	return {
-		"kind": "водная эрозия" if kind == "water" else "ветровой перенос",
-		"vertices": 2, "volume": amount, "revision": world.revision
+		"kind": description, "vertices": 2,
+		"volume": amount, "revision": world.revision
 	}
 
 
