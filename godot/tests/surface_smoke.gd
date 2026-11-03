@@ -114,7 +114,7 @@ func _run() -> void:
 		if ice_cell.x >= 0:
 			break
 	if ice_cell.x >= 0:
-		var frozen_chunk := world.config.chunk_of(ice_cell)
+		var frozen_chunk: Vector2i = world.config.chunk_of(ice_cell)
 		var liquid: ArrayMesh = WaterMesh.create_mesh(world, hydro, frozen_chunk, surface)
 		for i in range(4):
 			surface.advance_day(0.0, -14.0)
