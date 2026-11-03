@@ -102,6 +102,8 @@ func _initialize() -> void:
 		_check(float(a.get("volume", 0.001)) <= 0.18,
 			"Природные воздействия малы по сравнению с катастрофами")
 	_check(changed >= 1, "За один игровой год есть естественное изменение рельефа")
+	_check(int(counts["water"]) > 0 and int(counts["wind"]) > 0,
+		"Вода и ветер оба участвуют в природном переносе грунта")
 	_check(initial_map.changed_vertex_count() >= 2,
 		"Карта на самом деле хранит изменения высот")
 	_check(absf(_height_sum(initial_map) - initial_sum) < 0.05,
