@@ -231,7 +231,18 @@ func _write_metrics() -> void:
 	file.close()
 
 
+func _test_size_limits() -> void:
+	var valid := _state(Config.new(32, 24, 1729, 16, 32))
+	var snapshot: Dictionary = Save.capture(valid)
+	_check(not snapshot.is_empty(), "Обычная карта допустима для сохранения")
+	snapshot["world"]["config"]["width"] = 4096
+	snapshot["world"]["config"]["height"] = 4096
+	_check(Save.restore(snapshot).is_empty(),
+		"Чужой файл огромной карты отклоняется до выделения памяти")
+
+
 func _run() -> void:
+	_test_size_limits()
 	for spec in CASES:
 		_run_case(spec)
 	await _test_scene()
