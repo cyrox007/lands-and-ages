@@ -113,7 +113,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 			var bounds: Rect2i = world.config.chunk_rect(chunk)
 			for y in range(bounds.position.y, bounds.end.y):
 				for x in range(bounds.position.x, bounds.end.x):
-					var i := y * world.config.width + x
+					var i: int = y * world.config.width + x
 					if visited.has(i):
 						continue
 					visited[i] = true
@@ -135,7 +135,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 
 
 func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
-	var i := y * world.config.width + x
+	var i: int = y * world.config.width + x
 	var a: float = world.vertex_at(Vector2i(x, y))
 	var b: float = world.vertex_at(Vector2i(x + 1, y))
 	var c: float = world.vertex_at(Vector2i(x, y + 1))
