@@ -424,10 +424,17 @@ func load_data(data: Dictionary) -> bool:
 	for raw in sediment_changes:
 		if not (raw is Array) or raw.size() != 2:
 			return false
-		if not (raw[0] is int) or not (raw[1] is int):
+		if not (raw[0] is int or raw[0] is float) \
+				or not (raw[1] is int or raw[1] is float):
 			return false
-		var index: int = raw[0]
-		var units: int = raw[1]
+		var raw_index := float(raw[0])
+		var raw_units := float(raw[1])
+		if not is_finite(raw_index) or not is_finite(raw_units) \
+				or raw_index != float(int(raw_index)) \
+				or raw_units != float(int(raw_units)):
+			return false
+		var index := int(raw_index)
+		var units := int(raw_units)
 		if index < 0 or index >= _type.size() or occupied.has(index):
 			return false
 		if abs(units) > 100000000:
