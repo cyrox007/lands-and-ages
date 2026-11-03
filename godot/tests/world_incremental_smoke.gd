@@ -188,10 +188,49 @@ func _batch_and_render_queue() -> void:
 	view.free()
 
 
+func _weather_does_not_change_rock() -> void:
+	var state := _make_state(32, 32, 581)
+	var map: RefCounted = state["map"]
+	var hydro: RefCounted = state["hydro"]
+	var surface: RefCounted = state["surface"]
+	var climate: RefCounted = state["climate"]
+	var original := {}
+	for y in range(map.config.height):
+		for x in range(map.config.width):
+			var cell := Vector2i(x, y)
+			original[cell] = surface.profile_at(cell)["substrate"]
+	for day in range(2, 8):
+		climate.set_day(day)
+		surface.advance_climate_day(climate)
+		hydro.apply_rainfall_map(surface.runoff_map())
+	var dry_cell := Vector2i(-1, -1)
+	for y in range(map.config.height):
+		for x in range(map.config.width):
+			var cell := Vector2i(x, y)
+			if not hydro.has_water(hydro.cell_index(cell)):
+				dry_cell = cell
+				break
+		if dry_cell.x >= 0:
+			break
+	_check(dry_cell.x >= 0, "Существует суша для проверки накопленной влаги")
+	if dry_cell.x < 0:
+		return
+	var wet: float = surface.profile_at(dry_cell)["moisture"]
+	surface.rebuild()
+	for y in range(map.config.height):
+		for x in range(map.config.width):
+			var cell := Vector2i(x, y)
+			_check(surface.profile_at(cell)["substrate"] == original[cell],
+				"Дождь не превращает геологическую основу в другую породу")
+	_check(absf(float(surface.profile_at(dry_cell)["moisture"]) - wet) < 0.00001,
+		"Геологический пересчёт сохраняет историю влажности")
+
+
 func _initialize() -> void:
 	_incremental_and_reference()
 	_ocean_fallback()
 	_batch_and_render_queue()
+	_weather_does_not_change_rock()
 	if not failures.is_empty():
 		for failure in failures.slice(0, 20):
 			push_error("Этап 6.6: " + failure)
