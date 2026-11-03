@@ -169,9 +169,8 @@ func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
 	if not has_state:
 		_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
 			0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
-	elif hydro.has_water(i):
-		_moisture[i] = 1.0
-	# В остальных клетках история влаги не сбрасывается из-за рельефа.
+	# Дождь и затопление меняют влагу во время погодного шага,
+	# а не при произвольном пересчёте геологической породы.
 
 
 func synchronize_climate(climate: RefCounted,
