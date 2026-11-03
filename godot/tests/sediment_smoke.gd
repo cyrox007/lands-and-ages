@@ -81,6 +81,16 @@ func _run() -> void:
 	_check(surface.profile_at(far)["snow"] == far_profile["snow"]
 		and surface.profile_at(far)["depth"] == far_profile["depth"],
 		"Локальный пересчёт сохраняет удалённые снега и почвы")
+	# Внешняя правка высоты не должна уничтожать историю наносов,
+	# даже когда подписчик не передал список затронутых чанков.
+	var external := Vector2i(37, 26)
+	var previous: float = world.vertex_at(external)
+	_check(world.set_vertex(external, previous + 0.05),
+		"Внешний источник может изменить физический рельеф")
+	surface.ensure_ready()
+	_check(absf(float(surface.profile_at(sea)["sediment"]) - 0.01) < 0.00001
+		and surface.profile_at(far)["snow"] == far_profile["snow"],
+		"Полный пересчёт не стирает наносы и снежный покров")
 
 	var saved_world: Dictionary = JSON.parse_string(JSON.stringify(world.to_data()))
 	var saved_surface: Dictionary = JSON.parse_string(JSON.stringify(surface.to_data()))
