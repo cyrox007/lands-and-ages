@@ -95,8 +95,8 @@ func _run() -> void:
 				continue
 			var next := large.downstream_of(index)
 			if next >= 0:
-				_check(large.river_at(next),
-					"Речной сток непрерывен вниз по накоплению притока")
+				_check(large.river_at(next) or large.ocean_at(next),
+					"Река продолжается вниз по стоку или впадает в море")
 
 	# Искусственная котловина: все вершины сперва на отметке 2.
 	var bowl_world := WorldMap.new(Config.new(12, 12, 9123))
