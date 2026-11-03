@@ -159,7 +159,9 @@ func _test_snow_and_sediment() -> void:
 
 
 func _test_faults() -> void:
-	var state := _make_world(2917)
+	# Отдельная территория может быть тектонически спокойной:
+	# разломы не обязаны проходить через каждую карту и любой seed.
+	var state := _make_world(1729)
 	var disasters: RefCounted = state["disasters"]
 	var high := 0.0
 	var low := 1.0
