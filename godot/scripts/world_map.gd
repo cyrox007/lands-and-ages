@@ -37,7 +37,7 @@ func vertex_at(coord: Vector2i) -> float:
 func height_at(point: Vector2) -> float:
 	if not config.contains_point(point):
 		return NAN
-	var cell := config.cell_at(point)
+	var cell: Vector2i = config.cell_at(point)
 	var u := point.x - float(cell.x)
 	var v := point.y - float(cell.y)
 	var h00 := vertex_at(cell)
