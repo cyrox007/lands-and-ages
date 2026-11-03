@@ -109,7 +109,7 @@ static func write_file(state: Dictionary, path: String = SAVE_PATH) -> bool:
 	var snapshot := capture(state)
 	if snapshot.is_empty():
 		return false
-	var payload := JSON.stringify(snapshot)
+	var payload := JSON.stringify(snapshot, "", true, true)
 	var envelope := JSON.stringify({
 		"version": FORMAT_VERSION,
 		"checksum": payload.sha256_text(),
