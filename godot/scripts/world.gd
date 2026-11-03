@@ -437,9 +437,10 @@ func _cycle_view() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
-	_summary.text = "День %d · FPS %d · чанки %d/%d\nОчередь дней %d · пик шага %.1f мс" % [
+	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
+	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс" % [
 		_last_completed_day, Engine.get_frames_per_second(), _active.size(),
-		_active.size() + _pending.size(), _days_pending,
+		_active.size() + _pending.size(), phase, _days_pending,
 		float(_peak_day_step_us) / 1000.0]
 	# Даже диагностическая панель не читает модель одновременно
 	# с фоновым потоком, иначе возникнет гонка массивов.
