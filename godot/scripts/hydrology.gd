@@ -530,6 +530,45 @@ func water_count() -> Dictionary:
 	return _summary.duplicate()
 
 
+# Для непрерывного мира нужен не только средний дождь,
+# но и пространственный сток, по которому рассчитаны все реки.
+func to_snapshot() -> Dictionary:
+	ensure_ready()
+	return {
+		"version": 1, "world_signature": JSON.stringify(world.to_data()),
+		"rainfall": rainfall,
+		"local_rain": Marshalls.raw_to_base64(_local_rain.to_byte_array())
+	}
+
+
+func load_snapshot(data: Dictionary) -> bool:
+	if data.get("version") != 1 \
+			or data.get("world_signature") != JSON.stringify(world.to_data()):
+		return false
+	var raw_rain: Variant = data.get("rainfall")
+	if not (raw_rain is int or raw_rain is float):
+		return false
+	var amount := float(raw_rain)
+	if not is_finite(amount) or amount < 0.0 or amount > 3.0:
+		return false
+	if not (data.get("local_rain") is String):
+		return false
+	var bytes: PackedByteArray = Marshalls.base64_to_raw(data["local_rain"])
+	var count: int = world.config.width * world.config.height
+	if not bytes.is_empty() and bytes.size() != count * 4:
+		return false
+	var loaded: PackedFloat32Array = bytes.to_float32_array()
+	for value in loaded:
+		if not is_finite(value) or value < 0.0 or value > 3.0:
+			return false
+	# Используем тот же глобальный алгоритм маршрутизации,
+	# но с сохранёнными осадками; новая случайная погода не создаётся.
+	rainfall = amount
+	_local_rain = loaded
+	rebuild()
+	return true
+
+
 func to_data() -> Dictionary:
 	# Потоки, озёра и бассейны восстанавливаются из seed и состояния вершин.
 	return {"version": 1, "rainfall": rainfall, "world_revision": world.revision}
