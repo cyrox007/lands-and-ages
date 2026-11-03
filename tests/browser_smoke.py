@@ -738,3 +738,52 @@ with sync_playwright() as pw:
         print(name,'растровая рубка:',observed['draws'],'отрисовок')
         ctx.close()
     browser.close()
+
+
+# Высотный полигон работает на том же Canvas на ПК и телефоне.
+with sync_playwright() as pw:
+    browser=pw.chromium.launch(headless=True,args=['--no-sandbox'],
+                               executable_path=shutil.which('chromium') or None)
+    for name,w,h,mobile in [('terrain-desktop',1280,850,False),
+                            ('terrain-mobile',393,852,True)]:
+        context=browser.new_context(viewport={'width':w,'height':h},
+                                    is_mobile=mobile,has_touch=mobile)
+        page=context.new_page()
+        errors=[]
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        mount(page,boot='settlement')
+        page.wait_for_function('Boolean(window.__strategyDebug)')
+        before=page.evaluate('window.__strategyDebug().animationClock')
+        page.locator('#reliefBtn').evaluate('(button) => button.click()')
+        page.wait_for_function('window.__strategyDebug().reliefEnabled')
+        state=page.evaluate("""() => {
+          const d=window.__strategyDebug();
+          const s=d.reliefSummary();
+          const x=8.4,y=6.3,z=d.reliefPoint(x,y).height;
+          const base=d.screen(x-.5,y-.5);
+          const pick=d.reliefPick(base.x,base.y-z*18*d.zoom);
+          return {summary:s,pick,
+            active:document.querySelector('#reliefBtn').getAttribute('aria-pressed')};
+        }""")
+        assert state['summary']['vertices']==27*19,(name,state)
+        assert state['summary']['connected'] is False,(name,state)
+        assert state['summary']['minimum'] < -2,(name,state)
+        assert state['summary']['maximum'] > 6,(name,state)
+        for kind in ('plain','lowland','hills','ravine','plateau','mountains'):
+            assert state['summary']['regions'].get(kind,0)>3,(name,kind,state)
+        assert state['active']=='true'
+        assert state['pick'] is not None,(name,state)
+        assert abs(state['pick']['x']-8.4)<.4,(name,state)
+        assert abs(state['pick']['y']-6.3)<.4,(name,state)
+        page.wait_for_timeout(200)
+        frozen=page.evaluate('window.__strategyDebug().animationClock')
+        assert abs(frozen-before)<.35,(name,'симуляция продолжилась в просмотре')
+        page.locator('#reliefBtn').evaluate('(button) => button.click()')
+        assert page.evaluate('!window.__strategyDebug().reliefEnabled')
+        assert page.locator('#reliefBtn').get_attribute('aria-pressed')=='false'
+        assert not errors,(name,errors)
+        print(name,'геометрический полигон:',state['summary']['regions'],
+              'высоты',round(state['summary']['minimum'],1),
+              round(state['summary']['maximum'],1))
+        context.close()
+    browser.close()
