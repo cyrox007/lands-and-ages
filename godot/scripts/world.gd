@@ -48,6 +48,7 @@ var _last_day_step_us := 0
 var _peak_day_step_us := 0
 var _visual_refreshes := 0
 var _last_day_profile_us: Dictionary = {}
+var _last_day_statistics: Dictionary = {}
 var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
@@ -403,6 +404,7 @@ func _complete_day(result: Dictionary) -> void:
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
+	_last_day_statistics = _day_runner.last_statistics.duplicate()
 	_last_synchronized_world_revision = _world_model.revision
 	_terrain_dirty.clear()
 	var strikes: Array[Dictionary] = result["strikes"]
@@ -506,6 +508,9 @@ func _update_hud() -> void:
 	for kind in _last_day_profile_us.keys():
 		_status.text += "%s: %.1f мс\n" % [
 			kind, float(_last_day_profile_us[kind]) / 1000.0]
+	for kind in _last_day_statistics.keys():
+		_status.text += "%s: %d\n" % [
+			kind, int(_last_day_statistics[kind])]
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), _days_pending]

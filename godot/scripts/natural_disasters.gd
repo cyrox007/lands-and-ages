@@ -6,6 +6,7 @@ signal disaster_occurred(event: Dictionary)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
+const Climate = preload("res://scripts/climate.gd")
 const FORMAT_VERSION := 1
 const MAX_EVENTS_PER_DAY := 4
 const SAMPLE_AXIS := 4
@@ -27,6 +28,8 @@ var _storms := PackedInt32Array()
 var _floods := PackedInt32Array()
 var _droughts := PackedInt32Array()
 var _strain := PackedFloat32Array()
+var _fault_cache := {}
+var _region_samples := {}
 
 
 func _init(map: RefCounted, water: RefCounted,
@@ -45,6 +48,20 @@ func _init(map: RefCounted, water: RefCounted,
 		# Накопление тектонического напряжения не зависит от осадков.
 		_strain[i] = Terrain.hash2(i % region_count.x,
 			i / region_count.x, world.config.seed + 7513) * 0.65
+	# Координаты выборки неизменны для данного размера карты.
+	for ry in range(region_count.y):
+		for rx in range(region_count.x):
+			var region := Vector2i(rx, ry)
+			var rect: Rect2i = world.config.region_rect(region)
+			var cells: Array[Vector2i] = []
+			for sy in range(SAMPLE_AXIS):
+				for sx in range(SAMPLE_AXIS):
+					cells.append(Vector2i(
+						rect.position.x + mini(rect.size.x - 1,
+							(sx * 2 + 1) * rect.size.x / (2 * SAMPLE_AXIS)),
+						rect.position.y + mini(rect.size.y - 1,
+							(sy * 2 + 1) * rect.size.y / (2 * SAMPLE_AXIS))))
+			_region_samples[region] = cells
 
 
 func _downhill(cell: Vector2i) -> Vector2i:
@@ -64,39 +81,46 @@ func _downhill(cell: Vector2i) -> Vector2i:
 func fault_risk_at(cell: Vector2i) -> float:
 	if not world.config.contains_cell(cell):
 		return 0.0
+	if _fault_cache.has(cell):
+		return float(_fault_cache[cell])
 	# Непрерывные коридоры геологических разломов задаются seed.
 	# Это упрощённая модель геологического напряжения, не тектоника плит.
 	var field: float = Terrain._noise(
 		(float(cell.x) + 37.0) / 140.0,
 		(float(cell.y) + 19.0) / 140.0,
 		world.config.seed + 4401)
-	return 1.0 - smoothstep(0.035, 0.28, absf(field))
+	var risk := 1.0 - smoothstep(0.035, 0.28, absf(field))
+	_fault_cache[cell] = risk
+	return risk
 
 
-func conditions_at(cell: Vector2i) -> Dictionary:
+func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 	if not world.config.contains_cell(cell):
 		return {}
 	hydro.ensure_ready()
 	surface.ensure_ready()
 	climate.ensure_ready()
 	var i: int = hydro.cell_index(cell)
-	var ground: Dictionary = surface.profile_at(cell)
-	var weather: Dictionary = climate.weather_at(cell)
-	var moisture: float = ground["moisture"]
-	var snow: float = ground["snow"]
-	var air: float = weather["temperature"]
-	var liquid: float = weather["rainfall"]
-	var wind: float = weather["wind_speed"]
-	var storm: float = weather["storm_intensity"]
-	var depth: float = ground["depth"]
-	var rock: bool = ground["substrate"] == "скала"
+	var moisture: float = surface.moisture_at_index(i)
+	var snow: float = surface.snow_at_index(i)
+	var air: float = climate.temperature_at_index(i)
+	var liquid: float = climate.precipitation_at_index(i) \
+		* (1.0 - Climate.snowfall_fraction(air))
+	var wind: float = climate.wind_at_index(i)
+	var storm: float = climate.storm_at_index(i)
+	var depth: float = surface.soil_depth_at_index(i)
+	var rock: bool = surface.rock_at_index(i)
 	var covered: bool = hydro.has_water(i)
-	var target: Vector2i = _downhill(cell)
-	var drop := 0.0
-	if target.x >= 0:
-		drop = maxf(0.0, world.vertex_at(cell) - world.vertex_at(target))
-	var steep := clampf((drop - 0.65) / 2.25, 0.0, 1.0)
-	var loose := 0.0 if rock else clampf(depth / 1.2, 0.0, 1.0)
+	var target := Vector2i(-1, -1)
+	var steep := 0.0
+	var loose := 0.0
+	if include_slopes:
+		target = _downhill(cell)
+		var drop := 0.0
+		if target.x >= 0:
+			drop = maxf(0.0, world.vertex_at(cell) - world.vertex_at(target))
+		steep = clampf((drop - 0.65) / 2.25, 0.0, 1.0)
+		loose = 0.0 if rock else clampf(depth / 1.2, 0.0, 1.0)
 
 	var storm_risk := clampf((wind - 10.0) / 12.0, 0.0, 1.0) \
 		* clampf(storm * 1.85, 0.0, 1.0)
@@ -126,25 +150,17 @@ func conditions_at(cell: Vector2i) -> Dictionary:
 	}
 
 
-func _candidates(region: Vector2i) -> Dictionary:
-	var rect: Rect2i = world.config.region_rect(region)
+func _candidates(region: Vector2i, check_slopes: bool) -> Dictionary:
 	var chosen := {}
 	for kind in KINDS:
 		chosen[kind] = {"score": 0.0, "cell": Vector2i(-1, -1)}
-	for sy in range(SAMPLE_AXIS):
-		for sx in range(SAMPLE_AXIS):
-			var cell := Vector2i(
-				rect.position.x + mini(rect.size.x - 1,
-					(sx * 2 + 1) * rect.size.x / (2 * SAMPLE_AXIS)),
-				rect.position.y + mini(rect.size.y - 1,
-					(sy * 2 + 1) * rect.size.y / (2 * SAMPLE_AXIS)))
-			var risks: Dictionary = conditions_at(cell)
-			for kind in KINDS:
-				var score: float = risks[kind]
-				if score > float(chosen[kind]["score"]):
-					chosen[kind] = {"score": score, "cell": cell}
+	for cell in _region_samples[region]:
+		var risks: Dictionary = conditions_at(cell, check_slopes)
+		for kind in KINDS:
+			var score: float = risks[kind]
+			if score > float(chosen[kind]["score"]):
+				chosen[kind] = {"score": score, "cell": cell}
 	return chosen
-
 
 func _streak(previous: int, value: float, threshold: float) -> int:
 	return mini(previous + 1, 10000) if value >= threshold else 0
@@ -213,11 +229,14 @@ func advance_day(day: int) -> Array[Dictionary]:
 	last_day = day
 	last_events.clear()
 	var dimensions: Vector2i = world.config.region_count()
+	# Склоны проверяем только в дни возможного схода масс.
+	# Шторм, паводок, засуха и напряжение обновляются ежедневно.
+	var check_slopes := day % 5 == 0 or day % 7 == 0 or day % 19 == 0
 	var terrain_changed := false
 	for ry in range(dimensions.y):
 		for rx in range(dimensions.x):
 			var index := ry * dimensions.x + rx
-			var found := _candidates(Vector2i(rx, ry))
+			var found := _candidates(Vector2i(rx, ry), check_slopes)
 			var storm: Dictionary = found["шторм"]
 			var flood: Dictionary = found["паводок"]
 			var drought: Dictionary = found["засуха"]
