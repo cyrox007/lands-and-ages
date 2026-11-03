@@ -58,10 +58,12 @@ test('цельная фигура сохраняет ширину корпуса
   const img={naturalWidth:1056,naturalHeight:144};
   assert.equal(Frames.drawFrame(target,img,'logger','fell_tree',2,'se'),true);
   const sprites=calls.filter(c=>c[0]==='drawImage');
-  assert.equal(sprites.length,3);
-  assert.equal(sprites[0][2],Frames.ROLES.logger*96);
+  assert.equal(sprites.length,4);
+  assert.deepEqual(sprites[0].slice(2,6),[Frames.ROLES.logger*96,0,96,144],
+    'Каждый кадр начинается с полной исходной фигуры');
   assert.equal(sprites[1][2],Frames.ROLES.logger*96);
-  assert.deepEqual(sprites[2].slice(2,6),[Frames.ROLES.logger*96,0,96,111],
+  assert.equal(sprites[2][2],Frames.ROLES.logger*96);
+  assert.deepEqual(sprites[3].slice(2,6),[Frames.ROLES.logger*96,0,96,111],
     'Корпус, голова и обе руки берутся из полной ширины оригинального рисунка');
   assert.ok(calls.filter(c=>c[0]==='rotate').length>=3);
   assert.ok(!calls.some(c=>c[0]==='ellipse'),

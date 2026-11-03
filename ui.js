@@ -80,6 +80,15 @@
         return true;
       }
     }
+    // Если атлас рабочего не создался, показываем цельный исходный образ,
+    // а не старую разрезанную на части анимацию. Груз — отдельный слой.
+    if(Frames&&Object.prototype.hasOwnProperty.call(Frames.ROLES,role)){
+      const sourceIndex=Frames.ROLES[role];
+      ctx.drawImage(paintedPeople,sourceIndex*PAINTED_W,0,PAINTED_W,PAINTED_H,
+        x-size*.5,y-size*PAINTED_H/PAINTED_W,size,size*PAINTED_H/PAINTED_W);
+      paintedCounters[state]++;
+      return true;
+    }
     const visualRole=Profession?.artRole(role)||PaintedMotion?.characterRole(role)||role;
     const index=PAINTED_ROLES.indexOf(visualRole);
     if(index<0||!PaintedMotion)return false;
