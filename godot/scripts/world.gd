@@ -316,7 +316,7 @@ func _flush_world_changes() -> void:
 	# поэтому пока используем безопасный полный пересчёт по необходимости.
 	_hydro.ensure_ready()
 	# Изменённое русло может затронуть чанки за пределами удара.
-	for coord in _hydro.last_changed_chunks:
+	for coord in _hydro.take_changed_water_chunks():
 		if not chunks.has(coord):
 			chunks.append(coord)
 	_climate.rebuild_if_stale(chunks)
