@@ -57,7 +57,7 @@
   const Environment=window.StrategyEnvironment;
   const WORLD_W=256,WORLD_H=192;
   let reliefMode=false,reliefModel=null,reliefEnvironment=null,reliefCamera=null;
-  let reliefDay=1,reliefDrawStats=null;
+  let reliefDay=1,reliefDrawStats=null,reliefDirty=false,reliefDrawCount=0;
   const reliefCache=new Map();
   // Лесоруб использует реальные растровые кадры, без дорисовки суставов и топора.
   const LOGGER_STATES=['idle','walk','fell_tree','carry_logs'];
@@ -352,7 +352,11 @@
         ' досок. Подсветка покажет всю площадку до строительства.';
     $('mapHint').textContent=tool;
   }
-  function zoomBy(delta){zoom=clamp(zoom+delta,.62,2.20);$('zoomLabel').textContent=Math.round(zoom*100)+'%';}
+  function zoomBy(delta){
+    const next=clamp(zoom+delta,.62,2.20);
+    if(next!==zoom){zoom=next;if(reliefMode)reliefDirty=true;}
+    $('zoomLabel').textContent=Math.round(zoom*100)+'%';
+  }
   function tileSize(){return 82*zoom;}
   function tileHeight(){return tileSize()/2;}
   // The logical simulation remains on its original square grid. Only the
@@ -1541,7 +1545,7 @@
   function draw(){
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.fillStyle='#233f38';ctx.fillRect(0,0,width,height);
-    if(reliefMode){drawRelief();return;}
+    if(reliefMode){drawRelief();reliefDirty=false;reliefDrawCount++;return;}
     // Camera-agnostic culling: project map coordinates, discard tiles outside
     // the viewport with an extended margin for tall buildings and trees.
     const margin=tileSize()*2.6;
@@ -1838,7 +1842,9 @@
     if(pointer.moved){touchPlacement=null;const deltaX=(p.x-pointer.prevX)/(tileSize()/2);
       const deltaY=(p.y-pointer.prevY)/(tileHeight()/2);
       camera.x=clamp(camera.x-(deltaX+deltaY)/2,-3,(reliefMode?WORLD_W:W)+3);
-      camera.y=clamp(camera.y-(deltaY-deltaX)/2,-3,(reliefMode?WORLD_H:H)+3);hover=null;}
+      camera.y=clamp(camera.y-(deltaY-deltaX)/2,-3,(reliefMode?WORLD_H:H)+3);
+      if(reliefMode)reliefDirty=true;
+      hover=null;}
     pointer.prevX=p.x;pointer.prevY=p.y;
   });
   const endPointer=e=>{
@@ -1917,7 +1923,9 @@
   }));
   document.querySelectorAll('[data-pan]').forEach(b=>b.addEventListener('click',()=>{
     const delta={left:[-2,0],right:[2,0],up:[0,-2],down:[0,2]}[b.dataset.pan];
-    camera.x=clamp(camera.x+delta[0],-1,(reliefMode?WORLD_W:W)+1);camera.y=clamp(camera.y+delta[1],-1,(reliefMode?WORLD_H:H)+1);
+    camera.x=clamp(camera.x+delta[0],-1,(reliefMode?WORLD_W:W)+1);
+    camera.y=clamp(camera.y+delta[1],-1,(reliefMode?WORLD_H:H)+1);
+    if(reliefMode)reliefDirty=true;
   }));
   $('zoomIn').addEventListener('click',()=>zoomBy(.2));$('zoomOut').addEventListener('click',()=>zoomBy(-.2));
   $('reliefBtn').addEventListener('click',()=>setReliefMode(!reliefMode));
@@ -1957,7 +1965,12 @@
     if(e.key==='+'||e.key==='=')zoomBy(.15);
     if(e.key==='-')zoomBy(-.15);
     const pan={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.code];
-    if(pan){e.preventDefault();camera.x=clamp(camera.x+pan[0],-1,(reliefMode?WORLD_W:W)+1);camera.y=clamp(camera.y+pan[1],-1,(reliefMode?WORLD_H:H)+1);}
+    if(pan){
+      e.preventDefault();
+      camera.x=clamp(camera.x+pan[0],-1,(reliefMode?WORLD_W:W)+1);
+      camera.y=clamp(camera.y+pan[1],-1,(reliefMode?WORLD_H:H)+1);
+      if(reliefMode)reliefDirty=true;
+    }
   });
   document.addEventListener('visibilitychange',()=>{if(document.hidden){setPaused(true);persist();}});
   window.addEventListener('blur',()=>{setPaused(true);persist();});
@@ -1970,8 +1983,11 @@
     if(!last)last=now;
     const dt=Math.max(0,Math.min(.08,(now-last)/1000));last=now;
     if(!paused&&!reliefMode){game.step(dt*speed);animationClock+=dt*speed;updateMotion();}
-    // At most 60 render updates per second; simulation time uses actual frame delta.
-    if(now-lastDraw>=16.6){draw();lastDraw=now;}
+    // Не перерисовывать неизменный природный мир каждый кадр.
+    // Игровой режим сохраняет прежнюю частоту отрисовки.
+    if(now-lastDraw>=16.6&&(!reliefMode||reliefDirty)){
+      draw();lastDraw=now;
+    }
     if(now-lastHud>=450){updateHUD();lastHud=now;}
     if(now-lastSave>=15000){persist();lastSave=now;}
     if(toastUntil&&now>toastUntil){$('toast').classList.remove('visible');toastUntil=0;}
@@ -1998,7 +2014,7 @@
       region:reliefWorld().model.regionAt(x,y)}),
     reliefSurface:(x,y)=>reliefWorld().environment.surfaceAt(x,y,reliefDay),
     reliefWeather:(x,y)=>reliefWorld().environment.weatherAt(x,y,reliefDay),
-    reliefDay,reliefDrawStats,
+    reliefDay,reliefDrawStats,reliefDrawCount,
     reliefPick:(x,y)=>Relief.pickAt(reliefWorld().model,x,y,{screen,worldAt,zoom}),
     toggleRelief:()=>setReliefMode(!reliefMode),visualVersion:'0.5.8-resource-sprites',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
