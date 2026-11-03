@@ -311,8 +311,12 @@ func _flush_world_changes() -> void:
 	# Гидрология имеет глобальные зависимости (priority-flood),
 	# поэтому пока используем безопасный полный пересчёт по необходимости.
 	_hydro.ensure_ready()
+	# Изменённое русло может затронуть чанки за пределами удара.
+	for coord in _hydro.last_changed_chunks:
+		if not chunks.has(coord):
+			chunks.append(coord)
 	_climate.rebuild_if_stale(chunks)
-	_surface.rebuild_if_stale(chunks)
+	_surface.rebuild(chunks)
 	_surface.synchronize_climate(_climate, _climate.last_updated_rows)
 	# Rebuild гидрологии уже использует сохранённый сток:
 	# второй apply_rainfall_map здесь был лишним.
