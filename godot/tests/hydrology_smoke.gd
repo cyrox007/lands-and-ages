@@ -79,6 +79,25 @@ func _run() -> void:
 			distinct += 1
 	_check(distinct > 90, "Проверены сто разных seed")
 
+	# На полной испытательной карте проверяем присутствие рек и озёр.
+	var large_world := WorldMap.new(Config.new())
+	var large := Hydrology.new(large_world)
+	large.rebuild()
+	var totals: Dictionary = large.water_count()
+	print("Гидрология 256×192: реки=%d, озёра=%d, разливы=%d" % [
+		totals["rivers"], totals["lakes"], totals["flooded"]])
+	_check(int(totals["rivers"]) > 0, "На полной карте есть речные участки")
+	_check(int(totals["lakes"]) > 0, "На полной карте есть естественные озёра")
+	for y in range(large_world.config.height):
+		for x in range(large_world.config.width):
+			var index := large.cell_index(Vector2i(x, y))
+			if not large.river_at(index):
+				continue
+			var next := large.downstream_of(index)
+			if next >= 0:
+				_check(large.river_at(next),
+					"Речной сток непрерывен вниз по накоплению притока")
+
 	# Искусственная котловина: все вершины сперва на отметке 2.
 	var bowl_world := WorldMap.new(Config.new(12, 12, 9123))
 	var changes := {}
@@ -106,6 +125,7 @@ func _run() -> void:
 	_check(basin.set_rainfall(2.2), "Интенсивность стока изменяется")
 	var after := basin.water_count()
 	_check(int(after["flooded"]) >= int(before["flooded"]), "Разлив не уменьшается от дождя")
+	_check(int(after["flooded"]) > 0, "Повышение воды даёт локальное подтопление берегов")
 	_check(float(basin.water_at(Vector2i(5, 5))["wetness"]) == 1.0,
 		"Озеро даёт максимальную поверхностную влажность")
 	_check(not basin.set_rainfall(-1.0), "Отрицательные осадки запрещены")
