@@ -7,7 +7,8 @@ const Chunk = preload("res://scripts/chunk.gd")
 
 
 func _initialize() -> void:
-	call_deferred("_run_checks")
+	print("Godot: начало проверки геометрии и климата.")
+	_run_checks()
 
 
 func _run_checks() -> void:
