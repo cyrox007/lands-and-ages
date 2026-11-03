@@ -49,10 +49,13 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 	var runoff: float = surface.runoff_at_index(i)
 	var flow: float = water["discharge"]
 	var resistant := 0.0 if soil["substrate"] == "скала" else 1.0
-	var water_risk := resistant * clampf(drop / 1.5, 0.0, 1.0) \
-		* clampf((flow - 1.0) / 38.0, 0.0, 1.0) \
+	# Сопоставимая шкала рисков: речной поток может переносить грунт
+	# даже при небольшом уклоне, а не всегда проигрывать ветру.
+	var water_risk := clampf(2.5 * resistant \
+		* clampf(drop / 0.45, 0.0, 1.0) \
+		* clampf((flow - 1.0) / 12.0, 0.0, 1.0) \
 		* clampf(0.20 + moisture * 0.5 + runoff * 0.65, 0.0, 1.0) \
-		* float(soil["erosion_risk"])
+		* float(soil["erosion_risk"]), 0.0, 1.0)
 	var wind_speed: float = climate.wind_at_index(i)
 	var exposed: bool = soil["substrate"] in ["песок", "щебень"]
 	var east := cell + Vector2i(1, 0)
