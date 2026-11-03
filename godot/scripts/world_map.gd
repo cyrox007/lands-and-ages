@@ -9,6 +9,7 @@ const Terrain = preload("res://scripts/terrain.gd")
 const SAVE_VERSION := 1
 const MIN_HEIGHT := -64.0
 const MAX_HEIGHT := 64.0
+const HEIGHT_UNITS := 1000000.0
 
 var config: RefCounted
 var revision := 0
@@ -102,6 +103,8 @@ func apply_vertex_changes(changes: Dictionary) -> bool:
 		var value := float(changes[coord])
 		if not is_finite(value) or value < MIN_HEIGHT or value > MAX_HEIGHT:
 			return false
+		# Фиксированная точность исключает потерю разрядов при записи JSON.
+		value = round(value * HEIGHT_UNITS) / HEIGHT_UNITS
 		if not is_equal_approx(vertex_at(coord), value):
 			planned[coord] = value
 	if planned.is_empty():
@@ -154,7 +157,7 @@ func to_data() -> Dictionary:
 	for key in keys:
 		var index: int = int(key)
 		changes.append([index % (config.width + 1),
-			index / (config.width + 1), float(_heights[key])])
+			index / (config.width + 1), roundi(float(_heights[key]) * HEIGHT_UNITS)])
 	return {
 		"version": SAVE_VERSION,
 		"config": config.to_data(),
@@ -184,7 +187,10 @@ static func from_data(data: Dictionary) -> RefCounted:
 		var coord := Vector2i(int(raw[0]), int(raw[1]))
 		if float(coord.x) != float(raw[0]) or float(coord.y) != float(raw[1]):
 			return null
-		var value := float(raw[2])
+		var raw_units := float(raw[2])
+		if not is_finite(raw_units) or raw_units != float(int(raw_units)):
+			return null
+		var value := raw_units / HEIGHT_UNITS
 		if not loaded_config.contains_vertex(coord) or not is_finite(value):
 			return null
 		if value < MIN_HEIGHT or value > MAX_HEIGHT or planned.has(coord):
