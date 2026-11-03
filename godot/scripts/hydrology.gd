@@ -504,6 +504,10 @@ func river_mouth_at(index: int) -> bool:
 	return next >= 0 and _ocean[next] != 0
 
 
+func discharge_at_index(index: int) -> float:
+	return _discharge[index] if index >= 0 and index < _discharge.size() else 0.0
+
+
 func downstream_of(index: int) -> int:
 	if index < 0 or index >= _downstream.size():
 		return -1
