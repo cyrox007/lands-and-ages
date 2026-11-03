@@ -80,7 +80,7 @@ func _test_snapshot() -> void:
 		"Водосборы согласованы с ручной деформацией")
 	var saved: Dictionary = Save.capture(original)
 	_check(not saved.is_empty(), "Все природные системы объединены в снимок")
-	var parsed: Variant = JSON.parse_string(JSON.stringify(saved))
+	var parsed: Variant = JSON.parse_string(JSON.stringify(saved, "", true, true))
 	_check(parsed is Dictionary, "Снимок записывается обычным JSON")
 	var loaded: Dictionary = Save.restore(parsed)
 	_check(not loaded.is_empty(), "Мир восстанавливается целиком")
@@ -150,6 +150,8 @@ func _test_file_and_corruption() -> void:
 func _test_live_scene() -> void:
 	var scene := Scene.new()
 	get_root().add_child(scene)
+	# В SceneTree._initialize узлы становятся готовы на следующем кадре.
+	await process_frame
 	scene._save_path = TEST_PATH
 	scene._request_storage("save")
 	_check(FileAccess.file_exists(TEST_PATH),
