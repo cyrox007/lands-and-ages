@@ -43,6 +43,8 @@ func advance_day(day: int) -> Array[Dictionary]:
 				break
 			var chosen := Vector2i(-1, -1)
 			var strength := 0.0
+			var land_cell := Vector2i(-1, -1)
+			var land_strength := 0.0
 			var x0 := rx * REGION_STEP
 			var y0 := ry * REGION_STEP
 			var span_x := mini(REGION_STEP, width - x0)
@@ -58,20 +60,34 @@ func advance_day(day: int) -> Array[Dictionary]:
 					if storm > strength:
 						strength = storm
 						chosen = cell
+					if not hydro.has_water(i) and storm > land_strength:
+						land_strength = storm
+						land_cell = cell
 			if strength < MIN_STORM:
 				continue
 			var chance := Terrain.hash2(rx, ry,
 				world.config.seed + day * 41 + 39071)
 			if chance > clampf(strength * 0.72, 0.0, 0.72):
 				continue
+			# Молнии могут ударить и в море, и в сушу. Среди грозовых
+			# участков иногда выбираем сушу, чтобы не брать каждый
+			# раз только наиболее влажную ячейку над морем.
+			var terrestrial := Terrain.hash2(rx, ry,
+				world.config.seed + day * 53 + 10413)
+			if terrestrial < 0.72 and land_strength >= MIN_STORM:
+				chosen = land_cell
+				strength = land_strength
 			var profile: Dictionary = surface.profile_at(chosen)
 			var weather: Dictionary = climate.weather_at(chosen)
 			var i: int = hydro.cell_index(chosen)
-			var dryness := clampf((0.54 - float(profile["moisture"])) / 0.54,
+			# Грозовой дождь не всегда успевает промочить древесину.
+			# Ливень резко подавляет возможное загорание.
+			var dryness := clampf((0.95 - float(profile["moisture"])) / 0.95,
 				0.0, 1.0)
-			var ignition := strength * dryness \
-				* (1.0 - float(profile["snow"])) \
-				* clampf(1.0 - float(weather["rainfall"]) * 0.58, 0.0, 1.0)
+			var dry_strike := clampf(
+				1.0 - float(weather["rainfall"]) / 1.4, 0.0, 1.0)
+			var ignition := strength * dryness * dry_strike * dry_strike \
+				* (1.0 - float(profile["snow"]))
 			if hydro.has_water(i):
 				ignition = 0.0
 			var event: Dictionary = {
