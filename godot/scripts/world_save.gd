@@ -130,6 +130,15 @@ static func write_file(state: Dictionary, path: String = SAVE_PATH) -> bool:
 	return result == OK
 
 
+static func _parse_json(text: String) -> Variant:
+	# JSON.parse_string пишет ошибку движка при битом файле.
+	# Проверяем код парсера и тихо отклоняем повреждённый текст.
+	var parser := JSON.new()
+	if parser.parse(text) != OK:
+		return null
+	return parser.data
+
+
 static func read_file(path: String = SAVE_PATH) -> Dictionary:
 	if not path.begins_with("user://"):
 		return {}
@@ -141,7 +150,7 @@ static func read_file(path: String = SAVE_PATH) -> Dictionary:
 		return {}
 	var raw: String = file.get_as_text()
 	file.close()
-	var envelope: Variant = JSON.parse_string(raw)
+	var envelope: Variant = _parse_json(raw)
 	if not (envelope is Dictionary) or envelope.get("version") != FORMAT_VERSION:
 		return {}
 	if not (envelope.get("checksum") is String) \
@@ -150,7 +159,7 @@ static func read_file(path: String = SAVE_PATH) -> Dictionary:
 	var payload: String = envelope["payload"]
 	if payload.sha256_text() != envelope["checksum"]:
 		return {}
-	var parsed: Variant = JSON.parse_string(payload)
+	var parsed: Variant = _parse_json(payload)
 	if not (parsed is Dictionary):
 		return {}
 	return restore(parsed)
