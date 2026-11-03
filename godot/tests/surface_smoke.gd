@@ -115,10 +115,15 @@ func _run() -> void:
 			break
 	if ice_cell.x >= 0:
 		var frozen_chunk := world.config.chunk_of(ice_cell)
+		var liquid: ArrayMesh = WaterMesh.create_mesh(world, hydro, frozen_chunk, surface)
 		for i in range(4):
 			surface.advance_day(0.0, -14.0)
 		var icy: ArrayMesh = WaterMesh.create_mesh(world, hydro, frozen_chunk, surface)
 		_check(icy.get_surface_count() > 0, "Лёд отображается самостоятельным слоем воды")
+		if icy.get_surface_count() > 0 and liquid.get_surface_count() > 0:
+			_check(icy.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+				!= liquid.surface_get_arrays(0)[Mesh.ARRAY_COLOR],
+				"При морозе физическая вода меняет GPU-покров на лёд")
 	var first := Chunk.create_mesh(0, 0, 1, world, surface, 1)
 	var second := Chunk.create_mesh(0, 0, 1, world, surface, 2)
 	_check(first.get_surface_count() == 1 and second.get_surface_count() == 1,
