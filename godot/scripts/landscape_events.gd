@@ -104,7 +104,7 @@ func _plan_erosion(points: Array[Vector2i], weights: PackedFloat32Array,
 		var neighbours := 0
 		for offset in [Vector2i(-1, 0), Vector2i(1, 0),
 				Vector2i(0, -1), Vector2i(0, 1)]:
-			var near := coord + offset
+			var near: Vector2i = coord + offset
 			if not world.config.contains_vertex(near):
 				continue
 			total += world.vertex_at(near)
