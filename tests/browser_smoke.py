@@ -423,7 +423,11 @@ with sync_playwright() as pw:
               return total;
             };
             const full=count(source),lower=count(source,96,144);
-            const variants=[a,b,frame(0,4),frame(1,2),frame(2,2),frame(3,6)];
+            # Проверяем все 32 кадра, а не только несколько удачных поз.
+            const variants=[];
+            for(let direction=0;direction<4;direction++)
+              for(let phase=0;phase<8;phase++)
+                variants.push(frame(direction,phase));
             const silhouetteRatio=Math.min(...variants.map(v=>count(v)/Math.max(1,full)));
             const bootRatio=Math.min(...variants.map(v=>count(v,96,144)/Math.max(1,lower)));
             return {role,action,width:sheet.width,height:sheet.height,
