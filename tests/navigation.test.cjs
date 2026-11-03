@@ -83,8 +83,13 @@ test('лесоруб обходит объекты и рубит только с
       worked=true;
       assert.ok(a.target,'рабочий нашёл дерево');
       assert.equal(Nav.distance(tile,a.target),1);
-      assert.equal(a.facing,Nav.facing(a,Nav.centre(a.target)),
-        'рабочий развернулся лицом к дереву');
+      const anchor=g.interactionAnchor(a.target);
+      assert.equal(a.facing,Nav.facing(a,anchor),
+        'рабочий развернулся к настоящему стволу');
+      assert.ok(Nav.atContact(a,a.target,anchor),
+        'рабочий достиг точки контакта до начала добычи');
+      assert.ok(Nav.screenDistance(a,anchor)<=28.1,
+        'не должен рубить воздух с расстояния');
     }
     if(worked&&a.phase==='return')break;
   }
@@ -136,4 +141,64 @@ test('появившаяся на маршруте преграда вызыва
       foundAlternative=true;
   }
   assert.ok(foundAlternative,'новый путь построен вокруг препятствия');
+});
+
+
+test('видимое смещение ствола совпадает с навигационной геометрией',()=>{
+  const x=11,y=7;
+  const visual=Nav.treeCentre(x,y),trunk=Nav.treeTrunk(x,y);
+  assert.ok(visual.x>x&&visual.x<x+1);
+  assert.ok(visual.y>y&&visual.y<y+1);
+  assert.equal(Math.round((visual.x-trunk.x)*1000),100);
+  assert.equal(Math.round((visual.y-trunk.y)*1000),100);
+  const g=new Game(1729,'settlement');
+  assert.deepEqual(g.interactionAnchor({x,y}),trunk);
+  const ui=require('node:fs').readFileSync(
+    require('node:path').join(__dirname,'..','ui.js'),'utf8');
+  assert.match(ui,/Navigation\.treeCentre\(x,y\)/);
+});
+
+test('перед рубкой нужно занять фактическую рабочую точку у ствола',()=>{
+  const g=new Game(1729,'settlement'),b=g.addBuilding('logger',12,9);
+  assert.equal(g.assignWorkers(b.id,1).ok,true);
+  let agent;
+  for(let n=0;n<600;n++){
+    g.step(.1);
+    agent=g.workAgents.find(a=>a.buildingId===b.id);
+    if(agent?.phase==='work')break;
+  }
+  assert.ok(agent&&agent.phase==='work','лесоруб реально дошёл до дерева');
+  const target=agent.target,anchor=g.interactionAnchor(target);
+  const cell=Nav.cell(agent);
+  assert.equal(Nav.distance(cell,target),1);
+  assert.equal(Nav.atContact(agent,target,anchor),true);
+  assert.ok(Nav.screenDistance(agent,anchor)<=28.1);
+  assert.equal(agent.facing,Nav.facing(agent,anchor));
+  const current={x:agent.x,y:agent.y};
+  // Старый дефект: рабочий уже «рубит», стоя посреди соседнего тайла.
+  agent.x=cell.x+.5;agent.y=cell.y+.5;
+  assert.ok(Nav.screenDistance(agent,anchor)>28,
+    'условия воспроизводят реальную прежнюю ошибку');
+  g.step(.1);
+  assert.equal(agent.phase,'out',
+    'рубка не может продолжаться без правильной рабочей позиции');
+  for(let i=0;i<100;i++){
+    g.step(.1);
+    if(agent.phase==='work')break;
+  }
+  assert.equal(agent.phase,'work','рабочий снова подошёл к стволу');
+  assert.ok(Math.hypot(agent.x-current.x,agent.y-current.y)<.1);
+});
+
+test('путь к соседнему тайлу доводит рабочего до края, не заводя в дерево',()=>{
+  const g=new Game(1729,'settlement');
+  const from={x:12.5,y:9.5},target={x:11,y:7};
+  const path=g.approachPath(from,target);
+  assert.ok(path?.length>1);
+  const last=path.at(-1);
+  const destination=Nav.cell(last);
+  assert.equal(Nav.distance(destination,target),1);
+  assert.equal(g.walkable(destination.x,destination.y),true);
+  assert.ok(Nav.screenDistance(last,g.interactionAnchor(target))<=28.1);
+  assert.ok(path.at(-2).x!==last.x||path.at(-2).y!==last.y);
 });
