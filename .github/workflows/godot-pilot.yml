@@ -30,6 +30,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/godot-import.log; then
             exit 1
           fi
+      - name: Единое сохранение природного мира — этап 7.4
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_save_smoke.gd 2>&1 | tee /tmp/world-save-smoke.log
+          grep -q "Этап 7.4:.*успешно" /tmp/world-save-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-save-smoke.log; then
+            exit 1
+          fi
       - name: Тест высот, климата и чанков
         timeout-minutes: 2
         run: |
@@ -195,16 +205,6 @@ jobs:
             --headless --path godot --script res://tests/physics_cost_smoke.gd 2>&1 | tee /tmp/physics-cost-smoke.log
           grep -q "Этап 7.3:.*успешно" /tmp/physics-cost-smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/physics-cost-smoke.log; then
-            exit 1
-          fi
-      - name: Единое сохранение природного мира — этап 7.4
-        timeout-minutes: 4
-        run: |
-          set -o pipefail
-          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
-            --headless --path godot --script res://tests/world_save_smoke.gd 2>&1 | tee /tmp/world-save-smoke.log
-          grep -q "Этап 7.4:.*успешно" /tmp/world-save-smoke.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-save-smoke.log; then
             exit 1
           fi
       - name: Загрузка игровой сцены
