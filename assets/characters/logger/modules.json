@@ -1,0 +1,449 @@
+{
+  "cellWidth": 96,
+  "cellHeight": 96,
+  "source": "a_detailed_game_art_asset_sheet_atlas_for_the_exis.png",
+  "parts": {
+    "head_se": {
+      "atlasRect": [
+        7,
+        9,
+        82,
+        78
+      ],
+      "sourceRect": [
+        233,
+        116,
+        299,
+        179
+      ],
+      "width": 66,
+      "height": 63,
+      "anchor": "center"
+    },
+    "head_sw": {
+      "atlasRect": [
+        103,
+        7,
+        82,
+        81
+      ],
+      "sourceRect": [
+        306,
+        116,
+        370,
+        179
+      ],
+      "width": 64,
+      "height": 63,
+      "anchor": "center"
+    },
+    "head_ne": {
+      "atlasRect": [
+        199,
+        8,
+        82,
+        79
+      ],
+      "sourceRect": [
+        377,
+        116,
+        442,
+        179
+      ],
+      "width": 65,
+      "height": 63,
+      "anchor": "center"
+    },
+    "head_nw": {
+      "atlasRect": [
+        295,
+        8,
+        82,
+        79
+      ],
+      "sourceRect": [
+        448,
+        116,
+        513,
+        179
+      ],
+      "width": 65,
+      "height": 63,
+      "anchor": "center"
+    },
+    "torso_se": {
+      "atlasRect": [
+        391,
+        9,
+        82,
+        78
+      ],
+      "sourceRect": [
+        233,
+        182,
+        295,
+        241
+      ],
+      "width": 62,
+      "height": 59,
+      "anchor": "center"
+    },
+    "torso_sw": {
+      "atlasRect": [
+        487,
+        11,
+        82,
+        73
+      ],
+      "sourceRect": [
+        304,
+        182,
+        370,
+        241
+      ],
+      "width": 66,
+      "height": 59,
+      "anchor": "center"
+    },
+    "torso_ne": {
+      "atlasRect": [
+        583,
+        12,
+        82,
+        71
+      ],
+      "sourceRect": [
+        375,
+        182,
+        443,
+        241
+      ],
+      "width": 68,
+      "height": 59,
+      "anchor": "center"
+    },
+    "torso_nw": {
+      "atlasRect": [
+        679,
+        11,
+        82,
+        74
+      ],
+      "sourceRect": [
+        449,
+        182,
+        514,
+        241
+      ],
+      "width": 65,
+      "height": 59,
+      "anchor": "center"
+    },
+    "arm_a": {
+      "atlasRect": [
+        24,
+        102,
+        47,
+        84
+      ],
+      "sourceRect": [
+        238,
+        245,
+        294,
+        295
+      ],
+      "width": 28,
+      "height": 50,
+      "anchor": "center"
+    },
+    "arm_b": {
+      "atlasRect": [
+        113,
+        102,
+        61,
+        84
+      ],
+      "sourceRect": [
+        304,
+        245,
+        355,
+        295
+      ],
+      "width": 34,
+      "height": 47,
+      "anchor": "center"
+    },
+    "arm_c": {
+      "atlasRect": [
+        199,
+        110,
+        82,
+        68
+      ],
+      "sourceRect": [
+        364,
+        245,
+        417,
+        295
+      ],
+      "width": 46,
+      "height": 38,
+      "anchor": "center"
+    },
+    "arm_d": {
+      "atlasRect": [
+        313,
+        102,
+        45,
+        84
+      ],
+      "sourceRect": [
+        420,
+        245,
+        469,
+        295
+      ],
+      "width": 26,
+      "height": 49,
+      "anchor": "center"
+    },
+    "arm_e": {
+      "atlasRect": [
+        391,
+        104,
+        82,
+        79
+      ],
+      "sourceRect": [
+        472,
+        245,
+        515,
+        295
+      ],
+      "width": 31,
+      "height": 30,
+      "anchor": "center"
+    },
+    "legs_a": {
+      "atlasRect": [
+        493,
+        102,
+        70,
+        84
+      ],
+      "sourceRect": [
+        239,
+        302,
+        296,
+        370
+      ],
+      "width": 57,
+      "height": 68,
+      "anchor": "center"
+    },
+    "legs_b": {
+      "atlasRect": [
+        589,
+        102,
+        69,
+        84
+      ],
+      "sourceRect": [
+        308,
+        302,
+        364,
+        370
+      ],
+      "width": 56,
+      "height": 68,
+      "anchor": "center"
+    },
+    "legs_c": {
+      "atlasRect": [
+        681,
+        102,
+        78,
+        84
+      ],
+      "sourceRect": [
+        378,
+        302,
+        441,
+        370
+      ],
+      "width": 63,
+      "height": 68,
+      "anchor": "center"
+    },
+    "legs_d": {
+      "atlasRect": [
+        7,
+        199,
+        82,
+        81
+      ],
+      "sourceRect": [
+        447,
+        302,
+        516,
+        370
+      ],
+      "width": 69,
+      "height": 68,
+      "anchor": "center"
+    },
+    "apron": {
+      "atlasRect": [
+        103,
+        204,
+        82,
+        72
+      ],
+      "sourceRect": [
+        252,
+        374,
+        312,
+        427
+      ],
+      "width": 60,
+      "height": 53,
+      "anchor": "center"
+    },
+    "belt": {
+      "atlasRect": [
+        199,
+        203,
+        82,
+        73
+      ],
+      "sourceRect": [
+        323,
+        372,
+        379,
+        422
+      ],
+      "width": 56,
+      "height": 50,
+      "anchor": "center"
+    },
+    "pouch": {
+      "atlasRect": [
+        295,
+        203,
+        82,
+        73
+      ],
+      "sourceRect": [
+        388,
+        371,
+        450,
+        426
+      ],
+      "width": 62,
+      "height": 55,
+      "anchor": "center"
+    },
+    "flask": {
+      "atlasRect": [
+        397,
+        198,
+        70,
+        84
+      ],
+      "sourceRect": [
+        449,
+        375,
+        490,
+        424
+      ],
+      "width": 41,
+      "height": 49,
+      "anchor": "center"
+    },
+    "rope": {
+      "atlasRect": [
+        497,
+        198,
+        62,
+        84
+      ],
+      "sourceRect": [
+        479,
+        377,
+        518,
+        430
+      ],
+      "width": 39,
+      "height": 53,
+      "anchor": "center"
+    },
+    "axe_a": {
+      "atlasRect": [
+        588,
+        198,
+        71,
+        84
+      ],
+      "sourceRect": [
+        263,
+        427,
+        324,
+        499
+      ],
+      "width": 61,
+      "height": 72,
+      "anchor": "center"
+    },
+    "axe_b": {
+      "atlasRect": [
+        681,
+        198,
+        77,
+        84
+      ],
+      "sourceRect": [
+        332,
+        427,
+        398,
+        499
+      ],
+      "width": 66,
+      "height": 72,
+      "anchor": "center"
+    },
+    "stump": {
+      "atlasRect": [
+        14,
+        294,
+        68,
+        84
+      ],
+      "sourceRect": [
+        398,
+        432,
+        455,
+        502
+      ],
+      "width": 57,
+      "height": 70,
+      "anchor": "center"
+    },
+    "log_bundle": {
+      "atlasRect": [
+        104,
+        294,
+        80,
+        84
+      ],
+      "sourceRect": [
+        457,
+        430,
+        526,
+        498
+      ],
+      "width": 65,
+      "height": 68,
+      "anchor": "center"
+    }
+  }
+}
