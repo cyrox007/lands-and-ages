@@ -6,6 +6,8 @@ const WorldConfig = preload("res://scripts/world_config.gd")
 const WorldMap = preload("res://scripts/world_map.gd")
 const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
+const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
+const NaturalWaterShader = preload("res://shaders/natural_water.gdshader")
 const Hydrology = preload("res://scripts/hydrology.gd")
 const WaterMesh = preload("res://scripts/water_mesh.gd")
 const Boundary = preload("res://scripts/world_boundary.gd")
@@ -19,6 +21,11 @@ const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 
 const VIEW_RADIUS := 4
+const VIEW_NAMES := [
+	"Природная поверхность", "Грунты", "Влажность",
+	"Температура", "Климатические области", "Снег",
+	"Перенос наносов", "Вода и паводки"
+]
 const MAX_BUILDS_PER_FRAME := 8
 const MESH_BUDGET_US := 4200
 const CAMERA_SPEED := 32.0
@@ -39,7 +46,7 @@ var _lightning_light: OmniLight3D
 var _lightning_life := 0.0
 var _process_status := "Естественные процессы ещё не изменяли рельеф"
 var _last_event := "Изменений ландшафта нет"
-var _view_mode := 4
+var _view_mode := 0
 var _days_pending := 0
 var _day_runner: RefCounted
 var _day_task_id := -1
@@ -53,11 +60,12 @@ var _last_day_statistics: Dictionary = {}
 var _storage_request := ""
 var _storage_status := "Сохранений ещё нет"
 var _save_path: String = WorldSave.SAVE_PATH
-var _water_material: StandardMaterial3D
+var _water_material: ShaderMaterial
 var _center := Vector2.ZERO
 var _camera: Camera3D
 var _terrain_holder: Node3D
-var _ground_material: StandardMaterial3D
+var _ground_material: ShaderMaterial
+var _debug_ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
 var _terrain_dirty := {}
@@ -120,32 +128,33 @@ func _setup_environment() -> void:
 	_lightning_light.visible = false
 	add_child(_lightning_light)
 	var world_light := DirectionalLight3D.new()
-	world_light.rotation_degrees = Vector3(-48, -40, 0)
-	world_light.light_energy = 1.15
+	world_light.rotation_degrees = Vector3(-54, -36, 0)
+	world_light.light_color = Color(1.0, 0.94, 0.84)
+	world_light.light_energy = 1.25
 	world_light.shadow_enabled = false
 	add_child(world_light)
 	var sky := WorldEnvironment.new()
 	var options := Environment.new()
 	options.background_mode = Environment.BG_COLOR
-	options.background_color = Color(0.47, 0.62, 0.72)
+	options.background_color = Color(0.54, 0.65, 0.69)
 	options.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	options.ambient_light_color = Color(0.80, 0.85, 0.92)
-	options.ambient_light_energy = 0.8
+	options.ambient_light_color = Color(0.74, 0.81, 0.85)
+	options.ambient_light_energy = 0.61
 	sky.environment = options
 	add_child(sky)
 
 
 func _setup_materials() -> void:
-	_ground_material = StandardMaterial3D.new()
-	_ground_material.vertex_color_use_as_albedo = true
-	_ground_material.roughness = 1.0
-	_ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_water_material = StandardMaterial3D.new()
-	_water_material.vertex_color_use_as_albedo = true
-	_water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_water_material.roughness = 0.25
-	_water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-
+	# Фактура создаётся на GPU; физическое содержание вершин
+	# и диагностические палитры остаются без изменений.
+	_ground_material = ShaderMaterial.new()
+	_ground_material.shader = NaturalGroundShader
+	_debug_ground_material = StandardMaterial3D.new()
+	_debug_ground_material.vertex_color_use_as_albedo = true
+	_debug_ground_material.roughness = 1.0
+	_debug_ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_water_material = ShaderMaterial.new()
+	_water_material.shader = NaturalWaterShader
 
 func _setup_interface() -> void:
 	var canvas_layer := CanvasLayer.new()
@@ -345,8 +354,9 @@ func _create_chunk(coord: Vector2i) -> void:
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
 	ground.mesh = Chunk.create_mesh(coord.x, coord.y, 1, _world_model,
-		_surface, _view_mode, _climate)
-	ground.material_override = _ground_material
+		_surface, _view_mode, _climate, _hydro)
+	ground.material_override = _ground_material if _view_mode == 0 \
+		else _debug_ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
 	var water_mesh: ArrayMesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface)
@@ -540,10 +550,11 @@ func _update_hud() -> void:
 	if _summary == null:
 		return
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
-	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс\n%s" % [
+	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс\nВид: %s\n%s" % [
 		_last_completed_day, Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), phase, _days_pending,
-		float(_peak_day_step_us) / 1000.0, _storage_status]
+		float(_peak_day_step_us) / 1000.0, VIEW_NAMES[_view_mode],
+		_storage_status]
 	# Даже диагностическая панель не читает модель одновременно
 	# с фоновым потоком, иначе возникнет гонка массивов.
 	if _day_task_id >= 0 or _debug_details == null \
