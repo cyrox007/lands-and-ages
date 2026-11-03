@@ -28,6 +28,7 @@ var _altitude := PackedFloat32Array()
 var _marine := PackedFloat32Array()
 var _temperature := PackedFloat32Array()
 var _rain := PackedFloat32Array()
+var _wind := PackedFloat32Array()
 
 
 func _init(map: RefCounted, water: RefCounted) -> void:
@@ -89,6 +90,7 @@ func rebuild() -> void:
 	_marine.resize(count)
 	_temperature.resize(count)
 	_rain.resize(count)
+	_wind.resize(count)
 
 	# Морское влияние распространяется от фактического моря по клеткам,
 	# а не выбирается по случайным прямоугольным регионам.
@@ -165,6 +167,12 @@ func _calculate_day() -> void:
 			var threshold := 0.11 - _humidity[i] * 0.20
 			_rain[i] = clampf(maxf(0.0, local * 0.9 + front * 0.4 - threshold)
 				* _humidity[i] * 2.5 * rain_factor, 0.0, 3.0)
+			# Ветер связан с движущимися фронтами и широтами.
+			# Скорость условная: шкалу м/с откалибруем позже.
+			_wind[i] = clampf(5.0 + absf(front) * 10.0
+				+ maxf(0.0, -local) * 3.0
+				+ 2.5 * absf(sin(TAU * float(day % YEAR_DAYS) / YEAR_DAYS))
+				+ _marine[i] * 1.5, 0.0, 24.0)
 	revision += 1
 	weather_changed.emit(day)
 
@@ -186,6 +194,10 @@ func precipitation_at_index(i: int) -> float:
 	return _rain[i] if i >= 0 and i < _rain.size() else 0.0
 
 
+func wind_at_index(i: int) -> float:
+	return _wind[i] if i >= 0 and i < _wind.size() else 0.0
+
+
 func rainfall_map() -> PackedFloat32Array:
 	return _rain.duplicate()
 
@@ -202,7 +214,7 @@ func weather_at(cell: Vector2i) -> Dictionary:
 		"temperature": temp,
 		"annual_temperature": _mean[i],
 		"humidity": _humidity[i],
-		"precipitation": rain,
+		"precipitation": rain, "wind_speed": _wind[i],
 		"rainfall": rain * (1.0 - snow_share),
 		"snowfall": rain * snow_share,
 		"weather": ("снег" if snow_share >= 0.75 else

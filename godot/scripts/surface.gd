@@ -200,6 +200,10 @@ func runoff_map() -> PackedFloat32Array:
 	return _runoff.duplicate()
 
 
+func runoff_at_index(index: int) -> float:
+	return _runoff[index] if index >= 0 and index < _runoff.size() else 0.0
+
+
 func snow_color_at(cell: Vector2i) -> Color:
 	# Отдельный обзорный слой показывает постепенное наступление зимы.
 	ensure_ready()

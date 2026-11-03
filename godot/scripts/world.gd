@@ -12,6 +12,7 @@ const Boundary = preload("res://scripts/world_boundary.gd")
 const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const LandscapeEvents = preload("res://scripts/landscape_events.gd")
+const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 
 const VIEW_RADIUS := 4
 const BUILD_PER_FRAME := 2
@@ -24,6 +25,8 @@ var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
 var _landscape_events: RefCounted
+var _natural_processes: RefCounted
+var _process_status := "Естественные процессы ещё не изменяли рельеф"
 var _last_event := "Изменений ландшафта нет"
 var _view_mode := 4
 var _days_pending := 0
@@ -49,6 +52,8 @@ func _ready() -> void:
 	_climate = Climate.new(_world_model, _hydro)
 	_climate.rebuild()
 	_landscape_events = LandscapeEvents.new(_world_model)
+	_natural_processes = NaturalProcesses.new(
+		_world_model, _hydro, _surface, _climate)
 	_climate.set_day(1)
 	_surface.advance_climate_day(_climate)
 	_hydro.apply_rainfall_map(_surface.runoff_map())
@@ -110,7 +115,7 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 6.1: карта изменяется, гидрология и климат перестраиваются."
+	info.text = "Этап 6.2: рельеф постепенно меняют вода, ветер и неустойчивые склоны."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
 	var day_button := Button.new()
@@ -270,6 +275,10 @@ func _simulate_one_day() -> void:
 	_climate.set_day(_climate.day + 1)
 	_surface.advance_climate_day(_climate)
 	_hydro.apply_rainfall_map(_surface.runoff_map())
+	var event: Dictionary = _natural_processes.advance_day(_climate.day)
+	if not event.is_empty():
+		_process_status = "%s, день %d: %s" % [
+			event["process"], event["day"], event["cell"]]
 
 
 func _cycle_view() -> void:
@@ -313,6 +322,9 @@ func _update_hud() -> void:
 	_status.text += "Промерзание %.0f%% · потенциал роста %.0f%%\n" % [
 		float(ground["frost"]) * 100.0,
 		float(ground["growth_potential"]) * 100.0]
+	_status.text += "Ветер %.1f · изменённых вершин %d\n" % [
+		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
+	_status.text += "%s\n" % _process_status
 	_status.text += "%s\n" % _last_event
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
