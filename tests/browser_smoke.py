@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|woodcutting|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
@@ -21,8 +21,10 @@ worker_art=(root/'worker-art.js').read_text('utf8')
 painted_motion=(root/'painted-motion.js').read_text('utf8')
 profession_actions=(root/'profession-actions.js').read_text('utf8')
 profession_frames=(root/'profession-frames.js').read_text('utf8')
-woodcutting=(root/'woodcutting.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
+logger_atlases={state:'data:image/webp;base64,'+base64.b64encode(
+    (root/'assets/characters/logger'/('logger-'+state+'.webp')).read_bytes()).decode('ascii')
+    for state in ('idle','walk','fell_tree','carry_logs')}
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in (root/'assets').glob('*.webp')}
 mill_files={'start':'mill-states-start.webp',
             'end':'mill-states-end.webp','parts':'mill-parts.webp'}
@@ -51,7 +53,6 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=painted_motion)
     page.add_script_tag(content=profession_actions)
     page.add_script_tag(content=profession_frames)
-    page.add_script_tag(content=woodcutting)
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
@@ -59,6 +60,8 @@ def mount(page,prior=None,boot="mission"):
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/characters/painted-people.webp').read_bytes()).decode('ascii'))
     page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
+    page.evaluate('(atlases) => { window.StrategyLoggerAtlases=atlases; }',
+                  logger_atlases)
     page.evaluate('(assets) => { window.StrategyMillAtlases=assets; }',mill_assets)
     page.evaluate('(assets) => { window.StrategyMillDetailAssets=assets; }',detail_assets)
     page.evaluate('(scenario) => { window.__strategyBoot=scenario; }',boot)
@@ -605,74 +608,74 @@ with sync_playwright() as pw:
     browser.close()
 
 
-# Рубка должна быть видна именно в запущенной игре, а не только в контракте атласа.
+# Настоящая рубка из WebP проверяется во время фактической работы.
 with sync_playwright() as pw:
     browser=pw.chromium.launch(headless=True,args=['--no-sandbox'],
                                executable_path=shutil.which('chromium') or None)
-    for name,width,height,mobile in [('logger-desktop',1280,850,False),
-                                     ('logger-mobile',393,852,True)]:
-        context=browser.new_context(viewport={'width':width,'height':height},
-                                    is_mobile=mobile,has_touch=mobile)
-        seed=context.new_page()
-        mount(seed,boot='settlement')
-        seed.wait_for_function('Boolean(window.__strategyDebug)')
-        saved=seed.evaluate("""() => {
-          const game=new window.StrategyEngine.Game(1729,'settlement');
-          const site=game.addBuilding('logger',12,9);
-          game.assignWorkers(site.id,1);
+    for name,w,h,mobile in [('logger-desktop',1280,850,False),
+                            ('logger-mobile',393,852,True)]:
+        ctx=browser.new_context(viewport={'width':w,'height':h},is_mobile=mobile,has_touch=mobile)
+        setup=ctx.new_page()
+        mount(setup,boot='settlement')
+        setup.wait_for_function('Boolean(window.__strategyDebug)')
+        saved=setup.evaluate("""() => {
+          const g=new window.StrategyEngine.Game(1729,'settlement');
+          const b=g.addBuilding('logger',12,9);g.assignWorkers(b.id,1);
           for(let i=0;i<260;i++){
-            game.step(.1);
-            const a=game.workAgents.find(w=>w.buildingId===site.id);
+            g.step(.1);
+            const a=g.workAgents.find(a=>a.buildingId===b.id);
             if(a?.phase==='work'&&a.progress>.3)break;
           }
-          const a=game.workAgents.find(w=>w.buildingId===site.id);
-          if(a?.phase!=='work')throw Error('Лесоруб не достиг дерева');
-          return game.save();
+          if(!g.workAgents.some(a=>a.phase==='work'))throw Error('Нет рубки');
+          return g.save();
         }""")
-        seed.close()
-        page=context.new_page()
+        setup.close()
+        page=ctx.new_page()
         errors=[]
-        page.on('pageerror',lambda error:errors.append(str(error)))
+        page.on('pageerror',lambda e:errors.append(str(e)))
         mount(page,prior=[['lands-ages:campaign:v1',saved]],boot='settlement')
-        page.wait_for_function('window.__strategyDebug()?.paintedReady()',timeout=20000)
-        page.wait_for_function('window.__strategyDebug().woodcuttingDraws()>0',
-                               timeout=20000)
-        state=page.evaluate("""() => {
-          const w=window.__strategyDebug().woodcutters();
-          return {workers:w,draws:window.__strategyDebug().woodcuttingDraws()};
-        }""")
-        assert any(w['phase']=='work' for w in state['workers']),(name,state)
-        assert state['draws']>0,(name,state)
-        frames=page.evaluate("""() => {
-          const module=window.StrategyWoodcutting;
-          const samples=[];
-          for(let frame=0;frame<8;frame++){
-            const c=document.createElement('canvas');
-            c.width=140;c.height=180;
-            const g=c.getContext('2d',{willReadFrequently:true});
-            module.draw(g,70,175,80,frame,'se');
-            const data=g.getImageData(0,0,140,180).data;
-            let covered=0;
-            for(let i=3;i<data.length;i+=4)if(data[i]>0)covered++;
-            samples.push({data:Array.from(data),covered});
+        page.wait_for_function("""() => {
+          const d=window.__strategyDebug();
+          return d&&d.loggerStates.every(s=>d.loggerAtlasReady(s))&&
+            d.loggerRasterDraws()>0;
+        }""",timeout=20000)
+        observed=page.evaluate("""async () => {
+          const names=['idle','walk','fell_tree','carry_logs'],result={};
+          for(const name of names){
+            const img=new Image();img.src=window.StrategyLoggerAtlases[name];
+            await img.decode();
+            const canvas=document.createElement('canvas');
+            canvas.width=768;canvas.height=576;
+            const g=canvas.getContext('2d',{willReadFrequently:true});
+            g.drawImage(img,0,0);
+            const cells=[];
+            for(let row=0;row<4;row++)for(let f=0;f<8;f++)
+              cells.push(g.getImageData(f*96,row*144,96,144).data);
+            const count=data=>{
+              let n=0;for(let k=3;k<data.length;k+=4)if(data[k]>100)n++;
+              return n;
+            };
+            const diff=(a,b)=>{
+              let n=0;for(let k=0;k<a.length;k+=4)
+                if(a[k]!==b[k]||a[k+1]!==b[k+1]||a[k+2]!==b[k+2]||a[k+3]!==b[k+3])n++;
+              return n;
+            };
+            result[name]={width:img.naturalWidth,height:img.naturalHeight,
+              minAlpha:Math.min(...cells.map(count)),
+              diffFrame:diff(cells[0],cells[3]),
+              diffFacing:diff(cells[0],cells[8])};
           }
-          const diff=(a,b)=>{
-            let count=0;
-            for(let i=0;i<a.length;i+=4){
-              if(a[i]!==b[i]||a[i+1]!==b[i+1]||
-                 a[i+2]!==b[i+2]||a[i+3]!==b[i+3])count++;
-            }
-            return count;
-          };
-          return {coverage:samples.map(s=>s.covered),
-            differences:samples.slice(1).map((s,i)=>diff(s.data,samples[i].data)),
-            impact:[module.impact(3),module.impact(4),module.impact(5)]};
+          result.draws=window.__strategyDebug().loggerRasterDraws();
+          return result;
         }""")
-        assert min(frames['coverage'])>100,(name,frames['coverage'])
-        assert min(frames['differences'])>80,(name,frames['differences'])
-        assert frames['impact']==[False,True,True]
+        assert observed['draws']>0,(name,observed)
+        for state in ('idle','walk','fell_tree','carry_logs'):
+            item=observed[state]
+            assert item['width']==768 and item['height']==576,(name,state,item)
+            assert item['minAlpha']>500,(name,state,item)
+            assert item['diffFacing']>150,(name,state,item)
+            if state!='idle':assert item['diffFrame']>80,(name,state,item)
         assert not errors,(name,errors)
-        print(name,'видимая рубка:',state['draws'],'отрисовок,',
-              len(frames['differences'])+1,'различающихся кадров')
-        context.close()
+        print(name,'растровая рубка:',observed['draws'],'отрисовок')
+        ctx.close()
     browser.close()
