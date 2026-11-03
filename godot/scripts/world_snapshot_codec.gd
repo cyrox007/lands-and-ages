@@ -1,11 +1,10 @@
 extends RefCounted
 ## Общий безопасный декодер массивов физики в сохранении Godot.
 
-static func decode_float32(encoded: String, count: int) -> PackedFloat32Array:
-	var empty := PackedFloat32Array()
-	if count < 0:
+static func _decode_raw(encoded: String, byte_count: int) -> PackedByteArray:
+	var empty := PackedByteArray()
+	if byte_count < 0:
 		return empty
-	var byte_count := count * 4
 	var expected_length := 4 * ceili(float(byte_count) / 3.0)
 	if encoded.length() != expected_length:
 		return empty
@@ -22,4 +21,12 @@ static func decode_float32(encoded: String, count: int) -> PackedFloat32Array:
 	var raw: PackedByteArray = Marshalls.base64_to_raw(encoded)
 	if raw.size() != byte_count:
 		return empty
-	return raw.to_float32_array()
+	return raw
+
+
+static func decode_float32(encoded: String, count: int) -> PackedFloat32Array:
+	return _decode_raw(encoded, count * 4).to_float32_array()
+
+
+static func decode_float64(encoded: String, count: int) -> PackedFloat64Array:
+	return _decode_raw(encoded, count * 8).to_float64_array()
