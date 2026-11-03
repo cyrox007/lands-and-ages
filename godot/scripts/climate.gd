@@ -24,6 +24,7 @@ var _ocean_revision := -1
 var full_rebuilds := 0
 var partial_rebuilds := 0
 var last_rebuild_rows := 0
+var last_updated_rows: Array[int] = []
 var _width := 0
 var _height := 0
 var _mean := PackedFloat32Array()
@@ -101,14 +102,17 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 			for y in range(bounds.position.y, bounds.end.y):
 				rows[y] = true
 		if not rows.is_empty():
+			last_updated_rows.clear()
 			for y in rows.keys():
 				_rebuild_row(y)
+				last_updated_rows.append(y)
 			_terrain_revision = world.revision
 			partial_rebuilds += 1
 			last_rebuild_rows = rows.size()
 			_calculate_day(rows)
 			return
 	full_rebuilds += 1
+	last_updated_rows.clear()
 	_width = world.config.width
 	_height = world.config.height
 	var count := _width * _height
