@@ -1,4 +1,5 @@
 extends RefCounted
+const SnapshotCodec = preload("res://scripts/world_snapshot_codec.gd")
 ## Гидрология поверх физического WorldMap: бассейны, сток, реки и озёра.
 ## Очерёдность обхода фиксирована, вода не определяет высоту грунта.
 
@@ -553,11 +554,13 @@ func load_snapshot(data: Dictionary) -> bool:
 		return false
 	if not (data.get("local_rain") is String):
 		return false
-	var bytes: PackedByteArray = Marshalls.base64_to_raw(data["local_rain"])
 	var count: int = world.config.width * world.config.height
-	if not bytes.is_empty() and bytes.size() != count * 4:
-		return false
-	var loaded: PackedFloat32Array = bytes.to_float32_array()
+	var encoded: String = data["local_rain"]
+	var loaded := PackedFloat32Array()
+	if not encoded.is_empty():
+		loaded = SnapshotCodec.decode_float32(encoded, count)
+		if loaded.size() != count:
+			return false
 	for value in loaded:
 		if not is_finite(value) or value < 0.0 or value > 3.0:
 			return false
