@@ -147,6 +147,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/weather-flood-smoke.log; then
             exit 1
           fi
+      - name: Стихийные бедствия и геологическое напряжение — этап 6.5
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/natural_disasters_smoke.gd 2>&1 | tee /tmp/disasters-smoke.log
+          grep -q "Этап 6.5:.*успешно" /tmp/disasters-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/disasters-smoke.log; then
+            exit 1
+          fi
       - name: Загрузка игровой сцены
         timeout-minutes: 2
         run: |
