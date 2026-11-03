@@ -15,6 +15,22 @@ const Runner = preload("res://scripts/world_day_runner.gd")
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
 const MAX_FILE_BYTES := 32 * 1024 * 1024
+const MAX_SAVED_CELLS := 512 * 512
+
+
+static func _within_world_limit(data: Dictionary) -> bool:
+	var config: Variant = data.get("config")
+	if not (config is Dictionary):
+		return false
+	var width: Variant = config.get("width")
+	var height: Variant = config.get("height")
+	if not (width is int or width is float) \
+			or not (height is int or height is float):
+		return false
+	var w := float(width)
+	var h := float(height)
+	return is_finite(w) and is_finite(h) and w >= 1.0 and h >= 1.0 \
+		and w * h <= float(MAX_SAVED_CELLS)
 
 
 static func capture(state: Dictionary) -> Dictionary:
@@ -23,6 +39,10 @@ static func capture(state: Dictionary) -> Dictionary:
 		if not (state.get(key) is RefCounted):
 			return {}
 	var world: RefCounted = state["world"]
+	# Гигантские конфигурации из раннего формата мира не должны
+	# создавать файлы, которые полигон пока не способен загрузить.
+	if world.config.width * world.config.height > MAX_SAVED_CELLS:
+		return {}
 	var hydro: RefCounted = state["hydro"]
 	var surface: RefCounted = state["surface"]
 	var climate: RefCounted = state["climate"]
@@ -46,7 +66,7 @@ static func capture(state: Dictionary) -> Dictionary:
 		"hydrology": hydro.to_snapshot(),
 		"climate": climate.to_data(),
 		"surface": surface.to_snapshot(),
-		"weather": weather.to_data(),
+		"weather": weather.to_snapshot(),
 		"natural": natural.to_data(),
 		"disasters": disasters.to_data()
 	}
@@ -66,8 +86,11 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 			"weather", "natural", "disasters"]:
 		if not (snapshot.get(name) is Dictionary):
 			return {}
-	# Создаём новый набор моделей. Ошибка в любом слое не меняет
-	# текущую игровую сцену или существующее сохранение на диске.
+	# Размер проверяем до создания массивов гидрологии: чужой файл
+	# не должен выделять гигабайты памяти при одной загрузке.
+	if not _within_world_limit(snapshot["world"]):
+		return {}
+	# Создаём новые модели только после проверки формата и размера.
 	var world: RefCounted = Map.from_data(snapshot["world"])
 	if world == null:
 		return {}
@@ -85,7 +108,7 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if climate.day != int(saved_day) or surface.day != int(saved_day):
 		return {}
 	var weather := Weather.new(world, climate, surface, hydro)
-	if not weather.load_data(snapshot["weather"]):
+	if not weather.load_snapshot(snapshot["weather"]):
 		return {}
 	var natural := Natural.new(world, hydro, surface, climate)
 	if not natural.load_data(snapshot["natural"]):

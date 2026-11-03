@@ -121,6 +121,31 @@ func _test_snapshot() -> void:
 		original["climate"].day, " — результаты совпали")
 
 
+func _test_exact_lightning() -> void:
+	var state := _make_world()
+	var weather: RefCounted = state["weather"]
+	weather.last_day = 1
+	weather.total_strikes = 1
+	weather.last_events.append({
+		"day": 1, "cell": Vector2i(5, 7), "cause": "молния",
+		"strength": 0.9545053839683533,
+		"ignition_potential": 0.12345678901234566
+	})
+	var snapshot := Save.capture(state)
+	var parsed: Dictionary = JSON.parse_string(
+		JSON.stringify(snapshot, "", true, true))
+	var restored: Dictionary = Save.restore(parsed)
+	_check(not restored.is_empty(), "Точное сохранение молний восстанавливается")
+	if not restored.is_empty():
+		_check(weather.to_data() == restored["weather"].to_data(),
+			"Интенсивность молний и вероятность пожара не теряют ни бита")
+	# Сохранения прежнего этапа 7.4 должны оставаться читаемыми.
+	var legacy: Dictionary = snapshot.duplicate(true)
+	legacy["weather"].erase("exact_events")
+	_check(not Save.restore(legacy).is_empty(),
+		"Старое сохранение без точного формата молний совместимо")
+
+
 func _test_file_and_corruption() -> void:
 	var original := _make_world()
 	for i in range(5):
@@ -222,6 +247,7 @@ func _test_live_scene() -> void:
 
 func _run() -> void:
 	_test_snapshot()
+	_test_exact_lightning()
 	_test_file_and_corruption()
 	await _test_live_scene()
 	if not failures.is_empty():

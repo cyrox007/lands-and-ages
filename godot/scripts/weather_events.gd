@@ -6,6 +6,7 @@ signal lightning_struck(event: Dictionary)
 signal ignition_candidate(event: Dictionary)
 
 const Terrain = preload("res://scripts/terrain.gd")
+const SnapshotCodec = preload("res://scripts/world_snapshot_codec.gd")
 const FORMAT_VERSION := 1
 const REGION_STEP := 32
 const MIN_STORM := 0.27
@@ -118,6 +119,44 @@ func to_data() -> Dictionary:
 		"last_day": last_day, "total_strikes": total_strikes,
 		"last_events": entries
 	}
+
+
+func to_snapshot() -> Dictionary:
+	# У значений молний исходная точность Float64. JSON может
+	# изменять последний бит при сохранении и повторной загрузке.
+	var data: Dictionary = to_data()
+	var exact := []
+	for event in last_events:
+		var values := PackedFloat64Array([
+			float(event["strength"]), float(event["ignition_potential"])])
+		exact.append(Marshalls.raw_to_base64(values.to_byte_array()))
+	data["exact_events"] = exact
+	return data
+
+
+func load_snapshot(data: Dictionary) -> bool:
+	# Формат 7.4 без exact_events остаётся читаемым.
+	if not data.has("exact_events"):
+		return load_data(data)
+	if not (data.get("last_events") is Array) \
+			or not (data["exact_events"] is Array):
+		return false
+	var prepared: Dictionary = data.duplicate(true)
+	var entries: Array = prepared["last_events"]
+	var exact: Array = prepared["exact_events"]
+	if entries.size() != exact.size():
+		return false
+	for i in range(entries.size()):
+		if not (entries[i] is Array) or entries[i].size() != 4 \
+				or not (exact[i] is String):
+			return false
+		var values: PackedFloat64Array = SnapshotCodec.decode_float64(
+			exact[i], 2)
+		if values.size() != 2:
+			return false
+		entries[i][2] = values[0]
+		entries[i][3] = values[1]
+	return load_data(prepared)
 
 
 func load_data(data: Dictionary) -> bool:
