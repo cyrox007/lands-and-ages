@@ -21,6 +21,7 @@ var ocean_revision := 0
 var full_rebuilds := 0
 var flow_updates := 0
 var last_ground_cells := 0
+var total_ground_cells := 0
 var _geometry_dirty := {}
 var last_changed_chunks: Array[Vector2i] = []
 var _pending_changed_chunks := {}
@@ -160,6 +161,7 @@ func rebuild() -> void:
 					Vector2(float(x) + 0.5, float(y) + 0.5))
 		last_ground_cells = count
 	_geometry_dirty.clear()
+	total_ground_cells += last_ground_cells
 
 	# Priority-flood: внешняя граница — выходы водосбора.
 	# Каждая вновь открытая клетка связывается с уже извлечённой из очереди.
