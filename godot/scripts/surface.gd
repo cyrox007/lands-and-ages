@@ -63,10 +63,24 @@ func ensure_ready() -> void:
 		rebuild()
 
 
-func rebuild() -> void:
-	# После изменения геометрии пересчитываем породы; временные слои сбрасываются.
+func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
+	# Геология пересчитывается, но снег и влага вне зоны воздействия остаются.
 	hydro.ensure_ready()
 	var count: int = world.config.width * world.config.height
+	var preserve := _type.size() == count and _terrain_revision >= 0 \
+		and not affected_chunks.is_empty()
+	var old_moisture := _moisture.duplicate() if preserve else PackedFloat32Array()
+	var old_snow := _snow.duplicate() if preserve else PackedFloat32Array()
+	var old_frost := _frost.duplicate() if preserve else PackedFloat32Array()
+	var old_air := _air_temperature.duplicate() if preserve else PackedFloat32Array()
+	var affected := PackedByteArray()
+	affected.resize(count)
+	if preserve:
+		for chunk in affected_chunks:
+			var bounds: Rect2i = world.config.chunk_rect(chunk)
+			for y in range(bounds.position.y, bounds.end.y):
+				for x in range(bounds.position.x, bounds.end.x):
+					affected[y * world.config.width + x] = 1
 	_type.resize(count)
 	_depth.resize(count)
 	_fertility.resize(count)
@@ -112,7 +126,26 @@ func rebuild() -> void:
 			_porosity[i] = [0.03, 0.72, 0.84, 0.27, 0.56][kind]
 			_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
 				0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
+			if preserve:
+				_air_temperature[i] = old_air[i]
+				if affected[i] == 0:
+					_moisture[i] = 1.0 if hydro.has_water(i) else old_moisture[i]
+					_snow[i] = old_snow[i]
+					_frost[i] = old_frost[i]
 	_terrain_revision = world.revision
+	revision += 1
+	surface_changed.emit(revision)
+
+
+func synchronize_climate(climate: RefCounted) -> void:
+	# После изменения рельефа обновляем температуру без нового игрового дня.
+	ensure_ready()
+	for i in range(_air_temperature.size()):
+		var air: float = climate.temperature_at_index(i)
+		_air_temperature[i] = air
+		if air >= 18.0:
+			_snow[i] = 0.0
+			_frost[i] = 0.0
 	revision += 1
 	surface_changed.emit(revision)
 
