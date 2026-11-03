@@ -25,13 +25,6 @@ func _make_world() -> Dictionary:
 	var climate := Climate.new(map, hydro)
 	climate.rebuild()
 	var processes := Processes.new(map, hydro, surface, climate)
-	map.vertices_changed.connect(func(chunks: Array[Vector2i], _revision: int) -> void:
-		hydro.rebuild()
-		climate.rebuild()
-		hydro.apply_rainfall_map(surface.runoff_map())
-		surface.rebuild(chunks)
-		surface.synchronize_climate(climate)
-	)
 	return {
 		"map": map, "hydro": hydro, "surface": surface,
 		"climate": climate, "processes": processes
@@ -45,7 +38,16 @@ func _step(state: Dictionary, day: int) -> Dictionary:
 	climate.set_day(day)
 	surface.advance_climate_day(climate)
 	hydro.apply_rainfall_map(surface.runoff_map())
-	return state["processes"].advance_day(day)
+	var result: Dictionary = state["processes"].advance_day(day)
+	if not result.is_empty():
+		var map: RefCounted = state["map"]
+		var chunks: Array[Vector2i] = map.take_dirty_chunks()
+		hydro.rebuild()
+		climate.rebuild()
+		hydro.apply_rainfall_map(surface.runoff_map())
+		surface.rebuild(chunks)
+		surface.synchronize_climate(climate)
+	return result
 
 
 func _height_sum(map: RefCounted) -> float:
@@ -79,6 +81,16 @@ func _initialize() -> void:
 			"Физическая карта воспроизводится независимо от запуска")
 		_check(first_process.advance_day(day).is_empty(),
 			"Повторный вызов не запускает процесс второй раз")
+		if day == 4:
+			var maxima := {"water": 0.0, "wind": 0.0, "slide": 0.0}
+			for y in range(first["map"].config.height):
+				for x in range(first["map"].config.width):
+					var risk: Dictionary = first_process.estimate_at(Vector2i(x, y))
+					if risk.is_empty():
+						continue
+					for kind in maxima.keys():
+						maxima[kind] = maxf(maxima[kind], risk[kind])
+			print("Максимальные природные риски: ", maxima)
 		if a.is_empty():
 			continue
 		changed += 1
