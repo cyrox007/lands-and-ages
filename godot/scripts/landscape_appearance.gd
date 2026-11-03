@@ -1,6 +1,8 @@
 extends RefCounted
 ## Только внешний вид грунта. Законы высот, воды и климата не изменяются.
 
+const SurfaceType = preload("res://scripts/surface.gd")
+
 const ROCK := Color(0.39, 0.42, 0.43)
 const GRAVEL := Color(0.52, 0.49, 0.43)
 const SAND := Color(0.69, 0.61, 0.46)
@@ -38,8 +40,8 @@ static func _cell_color(cell: Vector2i, normal: Vector3,
 	if surface.rock_at_index(index):
 		color = ROCK
 	elif surface.exposed_at_index(index):
-		color = SAND if surface._type[index] == surface.SAND else GRAVEL
-	elif surface._type[index] == surface.CLAY:
+		color = SAND if surface.substrate_at_index(index) == SurfaceType.SAND else GRAVEL
+	elif surface.substrate_at_index(index) == SurfaceType.CLAY:
 		color = CLAY
 
 	var depth: float = surface.soil_depth_at_index(index)
