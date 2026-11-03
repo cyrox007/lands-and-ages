@@ -177,6 +177,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/season-fast-forward.log; then
             exit 1
           fi
+      - name: Фоновая физика и отзывчивость кадров — этап 7.2
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/background_world_smoke.gd 2>&1 | tee /tmp/background-world.log
+          grep -q "Этап 7.2:.*успешно" /tmp/background-world.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/background-world.log; then
+            exit 1
+          fi
       - name: Загрузка игровой сцены
         timeout-minutes: 2
         run: |
