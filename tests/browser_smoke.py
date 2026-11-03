@@ -393,6 +393,22 @@ with sync_playwright() as pw:
         assert len(residents)==4,(name,residents)
         assert len(set(r['variant'] for r in residents))==4
         page.wait_for_function('window.__strategyDebug().paintedReady()',timeout=20000)
+        # Все изображения и тени привязаны к земле, включая масштаб 208%.
+        ground=page.evaluate("""() => {
+          const d=window.__strategyDebug(),M=window.StrategyUnitGround;
+          const coordinates=d.unitGroundAt(12.5,10.5);
+          const results={};
+          for(const kind of ['logger','painted','classic']){
+            const rect=d.unitSpriteRect(12.5,10.5,42,kind);
+            results[kind]=M.footAt(rect,kind);
+          }
+          const shade=d.unitShadowRect(12.5,10.5,.34);
+          return {ground:coordinates,feet:results,
+            shadow:{x:shade.x+shade.width/2,y:shade.y+shade.height/2}};
+        }""")
+        for point in [*ground['feet'].values(),ground['shadow']]:
+            assert abs(point['x']-ground['ground']['x'])<.001,(name,ground)
+            assert abs(point['y']-ground['ground']['y'])<.001,(name,ground)
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
