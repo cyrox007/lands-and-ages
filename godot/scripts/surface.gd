@@ -402,6 +402,10 @@ func advance_climate_day(climate: RefCounted) -> bool:
 	surface_changed.emit(revision)
 	return true
 
+func substrate_at_index(i: int) -> int:
+	return _type[i] if i >= 0 and i < _type.size() else -1
+
+
 func moisture_at_index(i: int) -> float:
 	return _moisture[i] if i >= 0 and i < _moisture.size() else 0.0
 
