@@ -50,22 +50,24 @@ test('руки и ноги отдельно меняют положение, н�
   assert.throws(()=>Frames.pose('porter','fly',0,'se'),/Неизвестная/);
 });
 
-test('первый проход по Canvas действительно рисует отдельные слои тела',()=>{
-  const calls=[];
-  const gradient={addColorStop(){}};
-  const target={};
-  for(const method of ['save','restore','translate','scale','rotate','beginPath','rect',
-    'clip','drawImage','moveTo','lineTo','stroke','fill','ellipse','quadraticCurveTo',
-    'closePath','arc']){
-    target[method]=(...args)=>calls.push([method,...args]);
-  }
-  target.createLinearGradient=()=>gradient;
-  const image={naturalWidth:1056,naturalHeight:144};
-  assert.equal(Frames.drawFrame(target,image,'logger','fell_tree',2,'se'),true);
-  assert.ok(calls.filter(c=>c[0]==='drawImage').length>=4);
+test('цельная фигура сохраняет ширину корпуса и две текстурные ноги',()=>{
+  const calls=[],target={};
+  for(const name of ['save','restore','translate','scale','rotate',
+    'beginPath','rect','clip','drawImage','fillRect'])
+    target[name]=(...args)=>calls.push([name,...args]);
+  const img={naturalWidth:1056,naturalHeight:144};
+  assert.equal(Frames.drawFrame(target,img,'logger','fell_tree',2,'se'),true);
+  const sprites=calls.filter(c=>c[0]==='drawImage');
+  assert.equal(sprites.length,3);
+  assert.equal(sprites[0][2],Frames.ROLES.logger*96);
+  assert.equal(sprites[1][2],Frames.ROLES.logger*96);
+  assert.deepEqual(sprites[2].slice(2,6),[Frames.ROLES.logger*96,0,96,111],
+    'Корпус, голова и обе руки берутся из полной ширины оригинального рисунка');
   assert.ok(calls.filter(c=>c[0]==='rotate').length>=3);
-  assert.ok(calls.some(c=>c[0]==='ellipse'));
-  const before=calls.length;
+  assert.ok(!calls.some(c=>c[0]==='ellipse'),
+    'Нельзя подменять затылок огромным шаром');
+  assert.equal(calls.at(-1)[0],'restore');
+  const count=calls.length;
   assert.equal(Frames.drawFrame(target,null,'logger','fell_tree',2,'se'),false);
-  assert.equal(calls.length,before);
+  assert.equal(calls.length,count);
 });
