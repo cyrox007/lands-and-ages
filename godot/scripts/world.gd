@@ -6,6 +6,8 @@ const WorldConfig = preload("res://scripts/world_config.gd")
 const WorldMap = preload("res://scripts/world_map.gd")
 const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
+const Hydrology = preload("res://scripts/hydrology.gd")
+const WaterMesh = preload("res://scripts/water_mesh.gd")
 
 const VIEW_RADIUS := 4
 const BUILD_PER_FRAME := 2
@@ -14,6 +16,8 @@ const MIN_ZOOM := 16.0
 const MAX_ZOOM := 105.0
 
 var _world_model: RefCounted
+var _hydro: RefCounted
+var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
 var _terrain_holder: Node3D
@@ -28,6 +32,8 @@ var _hud_timer := 0.0
 func _ready() -> void:
 	_world_model = WorldMap.new(WorldConfig.new())
 	_world_model.vertices_changed.connect(_on_world_changed)
+	_hydro = Hydrology.new(_world_model)
+	_hydro.rebuild()
 	_center = Vector2(_world_model.config.width, _world_model.config.height) * 0.5
 	_setup_environment()
 	_setup_materials()
@@ -67,6 +73,11 @@ func _setup_materials() -> void:
 	_ground_material.vertex_color_use_as_albedo = true
 	_ground_material.roughness = 1.0
 	_ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_water_material = StandardMaterial3D.new()
+	_water_material.vertex_color_use_as_albedo = true
+	_water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_water_material.roughness = 0.25
+	_water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 
 func _setup_interface() -> void:
@@ -81,9 +92,13 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 2: физический рельеф. Вода и климат пока отключены."
+	info.text = "Этап 3: сток, реки и озёра. Осадки — испытательный множитель, не погода."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
+	var rain_button := Button.new()
+	rain_button.text = "Переключить осадки"
+	rain_button.pressed.connect(_cycle_rainfall)
+	column.add_child(rain_button)
 	var hint := Label.new()
 	hint.text = "WASD / стрелки — перемещение · колесо — масштаб · пальцем — сдвиг"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -179,29 +194,52 @@ func _create_chunk(coord: Vector2i) -> void:
 	ground.material_override = _ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
+	var water_mesh: ArrayMesh = WaterMesh.create_mesh(_world_model, _hydro, coord)
+	if water_mesh.get_surface_count() > 0:
+		var water_node := MeshInstance3D.new()
+		water_node.name = "Поверхностная вода"
+		water_node.mesh = water_mesh
+		water_node.material_override = _water_material
+		water_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		node.add_child(water_node)
 	_terrain_holder.add_child(node)
 	_active[coord] = node
 
 
-func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
-	for coord in chunks:
-		if not _active.has(coord):
-			continue
-		_active[coord].queue_free()
-		_active.erase(coord)
-	_refresh_visible(false)
+func _on_world_changed(_chunks: Array[Vector2i], _revision: int) -> void:
+	# Изменение одной высоты способно перенаправить воду далеко вниз по бассейну.
+	# Пока перестраиваем водосбор целиком; оптимизация зависит от будущего профиля.
+	_hydro.rebuild()
+	_refresh_visible(true)
+
+
+func _cycle_rainfall() -> void:
+	var next := 2.2
+	if _hydro.rainfall > 1.5:
+		next = 0.4
+	elif _hydro.rainfall < 0.8:
+		next = 1.0
+	_hydro.set_rainfall(next)
+	_refresh_visible(true)
+	_update_hud()
 
 
 func _update_hud() -> void:
 	if _status == null:
 		return
 	var profile := Relief.profile_at(_world_model, _center)
-	_status.text = "ЗЕМЛИ И ЭПОХИ · РЕЛЬЕФ\n"
+	var water: Dictionary = _hydro.water_at(_world_model.config.cell_at(_center))
+	var amounts: Dictionary = _hydro.water_count()
+	_status.text = "ЗЕМЛИ И ЭПОХИ · ГИДРОЛОГИЯ\n"
 	_status.text += "Карта %d×%d · генератор v%d · seed %d\n" % [
 		_world_model.config.width, _world_model.config.height,
 		_world_model.config.generator_version, _world_model.config.seed]
 	_status.text += "%s · высота %.2f · уклон %.1f°\n" % [
 		profile["form"], profile["height"], profile["slope_degrees"]]
+	_status.text += "Водосбор %.0f · вода %.2f · осадки ×%.1f\n" % [
+		water["catchment"], water["depth"], _hydro.rainfall]
+	_status.text += "Озёра %d · реки %d · разливы %d\n" % [
+		amounts["lakes"], amounts["rivers"], amounts["flooded"]]
 	_status.text += "FPS %d · чанки %d/%d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size()]
