@@ -664,21 +664,28 @@
       if(r.point){if(r.point==='wealth')this.coins+=r.gain;else this[r.point]+=r.gain;}
     }
     // Reservations exclude cargo/jobs already allocated to a carrier.
-    resourceCell(b,type){
-      let best=null,dist=Infinity;
-      for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++)
+    resourceCell(b,type,agent=null){
+      let best=null,cost=Infinity;
+      for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++){
         for(let x=Math.max(0,b.x-3);x<=Math.min(W-1,b.x+3);x++){
-          const tile=this.tiles[id(x,y)],d=distance({x,y},b);
-          if(((type==='logger'&&tile.terrain==='forest'&&tile.wood>=2&&['mature','old'].includes(this.treeStage(tile)))||
-              (type==='quarry'&&tile.terrain==='hills'&&tile.stone>=2)||
-              (type==='farm'&&this.fields.some(f=>f.x===x&&f.y===y&&f.stage==='ripe'))) &&
-             d<dist){best={x,y};dist=d;}
+          const tile=this.tiles[id(x,y)];
+          const tree=type==='logger'&&tile.terrain==='forest'&&tile.wood>=2&&
+            ['mature','old'].includes(this.treeStage(tile));
+          const stone=type==='quarry'&&tile.terrain==='hills'&&tile.stone>=2;
+          const crop=type==='farm'&&this.fields.some(f=>
+            f.x===x&&f.y===y&&f.stage==='ripe');
+          if(!tree&&!stone&&!crop)continue;
+          const path=agent?this.approachPath(agent,{x,y}):null;
+          if(agent&&!path)continue;
+          const length=path?.length??distance({x,y},b);
+          if(length>=cost)continue;
+          cost=length;best={x,y,path};
         }
+      }
       return best;
     }
-    // Separate resident task from carrier logistics: residents walk from
-    // their workshop to the natural source, work, and return with a real load.
-    // Only arrival at the workshop deposits newly extracted resources.
+    // Люди не входят в дерево или здание: они подходят к соседней клетке,
+    // разворачиваются к цели и только после этого начинают работу.
     advanceWorkAgents(dt){
       if(this.scenario!=='settlement')return;
       const primary=new Set(['logger','quarry','farm']);
@@ -686,55 +693,63 @@
         const b=this.buildings.find(v=>v.id===a.buildingId);
         return Boolean(b&&primary.has(b.type)&&((this.staff[b.id]||0)>0||a.carrying));
       });
+      const home=this.entrance(this.warehouse());
       for(const b of this.buildings){
         if(!primary.has(b.type)||(this.staff[b.id]||0)<1)continue;
-        if(!this.workAgents.some(a=>a.buildingId===b.id))
-          this.workAgents.push({buildingId:b.id,x:this.warehouse().x+.5,
-            y:this.warehouse().y+.5,phase:'arrive',target:null,progress:0,carrying:null});
+        if(this.workAgents.some(a=>a.buildingId===b.id))continue;
+        if(!home)continue;
+        this.workAgents.push({buildingId:b.id,x:home.x+.5,y:home.y+.5,
+          phase:'arrive',target:null,progress:0,carrying:null,
+          path:[],segment:0,facing:'se'});
       }
       for(const a of this.workAgents){
         const b=this.buildings.find(v=>v.id===a.buildingId);
-        if(!b)continue;
+        if(!b||!this.recoverAgent(a))continue;
         if(a.phase==='idle'){
-          a.x=b.x+.5;a.y=b.y+.5;b.progress=0;
+          b.progress=0;
           if(!this.readyToProduce(b))continue;
-          const cell=this.resourceCell(b,b.type);
+          const cell=this.resourceCell(b,b.type,a);
           if(!cell)continue;
-          a.target=cell;a.phase='out';a.progress=0;
+          a.target={x:cell.x,y:cell.y};
+          a.path=cell.path;a.segment=0;a.phase='out';a.progress=0;
         }
-        if(a.phase==='out'||a.phase==='return'||a.phase==='arrive'){
-          const destination=a.phase==='return'||a.phase==='arrive'?
-            {x:b.x+.5,y:b.y+.5}:{x:a.target.x+.5,y:a.target.y+.5};
-          const dx=destination.x-a.x,dy=destination.y-a.y,d=Math.hypot(dx,dy),travel=dt*1.65;
-          if(d>travel){a.x+=dx/d*travel;a.y+=dy/d*travel;}
-          else {
-            a.x=destination.x;a.y=destination.y;
-            if(a.phase==='out'){a.phase='work';a.progress=0;}
-            else {
-              if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
-              a.carrying=null;a.phase='idle';b.progress=0;
-            }
+        if(['out','return','arrive'].includes(a.phase)){
+          const destination=a.phase==='out'?a.target:b;
+          if(!destination){a.phase='idle';a.path=[];continue;}
+          const arrived=this.advanceAgentPath(a,destination,dt);
+          if(!arrived)continue;
+          if(a.phase==='out'){
+            a.phase='work';a.progress=0;
+          }else{
+            if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
+            a.carrying=null;a.phase='idle';b.progress=0;
           }
-        }else if(a.phase==='work'){
-          if((this.staff[b.id]||0)<1){a.phase='return';continue;}
-          a.progress+=dt;b.progress=a.progress;
-          const duration=ECONOMY_PACE.gathering[b.type];
-          if(a.progress<duration)continue;
-          const cell=a.target,tile=this.tiles[id(cell.x,cell.y)];
-          if(b.type==='logger'&&this.harvestTree(tile,2)){
-            a.carrying={res:'logs',amount:2};
-          }else if(b.type==='quarry'&&tile.stone>=2){
-            tile.stone-=2;a.carrying={res:'stone',amount:2};
-          }else if(b.type==='farm'){
-            const field=this.fieldAt(cell.x,cell.y);
-            if(field&&field.stage==='ripe'){
-              a.carrying=field.crop==='vegetables'?{res:'vegetables',amount:2}:
-                {res:'grain',amount:field.crop==='barley'?3:2};
-              field.stage='sown';field.progress=0;field.harvests++;
-            }
-          }
-          a.phase='return';a.progress=0;b.progress=0;
+          continue;
         }
+        if(a.phase!=='work')continue;
+        if(!a.target){a.phase='return';continue;}
+        a.facing=Nav.facing(a,Nav.centre(a.target),a.facing);
+        if((this.staff[b.id]||0)<1){
+          a.phase='return';a.path=[];continue;
+        }
+        a.progress+=dt;b.progress=a.progress;
+        const duration=ECONOMY_PACE.gathering[b.type];
+        if(a.progress<duration)continue;
+        const tile=this.tiles[id(a.target.x,a.target.y)];
+        if(b.type==='logger'&&this.harvestTree(tile,2)){
+          a.carrying={res:'logs',amount:2};
+        }else if(b.type==='quarry'&&tile.stone>=2){
+          tile.stone-=2;a.carrying={res:'stone',amount:2};
+        }else if(b.type==='farm'){
+          const field=this.fieldAt(a.target.x,a.target.y);
+          if(field&&field.stage==='ripe'){
+            a.carrying=field.crop==='vegetables'?{res:'vegetables',amount:2}:
+              {res:'grain',amount:field.crop==='barley'?3:2};
+            field.stage='sown';field.progress=0;field.harvests++;
+          }
+        }
+        a.phase='return';a.path=[];a.segment=0;
+        a.progress=0;b.progress=0;
       }
     }
     reservedFrom(bId,k){return this.carriers.reduce((sum,c)=>sum+(c.job?.source===bId&&c.job.res===k&&!c.carrying?c.job.amount:0),0);}
