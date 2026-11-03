@@ -120,13 +120,13 @@ func advance_day(day: int) -> Dictionary:
 
 func _move_sediment(plan: Dictionary) -> Dictionary:
 	var kind: String = plan["kind"]
-	var from: Vector2i = plan["cell"]
+	var source: Vector2i = plan["cell"]
 	var risk: Dictionary = plan["risk"]
 	var target: Vector2i = risk["downstream"] if kind == "water" \
 		else risk["wind_target"]
-	if not world.config.contains_vertex(target) or from == target:
+	if not world.config.contains_vertex(target) or source == target:
 		return {}
-	var a: float = world.vertex_at(from)
+	var a: float = world.vertex_at(source)
 	var b: float = world.vertex_at(target)
 	var amount := clampf(float(risk[kind]) * 0.012, 0.001, 0.012)
 	if kind == "water":
@@ -135,7 +135,7 @@ func _move_sediment(plan: Dictionary) -> Dictionary:
 		return {}
 	# Перенос грунта консервативный в единицах высотной сетки.
 	# Любая неудачная запись отменяет сразу оба конца переноса.
-	if not world.apply_vertex_changes({from: a - amount, target: b + amount}):
+	if not world.apply_vertex_changes({source: a - amount, target: b + amount}):
 		return {}
 	return {
 		"kind": "водная эрозия" if kind == "water" else "ветровой перенос",
