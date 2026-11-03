@@ -5,6 +5,7 @@ extends RefCounted
 signal surface_changed(revision: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
+const Climate = preload("res://scripts/climate.gd")
 const FORMAT_VERSION := 2
 const ROCK := 0
 const GRAVEL := 1
@@ -28,6 +29,8 @@ var _moisture := PackedFloat32Array()
 var _snow := PackedFloat32Array()
 var _frost := PackedFloat32Array()
 var _air_temperature := PackedFloat32Array()
+var _runoff := PackedFloat32Array()
+var snow_coverage := 0.0
 
 
 func _init(map: RefCounted, hydrology: RefCounted) -> void:
@@ -73,6 +76,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	var old_snow := _snow.duplicate() if preserve else PackedFloat32Array()
 	var old_frost := _frost.duplicate() if preserve else PackedFloat32Array()
 	var old_air := _air_temperature.duplicate() if preserve else PackedFloat32Array()
+	var old_runoff := _runoff.duplicate() if preserve else PackedFloat32Array()
 	var affected := PackedByteArray()
 	affected.resize(count)
 	if preserve:
@@ -89,7 +93,9 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	_snow.resize(count)
 	_frost.resize(count)
 	_air_temperature.resize(count)
+	_runoff.resize(count)
 	_air_temperature.fill(12.0)
+	_runoff.fill(0.0)
 	_snow.fill(0.0)
 	_frost.fill(0.0)
 	for y in range(world.config.height):
@@ -129,10 +135,12 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 			if preserve:
 				_air_temperature[i] = old_air[i]
 				if affected[i] == 0:
+					_runoff[i] = old_runoff[i]
 					_moisture[i] = 1.0 if hydro.has_water(i) else old_moisture[i]
 					_snow[i] = old_snow[i]
 					_frost[i] = old_frost[i]
 	_terrain_revision = world.revision
+	_update_snow_coverage()
 	revision += 1
 	surface_changed.emit(revision)
 
@@ -143,35 +151,66 @@ func synchronize_climate(climate: RefCounted) -> void:
 	for i in range(_air_temperature.size()):
 		var air: float = climate.temperature_at_index(i)
 		_air_temperature[i] = air
-		if air >= 18.0:
-			_snow[i] = 0.0
-			_frost[i] = 0.0
+	# Смена рельефа сама по себе не переключает снег или лёд.
+	# Снежный покров меняется только во время физического шага.
 	revision += 1
 	surface_changed.emit(revision)
 
 
 func _apply_weather(i: int, rain: float, air: float) -> void:
 	_air_temperature[i] = air
+	var snow_share: float = Climate.snowfall_fraction(air)
+	var snowfall: float = rain * snow_share
+	var liquid: float = rain - snowfall
 	var melt := 0.0
 	if air <= 0.0:
-		_snow[i] = clampf(_snow[i] + rain * 0.18, 0.0, 1.0)
+		_snow[i] = clampf(_snow[i] + snowfall * 0.18, 0.0, 1.0)
 		_frost[i] = clampf(_frost[i] + 0.15 + absf(air) * 0.012, 0.0, 1.0)
 	else:
-		melt = minf(_snow[i], air * 0.075)
+		# Снег тает по дням; +30 °C ускоряет процесс, но не удаляет
+		# накопленный покров мгновенно при смене календарного сезона.
+		melt = minf(_snow[i], 0.025 + air * 0.008)
 		_snow[i] -= melt
-		_frost[i] = maxf(0.0, _frost[i] - 0.12 - air * 0.035)
-		if air >= 18.0:
-			# Суточный шаг: при сильной жаре остаточный снег и лёд невозможны.
-			_snow[i] = 0.0
-			_frost[i] = 0.0
-	var infiltration: float = rain * (0.11 + _porosity[i] * 0.21) \
-		* (1.0 - _frost[i] * 0.70) if air > 0.0 else 0.0
+		_frost[i] = maxf(0.0, _frost[i] - 0.03 - air * 0.009)
+		if snow_share > 0.0:
+			_snow[i] = clampf(_snow[i] + snowfall * 0.18, 0.0, 1.0)
+	var infiltration := liquid * (0.11 + _porosity[i] * 0.21) \
+		* (1.0 - _frost[i] * 0.70)
 	var evaporation: float = 0.018 + maxf(0.0, air) * 0.0035
 	var floor_wetness: float = 0.10 + hydro.wetness_at(i) * 0.33
 	_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
 		maxf(_moisture[i], floor_wetness) + infiltration + melt * 0.52
 		- evaporation, 0.0, 1.0)
+	# Снег не поступает сразу в реки: сток увеличивается при оттепели.
+	_runoff[i] = clampf(liquid + melt * 0.65, 0.0, 3.0)
 
+
+func _update_snow_coverage() -> void:
+	if _snow.is_empty():
+		snow_coverage = 0.0
+		return
+	var snow_cells := 0
+	for amount in _snow:
+		if amount > 0.12:
+			snow_cells += 1
+	snow_coverage = float(snow_cells) / float(_snow.size())
+
+
+func runoff_map() -> PackedFloat32Array:
+	return _runoff.duplicate()
+
+
+func snow_color_at(cell: Vector2i) -> Color:
+	# Отдельный обзорный слой показывает постепенное наступление зимы.
+	ensure_ready()
+	var i := _index(cell)
+	if i < 0:
+		return Color.DARK_GRAY
+	var base := Color(0.23, 0.31, 0.26)
+	if hydro.has_water(i):
+		base = Color(0.16, 0.37, 0.55).lerp(
+			Color(0.66, 0.80, 0.89), _frost[i])
+	return base.lerp(Color(0.94, 0.96, 0.98), _snow[i])
 
 func advance_day(rain: float, air_temperature: float) -> bool:
 	# Ручной режим оставлен для изолированных тестов этапа 4.
@@ -185,6 +224,7 @@ func advance_day(rain: float, air_temperature: float) -> bool:
 	for i in range(_type.size()):
 		_apply_weather(i, rain, air_temperature)
 	day += 1
+	_update_snow_coverage()
 	revision += 1
 	surface_changed.emit(revision)
 	return true
@@ -208,6 +248,7 @@ func advance_climate_day(climate: RefCounted) -> bool:
 	day = climate.day
 	precipitation = total_rain / float(_type.size())
 	temperature = total_temperature / float(_type.size())
+	_update_snow_coverage()
 	revision += 1
 	surface_changed.emit(revision)
 	return true
@@ -263,7 +304,7 @@ func color_at(cell: Vector2i, mode: int = 0) -> Color:
 	color = color.lerp(Color(0.25, 0.22, 0.17), _moisture[i] * 0.38)
 	if _frost[i] > 0.55:
 		color = color.lerp(Color(0.69, 0.75, 0.78), _frost[i] * 0.28)
-	if _snow[i] > 0.12:
+	if _snow[i] > 0.0:
 		color = color.lerp(Color(0.91, 0.94, 0.96), _snow[i])
 	return color
 
@@ -329,6 +370,7 @@ func load_data(data: Dictionary) -> bool:
 	day = int(data["day"])
 	temperature = temp
 	precipitation = rain
+	_update_snow_coverage()
 	revision += 1
 	surface_changed.emit(revision)
 	return true

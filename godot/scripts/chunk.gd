@@ -31,6 +31,8 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 				mini(y, world.config.height - 1))
 			if mode == 0 or surface == null:
 				colors.push_back(Relief.relief_color(h, normal))
+			elif mode == 5:
+				colors.push_back(surface.snow_color_at(cell))
 			elif mode <= 2 or climate == null:
 				colors.push_back(surface.color_at(cell, mode - 1))
 			else:
