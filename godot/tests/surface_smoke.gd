@@ -24,13 +24,11 @@ func _run() -> void:
 	hydro.rebuild()
 	var surface := Surface.new(world, hydro)
 	surface.rebuild()
-	var duplicate := Surface.new(WorldMap.new(Config.new(64, 48, 1729)),
-		Hydrology.new(WorldMap.new(Config.new(64, 48, 1729))))
-	# Отдельные источники не подменяют геологию: сравниваем повторно из одного мира.
+	# Повторная генерация проверяется на независимой карте с тем же seed.
 	var other_world := WorldMap.new(Config.new(64, 48, 1729))
 	var other_hydro := Hydrology.new(other_world)
 	other_hydro.rebuild()
-	duplicate = Surface.new(other_world, other_hydro)
+	var duplicate := Surface.new(other_world, other_hydro)
 	duplicate.rebuild()
 	var examples := {}
 	var dry := Vector2i(-1, -1)
