@@ -97,6 +97,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/climate-smoke.log; then
             exit 1
           fi
+      - name: Проверка плавной смены сезонов
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/seasonal_cycle_smoke.gd 2>&1 | tee /tmp/seasons-smoke.log
+          grep -q "Сезоны:.*успешно" /tmp/seasons-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/seasons-smoke.log; then
+            exit 1
+          fi
       - name: Природные изменения карты — этап 6.1
         timeout-minutes: 4
         run: |
