@@ -85,6 +85,8 @@ func _test_storms() -> void:
 				wet_strikes += 1
 	_check(storm_days > 0, "За год формируются реальные грозовые области")
 	_check(total > 0, "За год молнии ударяют в землю")
+	_check(potential_ignitions > 0,
+		"Иногда возможен удар молнии с риском воспламенения суши")
 	_check(total == first.total_strikes, "Счётчик молний соответствует событиям")
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(first.to_data()))
 	var restored := WeatherEvents.new(a["map"], a["climate"], a["surface"], a["hydro"])
@@ -151,7 +153,7 @@ func _test_flood_and_wetlands() -> void:
 				float(soil["waterlogging"]))
 			if bool(soil["wetland"]):
 				wetland_cells += 1
-	_check(max_waterlogging > 0.5,
+	_check(max_waterlogging > 0.66 and wetland_cells > 0,
 		"Многодневные дожди заболачивают сушу, не только озеро")
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(surface.to_data()))
 	var restored := Surface.new(world, hydro)
