@@ -27,5 +27,9 @@ jobs:
         run: |
           /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --editor --import --quit
       - name: Тест высот, климата и чанков
+        timeout-minutes: 2
         run: |
-          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --script res://tests/world_smoke.gd
+          set -o pipefail
+          timeout 75s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_smoke.gd 2>&1 | tee /tmp/world-smoke.log
+          grep -q "успешно" /tmp/world-smoke.log
