@@ -338,6 +338,12 @@ func has_water(index: int) -> bool:
 	return index >= 0 and index < _water_level.size() and not is_nan(_water_level[index])
 
 
+func wetness_at(index: int) -> float:
+	if index < 0 or index >= _wetness.size():
+		return 0.0
+	return _wetness[index]
+
+
 func ocean_at(index: int) -> bool:
 	return index >= 0 and index < _ocean.size() and _ocean[index] != 0
 
