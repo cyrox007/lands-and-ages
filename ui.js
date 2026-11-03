@@ -52,9 +52,21 @@
   const PaintedMotion=window.StrategyPaintedMotion;
   const Profession=window.StrategyProfessionActions;
   const Frames=window.StrategyProfessionFrames;
-  const Woodcutting=window.StrategyWoodcutting;
+  // Лесоруб использует реальные растровые кадры, без дорисовки суставов и топора.
+  const LOGGER_STATES=['idle','walk','fell_tree','carry_logs'];
+  const loggerAtlases={};
+  let loggerRasterDrawCount=0;
+  for(const state of LOGGER_STATES){
+    const image=new Image();
+    image.src=window.StrategyLoggerAtlases?.[state]||
+      ('assets/characters/logger/logger-'+state+'.webp');
+    loggerAtlases[state]=image;
+  }
+  const loggerAtlasReady=state=>{
+    const image=loggerAtlases[state];
+    return Boolean(image?.naturalWidth===768&&image?.naturalHeight===576);
+  };
   const professionSheets=new Map();
-  let woodcuttingDrawCount=0;
   const paintedCounters={idle:0,walk:0,work:0,carry:0};
   const professionCounters={};
   const frameCounters={};
@@ -69,6 +81,26 @@
     return professionSheets.get(key);
   }
   function paintedSprite(role,x,y,size,seed=0,state='idle',frame=0,direction='se',action=''){
+    if(role==='logger'){
+      const stateName=state==='work'?'fell_tree':state==='carry'?'carry_logs':
+        state==='walk'?'walk':'idle';
+      const row={se:0,sw:1,ne:2,nw:3}[direction]??0;
+      if(loggerAtlasReady(stateName)){
+        const atlas=loggerAtlases[stateName];
+        const phase=((Math.floor(frame)%8)+8)%8;
+        ctx.drawImage(atlas,phase*96,row*144,96,144,
+          x-size*.5,y-size*1.5,size,size*1.5);
+        loggerRasterDrawCount++;
+        paintedCounters[state]++;
+        return true;
+      }
+      // Пока WebP загружается, нельзя показывать неполную процедурную фигуру.
+      if(!paintedReady())return false;
+      const sourceIndex=PAINTED_ROLES.indexOf('logger');
+      ctx.drawImage(paintedPeople,sourceIndex*PAINTED_W,0,PAINTED_W,PAINTED_H,
+        x-size*.5,y-size*1.5,size,size*1.5);
+      return true;
+    }
     if(!paintedReady())return false;
     const atlas=professionSheet(role,action);
     if(atlas){
@@ -262,7 +294,9 @@
     const fallback=role==='builder'?(working?'worker-builder-work':'worker-builder-walk'):
       V.porterAppearance(entity.carrying).bodySheet;
     const seed=entity.id||entity.buildingId||0;
-    const frame=state==='walk'||state==='carry'?V.gaitFrame(previous?.distance??0):
+    const frame=role==='logger'&&state==='work'?
+      Math.floor(Math.max(0,entity.progress||0)*7)%8:
+      state==='walk'||state==='carry'?V.gaitFrame(previous?.distance??0):
       state==='idle'?Math.floor(animationClock*1.7+seed*1.91)%8:
       V.animationFrame(state,animationClock,seed);
     const direction=face?.moving?face.direction:(previous?.direction||'se');
@@ -763,15 +797,9 @@
     const w=t*1.14*scale,ht=h*3.05*scale;
     castShadow(p.x,p.y+h*.10,t,h,scale*1.04,.30);
     blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.26);
-    const woodcutter=game.workAgents.find(a=>a.phase==='work'&&
-      a.target?.x===x&&a.target?.y===y&&
-      game.buildings.some(b=>b.id===a.buildingId&&b.type==='logger'));
     const wind=(!isSmall?Math.sin(animationClock*.8+x*.6+y*.9)*.009:0);
-    const shake=woodcutter&&Woodcutting?Woodcutting.sway(woodcutter.progress):0;
-    ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind+shake);
+    ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind);
     ctx.drawImage(sprite,-w/2,-ht,w,ht);ctx.restore();
-    if(woodcutter&&Woodcutting)
-      Woodcutting.chips(ctx,p.x,p.y-h*.30,t*.7,woodcutter.progress);
   }
   function ruins(x,y){
     const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
@@ -1349,22 +1377,13 @@
       const moving=['arrive','out','return'].includes(a.phase);
       drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
     }
-    if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
-    // Топор должен быть виден и с готовым художественным спрайтом.
-    // Раньше замах показывался только в резервной отрисовке !animated.
-    if(role==='logger'&&a.phase==='work'&&Woodcutting){
-      const frame=Woodcutting.frameAt(a.progress);
-      const facing=workerState(a,role).direction;
-      if(Woodcutting.draw(ctx,p.x,p.y+h*.19,t*.44,frame,facing))
-        woodcuttingDrawCount++;
-    }
-    if(!animated&&a.phase==='work'&&!(role==='logger'&&Woodcutting)){
+    // В кадрах carry_logs связка брёвен уже нарисована.
+    const cargoInAtlas=role==='logger'&&a.carrying?.res==='logs'&&
+      loggerAtlasReady('carry_logs');
+    if(a.carrying&&!cargoInAtlas)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
+    if(!animated&&a.phase==='work'&&role!=='logger'){
       const wave=Math.sin(animationClock*9+a.buildingId);
-      if(b.type==='logger'){
-        line(p.x+t*.045,p.y-h*.11,p.x+t*(.17+.06*wave),p.y-h*(.40+.05*wave),'#94673b',2.5*zoom);
-        line(p.x+t*(.17+.06*wave),p.y-h*(.40+.05*wave),
-          p.x+t*(.25+.06*wave),p.y-h*(.43+.05*wave),'#c3d4cd',3*zoom);
-      }else if(b.type==='quarry'){
+      if(b.type==='quarry'){
         line(p.x+t*.035,p.y-h*.10,p.x+t*(.18+.06*wave),p.y-h*(.39+.03*wave),'#876544',2*zoom);
         line(p.x+t*(.13+.06*wave),p.y-h*(.41+.03*wave),
           p.x+t*(.25+.06*wave),p.y-h*(.36+.03*wave),'#d0d4ca',3*zoom);
@@ -1877,8 +1896,9 @@
     frameCounts:()=>({...frameCounters}),
     frameSheets:()=>Array.from(professionSheets.keys()),
     framePose:(role,action,frame,direction)=>Frames?.pose(role,action,frame,direction),
-    woodcuttingDraws:()=>woodcuttingDrawCount,
-    woodcuttingFrame:(seconds)=>Woodcutting?.frameAt(seconds),
+    loggerRasterDraws:()=>loggerRasterDrawCount,
+    loggerAtlasReady:(state)=>loggerAtlasReady(state),
+    loggerStates:LOGGER_STATES.slice(),
     woodcutters:()=>game.workAgents.filter(a=>
       game.buildings.some(b=>b.id===a.buildingId&&b.type==='logger'))
       .map(a=>({phase:a.phase,progress:a.progress,target:a.target})),
