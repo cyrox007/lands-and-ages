@@ -8,6 +8,7 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Disasters = preload("res://scripts/natural_disasters.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const Natural = preload("res://scripts/natural_processes.gd")
 
 var failures: Array[String] = []
 
@@ -79,6 +80,8 @@ func _test_hydrology(width: int, height: int) -> void:
 		"Гидрология читает только изменённые физические клетки")
 	_check(reference.last_ground_cells == width * height,
 		"Эталон перечитывает всю поверхность карты")
+	_check(incremental.total_ground_cells == width * height + updated,
+		"Суммарные объёмы чтения высот измеряются без пропусков")
 	_check(incremental.full_rebuilds == reference.full_rebuilds,
 		"Количество запусков priority-flood не меняется")
 	_check(incremental.ocean_revision == reference.ocean_revision,
@@ -87,6 +90,54 @@ func _test_hydrology(width: int, height: int) -> void:
 	print("Этап 7.3, ", width, "×", height,
 		": локально ", partial_us, " мкс, полностью ", full_us,
 		" мкс; клеток высоты ", updated, "/", width * height)
+
+
+func _test_direct_physics() -> void:
+	var map := Map.new(Config.new(64, 48, 1729, 16, 32))
+	var hydro := Hydro.new(map)
+	hydro.rebuild()
+	var surface := Surface.new(map, hydro)
+	surface.rebuild()
+	var climate := Climate.new(map, hydro)
+	climate.rebuild()
+	climate.set_day(24)
+	surface.advance_climate_day(climate)
+	hydro.apply_rainfall_map(surface.runoff_map())
+	var processes := Natural.new(map, hydro, surface, climate)
+	var accepted := 0
+	for y in range(2, 48, 9):
+		for x in range(2, 64, 11):
+			var cell := Vector2i(x, y)
+			var i: int = hydro.cell_index(cell)
+			var soil: Dictionary = surface.profile_at(cell)
+			var water: Dictionary = hydro.water_at(cell)
+			var weather: Dictionary = climate.weather_at(cell)
+			_check(soil["moisture"] == surface.moisture_at_index(i),
+				"Быстрое чтение влажности совпадает с полным профилем")
+			_check(soil["snow"] == surface.snow_at_index(i),
+				"Быстрое чтение снега совпадает с полным профилем")
+			_check(soil["depth"] == surface.soil_depth_at_index(i),
+				"Толщина доступного грунта не меняется")
+			_check(soil["erosion_risk"] == surface.erosion_risk_at_index(i),
+				"Риск размыва не меняется")
+			_check((soil["substrate"] == "скала") == surface.rock_at_index(i),
+				"Скальная основа определяется прежним правилом")
+			_check((soil["substrate"] in ["песок", "щебень"])
+				== surface.exposed_at_index(i),
+				"Рыхлые открытые породы совпадают")
+			_check(water["discharge"] == hydro.discharge_at_index(i),
+				"Расход реки совпадает с полным профилем")
+			_check(weather["rainfall"] == climate.precipitation_at_index(i)
+				* (1.0 - Climate.snowfall_fraction(
+					climate.temperature_at_index(i))),
+				"Для селей учитывается прежняя жидкая часть осадков")
+			if not hydro.ocean_at(i) and not hydro.lake_at(i):
+				accepted += 1
+				var risk: Dictionary = processes.estimate_at(cell)
+				for kind in ["water", "wind", "slide", "coast", "delta"]:
+					_check(risk.has(kind) and float(risk[kind]) >= 0.0,
+						"Оценка эрозии осталась физически допустимой")
+	_check(accepted > 0, "Риски проверены на настоящей суше")
 
 
 func _test_fault_cache() -> void:
@@ -128,6 +179,7 @@ func _initialize() -> void:
 	_test_hydrology(128, 96)
 	_test_hydrology(256, 192)
 	_test_fault_cache()
+	_test_direct_physics()
 	if not failures.is_empty():
 		for reason in failures.slice(0, 20):
 			push_error("Этап 7.3: " + reason)
