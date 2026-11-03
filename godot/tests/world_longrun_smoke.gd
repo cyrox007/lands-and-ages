@@ -152,6 +152,9 @@ func _test_scene() -> void:
 	var scene := Scene.new()
 	get_root().add_child(scene)
 	await process_frame
+	# Стресс-тест не имеет права перезаписывать игровой слот пользователя.
+	var scene_save := "user://world-stage-7-5-scene.json"
+	scene._save_path = scene_save
 	var begin_day: int = scene._climate.day
 	var days := 24
 	scene._queue_days(days)
@@ -178,9 +181,9 @@ func _test_scene() -> void:
 	_check(busy_frames > days, "Во время расчёта продолжали выводиться кадры")
 	_check(scene._visual_refreshes == 1,
 		"После сезона GPU-чанки перестраиваются однократно")
-	_check(FileAccess.file_exists(Save.SAVE_PATH),
+	_check(FileAccess.file_exists(scene_save),
 		"Отложенное сохранение сезона действительно записано")
-	var file_state: Dictionary = Save.read_file(Save.SAVE_PATH)
+	var file_state: Dictionary = Save.read_file(scene_save)
 	_check(not file_state.is_empty(), "Большой мир можно восстановить с диска")
 	if not file_state.is_empty():
 		_check(file_state["climate"].day == begin_day + days,
@@ -210,7 +213,7 @@ func _test_scene() -> void:
 	print("Этап 7.5, GPU-полигон: ", metrics.back())
 	scene.queue_free()
 	await process_frame
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(Save.SAVE_PATH))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_save))
 
 
 func _write_metrics() -> void:
