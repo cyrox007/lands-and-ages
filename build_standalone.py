@@ -23,9 +23,13 @@ hq_sprite='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/buildings/headquarters/headquarters-level1.webp').read_bytes()).decode('ascii')
 painted_people='data:image/webp;base64,'+base64.b64encode(
     (root/'assets/characters/painted-people.webp').read_bytes()).decode('ascii')
-logger_atlases={state:'data:image/webp;base64,'+base64.b64encode(\n    (root/'assets/characters/logger'/('logger-'+state+'.webp')).read_bytes()).decode('ascii')\n    for state in ('idle','walk','fell_tree','carry_logs')}\nworker_portraits={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
+logger_atlases={state:'data:image/webp;base64,'+base64.b64encode(
+    (root/'assets/characters/logger'/('logger-'+state+'.webp')).read_bytes()).decode('ascii')
+    for state in ('idle','walk','fell_tree','carry_logs')}
+worker_portraits={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii')
                   for p in sorted((root/'assets/workers').glob('*.webp')) if p.stem!='walk-reference-se'}
-scripts=('window.StrategyLoggerAtlases='+json.dumps(logger_atlases,separators=(',',':'))+';\n'+\n         'window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
+scripts=('window.StrategyLoggerAtlases='+json.dumps(logger_atlases,separators=(',',':'))+';\n'+
+         'window.StrategyHQSprite='+json.dumps(hq_sprite)+';\n'+
          'window.StrategyPaintedPeople='+json.dumps(painted_people)+';\n'+
          'window.StrategyWorkerPortraits='+json.dumps(worker_portraits)+';\n'+
          'window.StrategyResourceAtlas='+json.dumps(resources)+';\n'+
