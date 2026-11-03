@@ -165,12 +165,12 @@ func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
 	_fertility[i] = clampf(base_fertility * minf(1.0,
 		_depth[i] / 0.7) + (detail - 0.5) * 0.12, 0.0, 1.0)
 	_porosity[i] = [0.03, 0.72, 0.84, 0.27, 0.56][kind]
-	_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
-		0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
-	if has_state:
-		# Полный пересчёт после внешней правки тоже сохраняет
-		# историю грунта и погоду, а не начинает мир заново.
-		_moisture[i] = 1.0 if hydro.has_water(i) else _moisture[i]
+	if not has_state:
+		_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
+			0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
+	elif hydro.has_water(i):
+		_moisture[i] = 1.0
+	# В остальных клетках история влаги не сбрасывается из-за рельефа.
 
 
 func synchronize_climate(climate: RefCounted,
