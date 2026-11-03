@@ -5,7 +5,7 @@ extends RefCounted
 signal surface_changed(revision: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
 const ROCK := 0
 const GRAVEL := 1
 const SAND := 2
@@ -27,11 +27,28 @@ var _porosity := PackedFloat32Array()
 var _moisture := PackedFloat32Array()
 var _snow := PackedFloat32Array()
 var _frost := PackedFloat32Array()
+var _air_temperature := PackedFloat32Array()
 
 
 func _init(map: RefCounted, hydrology: RefCounted) -> void:
 	world = map
 	hydro = hydrology
+
+
+static func _geology_field(x: int, y: int, seed: int) -> float:
+	# Осадочные области распределены плавно, без случайной клетки-глины
+	# посреди независимого песчаного региона.
+	var fx := float(x) / 46.0
+	var fy := float(y) / 46.0
+	var gx := floori(fx)
+	var gy := floori(fy)
+	var u := smoothstep(0.0, 1.0, fx - float(gx))
+	var v := smoothstep(0.0, 1.0, fy - float(gy))
+	var north := lerpf(Terrain.hash2(gx, gy, seed + 7201),
+		Terrain.hash2(gx + 1, gy, seed + 7201), u)
+	var south := lerpf(Terrain.hash2(gx, gy + 1, seed + 7201),
+		Terrain.hash2(gx + 1, gy + 1, seed + 7201), u)
+	return lerpf(north, south, v)
 
 
 func _index(cell: Vector2i) -> int:
@@ -57,6 +74,8 @@ func rebuild() -> void:
 	_moisture.resize(count)
 	_snow.resize(count)
 	_frost.resize(count)
+	_air_temperature.resize(count)
+	_air_temperature.fill(12.0)
 	_snow.fill(0.0)
 	_frost.fill(0.0)
 	for y in range(world.config.height):
@@ -69,17 +88,19 @@ func rebuild() -> void:
 			var height: float = (a + b + c + d) * 0.25
 			var slope: float = Vector2((b + d - a - c) * 0.5,
 				(c + d - a - b) * 0.5).length()
-			var area: float = Terrain.hash2(floori(float(x) / 18.0),
-				floori(float(y) / 18.0), world.config.seed + 7201)
+			var area: float = _geology_field(x, y, world.config.seed)
 			var detail: float = Terrain.hash2(x, y, world.config.seed + 7202)
 			var kind := LOAM
 			if slope > 1.75 or (height > 7.5 and area > 0.42):
 				kind = ROCK
 			elif slope > 0.95 or (height > 4.0 and area > 0.72):
 				kind = GRAVEL
-			elif area < 0.26:
+			elif hydro.wetness_at(i) > 0.65 and slope < 0.3:
+				# Тонкодисперсные отложения на мокрых плоских участках.
+				kind = CLAY
+			elif area < 0.30 and hydro.wetness_at(i) < 0.45:
 				kind = SAND
-			elif area > 0.70:
+			elif area > 0.72:
 				kind = CLAY
 			_type[i] = kind
 			_depth[i] = 0.0 if kind == ROCK else clampf(
@@ -96,7 +117,31 @@ func rebuild() -> void:
 	surface_changed.emit(revision)
 
 
+func _apply_weather(i: int, rain: float, air: float) -> void:
+	_air_temperature[i] = air
+	var melt := 0.0
+	if air <= 0.0:
+		_snow[i] = clampf(_snow[i] + rain * 0.18, 0.0, 1.0)
+		_frost[i] = clampf(_frost[i] + 0.15 + absf(air) * 0.012, 0.0, 1.0)
+	else:
+		melt = minf(_snow[i], air * 0.075)
+		_snow[i] -= melt
+		_frost[i] = maxf(0.0, _frost[i] - 0.12 - air * 0.035)
+		if air >= 18.0:
+			# Суточный шаг: при сильной жаре остаточный снег и лёд невозможны.
+			_snow[i] = 0.0
+			_frost[i] = 0.0
+	var infiltration: float = rain * (0.11 + _porosity[i] * 0.21) \
+		* (1.0 - _frost[i] * 0.70) if air > 0.0 else 0.0
+	var evaporation: float = 0.018 + maxf(0.0, air) * 0.0035
+	var floor_wetness: float = 0.10 + hydro.wetness_at(i) * 0.33
+	_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
+		maxf(_moisture[i], floor_wetness) + infiltration + melt * 0.52
+		- evaporation, 0.0, 1.0)
+
+
 func advance_day(rain: float, air_temperature: float) -> bool:
+	# Ручной режим оставлен для изолированных тестов этапа 4.
 	if not is_finite(rain) or rain < 0.0 or rain > 3.0:
 		return false
 	if not is_finite(air_temperature) or air_temperature < -60.0 or air_temperature > 60.0:
@@ -105,27 +150,34 @@ func advance_day(rain: float, air_temperature: float) -> bool:
 	precipitation = rain
 	temperature = air_temperature
 	for i in range(_type.size()):
-		var covered: bool = hydro.has_water(i)
-		var melt := 0.0
-		if air_temperature < 0.0:
-			_snow[i] = clampf(_snow[i] + rain * 0.18, 0.0, 1.0)
-			_frost[i] = clampf(_frost[i] + 0.15 + absf(air_temperature) * 0.012, 0.0, 1.0)
-		else:
-			melt = minf(_snow[i], air_temperature * 0.055)
-			_snow[i] -= melt
-			_frost[i] = maxf(0.0, _frost[i] - 0.12 - air_temperature * 0.025)
-		var infiltration: float = rain * (0.11 + _porosity[i] * 0.21) \
-			* (1.0 - _frost[i] * 0.70) if air_temperature >= 0.0 else 0.0
-		var evaporation: float = 0.018 + maxf(0.0, air_temperature) * 0.0035
-		var floor_wetness: float = 0.10 + hydro.wetness_at(i) * 0.33
-		_moisture[i] = 1.0 if covered else clampf(
-			maxf(_moisture[i], floor_wetness) + infiltration + melt * 0.52
-			- evaporation, 0.0, 1.0)
+		_apply_weather(i, rain, air_temperature)
 	day += 1
 	revision += 1
 	surface_changed.emit(revision)
 	return true
 
+
+func advance_climate_day(climate: RefCounted) -> bool:
+	# Климат задаёт местные условия каждой клетки, а не температуру всей карты.
+	ensure_ready()
+	if climate.day != day + 1:
+		return false
+	var total_rain := 0.0
+	var total_temperature := 0.0
+	for i in range(_type.size()):
+		var rain: float = climate.precipitation_at_index(i)
+		var air: float = climate.temperature_at_index(i)
+		if not is_finite(rain) or not is_finite(air):
+			return false
+		_apply_weather(i, rain, air)
+		total_rain += rain
+		total_temperature += air
+	day = climate.day
+	precipitation = total_rain / float(_type.size())
+	temperature = total_temperature / float(_type.size())
+	revision += 1
+	surface_changed.emit(revision)
+	return true
 
 func profile_at(cell: Vector2i) -> Dictionary:
 	ensure_ready()
@@ -147,11 +199,16 @@ func profile_at(cell: Vector2i) -> Dictionary:
 		cover = "грязь"
 	elif wet < 0.24:
 		cover = "сухая поверхность"
+
+	var thermal := clampf((_air_temperature[i] + 6.0) / 13.0, 0.0, 1.0) \
+		* clampf((46.0 - _air_temperature[i]) / 13.0, 0.0, 1.0)
+	var growth := _fertility[i] * clampf((wet - 0.12) * 1.8, 0.0, 1.0) * thermal
 	return {
 		"cell": cell, "substrate": NAMES[_type[i]], "depth": _depth[i],
 		"fertility": _fertility[i], "porosity": _porosity[i],
 		"moisture": wet, "snow": _snow[i], "frost": _frost[i],
-		"muddy": muddy, "cover": cover,
+		"muddy": muddy, "cover": cover, "temperature": _air_temperature[i],
+		"growth_potential": growth,
 		"erosion_risk": clampf((1.0 - _depth[i] / 2.5)
 			* (0.25 + wet * 0.5), 0.0, 1.0)
 	}
@@ -183,6 +240,8 @@ func to_data() -> Dictionary:
 	var water := PackedByteArray()
 	var snow := PackedByteArray()
 	var frozen := PackedByteArray()
+	var air := PackedByteArray()
+	air.resize(_type.size())
 	water.resize(_type.size())
 	snow.resize(_type.size())
 	frozen.resize(_type.size())
@@ -190,12 +249,14 @@ func to_data() -> Dictionary:
 		water[i] = roundi(_moisture[i] * 255.0)
 		snow[i] = roundi(_snow[i] * 255.0)
 		frozen[i] = roundi(_frost[i] * 255.0)
+		air[i] = clampi(roundi((_air_temperature[i] + 60.0) / 120.0 * 255.0), 0, 255)
 	return {
 		"version": FORMAT_VERSION, "world_signature": JSON.stringify(world.to_data()),
 		"day": day, "temperature": temperature, "precipitation": precipitation,
 		"moisture": Marshalls.raw_to_base64(water),
 		"snow": Marshalls.raw_to_base64(snow),
-		"frost": Marshalls.raw_to_base64(frozen)
+		"frost": Marshalls.raw_to_base64(frozen),
+		"air_temperature": Marshalls.raw_to_base64(air)
 	}
 
 
@@ -217,19 +278,21 @@ func load_data(data: Dictionary) -> bool:
 	if not is_finite(temp) or temp < -60.0 or temp > 60.0 \
 			or not is_finite(rain) or rain < 0.0 or rain > 3.0:
 		return false
-	for field in ["moisture", "snow", "frost"]:
+	for field in ["moisture", "snow", "frost", "air_temperature"]:
 		if not (data.get(field) is String):
 			return false
 	var water: PackedByteArray = Marshalls.base64_to_raw(data["moisture"])
 	var snow: PackedByteArray = Marshalls.base64_to_raw(data["snow"])
 	var frozen: PackedByteArray = Marshalls.base64_to_raw(data["frost"])
+	var air: PackedByteArray = Marshalls.base64_to_raw(data["air_temperature"])
 	if water.size() != _type.size() or snow.size() != _type.size() \
-			or frozen.size() != _type.size():
+			or frozen.size() != _type.size() or air.size() != _type.size():
 		return false
 	for i in range(_type.size()):
 		_moisture[i] = float(water[i]) / 255.0
 		_snow[i] = float(snow[i]) / 255.0
 		_frost[i] = float(frozen[i]) / 255.0
+		_air_temperature[i] = float(air[i]) / 255.0 * 120.0 - 60.0
 	day = int(data["day"])
 	temperature = temp
 	precipitation = rain

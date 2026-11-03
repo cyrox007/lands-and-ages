@@ -27,6 +27,8 @@ var _outlet := PackedInt32Array()
 var _order := PackedInt32Array()
 var _rank := PackedInt32Array()
 var _catchment := PackedFloat32Array()
+var _discharge := PackedFloat32Array()
+var _local_rain := PackedFloat32Array()
 var _river := PackedByteArray()
 var _ocean := PackedByteArray()
 var _lake := PackedByteArray()
@@ -161,6 +163,9 @@ func rebuild() -> void:
 			_catchment[lower] += _catchment[current]
 
 	_terrain_revision = world.revision
+	if _local_rain.size() != count:
+		_local_rain.clear()
+	_recalculate_flow()
 	_mark_ocean()
 	_recalculate_water()
 	revision += 1
@@ -175,14 +180,52 @@ func ensure_ready() -> void:
 func set_rainfall(value: float) -> bool:
 	if not is_finite(value) or value < 0.0 or value > 3.0:
 		return false
-	if is_equal_approx(value, rainfall):
+	if is_equal_approx(value, rainfall) and _local_rain.is_empty():
 		return false
 	rainfall = value
+	_local_rain.clear()
 	ensure_ready()
+	_recalculate_flow()
 	_recalculate_water()
 	revision += 1
 	water_changed.emit(revision)
 	return true
+
+
+func apply_rainfall_map(values: PackedFloat32Array) -> bool:
+	# Пространственные осадки питают водосборы; геометрия русел не меняется.
+	ensure_ready()
+	if values.size() != _ground.size():
+		return false
+	var total := 0.0
+	for amount in values:
+		if not is_finite(amount) or amount < 0.0 or amount > 3.0:
+			return false
+		total += amount
+	_local_rain = values.duplicate()
+	rainfall = total / float(values.size())
+	_recalculate_flow()
+	_recalculate_water()
+	revision += 1
+	water_changed.emit(revision)
+	return true
+
+
+func _recalculate_flow() -> void:
+	_discharge.resize(_catchment.size())
+	if _local_rain.is_empty():
+		for i in range(_discharge.size()):
+			_discharge[i] = _catchment[i] * rainfall
+		return
+	for i in range(_discharge.size()):
+		# При отсутствии дождя реки не исчезают за одни сутки:
+		# постоянный грунтовый приток — упрощение до модели подземных вод.
+		_discharge[i] = 0.55 + _local_rain[i]
+	for step in range(_order.size() - 1, -1, -1):
+		var i: int = _order[step]
+		var lower: int = _downstream[i]
+		if lower >= 0:
+			_discharge[lower] += _discharge[i]
 
 
 func _mark_ocean() -> void:
@@ -228,6 +271,9 @@ func _recalculate_water() -> void:
 	_water_level.fill(NAN)
 	_wetness.resize(count)
 	_wetness.fill(clampf(rainfall * 0.15, 0.0, 1.0))
+	if not _local_rain.is_empty():
+		for i in range(count):
+			_wetness[i] = clampf(_local_rain[i] * 0.25, 0.0, 1.0)
 
 	var sources: Array[int] = []
 	var stage := 0.04 + maxf(0.0, rainfall - 1.0) * 0.10
@@ -239,7 +285,7 @@ func _recalculate_water() -> void:
 			continue
 		var lake_depth := _spill[i] - _ground[i]
 		var is_lake := lake_depth > LAKE_THRESHOLD
-		var is_river := _catchment[i] * rainfall >= RIVER_THRESHOLD
+		var is_river := _discharge[i] >= RIVER_THRESHOLD
 		if not is_lake and not is_river:
 			continue
 		_lake[i] = int(is_lake)
@@ -323,7 +369,7 @@ func water_at(cell: Vector2i) -> Dictionary:
 		"outlet": cell_from_index(_outlet[i]),
 		"order": _rank[i],
 		"catchment": _catchment[i],
-		"discharge": _catchment[i] * rainfall,
+		"discharge": _discharge[i],
 		"lake": _lake[i] != 0,
 		"river": _river[i] != 0,
 		"ocean": _ocean[i] != 0,
