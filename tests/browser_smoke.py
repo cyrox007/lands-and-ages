@@ -603,3 +603,76 @@ with sync_playwright() as pw:
         print(name,metrics)
         context.close()
     browser.close()
+
+
+# Рубка должна быть видна именно в запущенной игре, а не только в контракте атласа.
+with sync_playwright() as pw:
+    browser=pw.chromium.launch(headless=True,args=['--no-sandbox'],
+                               executable_path=shutil.which('chromium') or None)
+    for name,width,height,mobile in [('logger-desktop',1280,850,False),
+                                     ('logger-mobile',393,852,True)]:
+        context=browser.new_context(viewport={'width':width,'height':height},
+                                    is_mobile=mobile,has_touch=mobile)
+        seed=context.new_page()
+        mount(seed,boot='settlement')
+        seed.wait_for_function('Boolean(window.__strategyDebug)')
+        saved=seed.evaluate("""() => {
+          const game=new window.StrategyEngine.Game(1729,'settlement');
+          const site=game.addBuilding('logger',12,9);
+          game.assignWorkers(site.id,1);
+          for(let i=0;i<260;i++){
+            game.step(.1);
+            const a=game.workAgents.find(w=>w.buildingId===site.id);
+            if(a?.phase==='work'&&a.progress>.3)break;
+          }
+          const a=game.workAgents.find(w=>w.buildingId===site.id);
+          if(a?.phase!=='work')throw Error('Лесоруб не достиг дерева');
+          return game.save();
+        }""")
+        seed.close()
+        page=context.new_page()
+        errors=[]
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        mount(page,prior=[['lands-ages:campaign:v1',saved]],boot='settlement')
+        page.wait_for_function('window.__strategyDebug()?.paintedReady()',timeout=20000)
+        page.wait_for_function('window.__strategyDebug().woodcuttingDraws()>0',
+                               timeout=20000)
+        state=page.evaluate("""() => {
+          const w=window.__strategyDebug().woodcutters();
+          return {workers:w,draws:window.__strategyDebug().woodcuttingDraws()};
+        }""")
+        assert any(w['phase']=='work' for w in state['workers']),(name,state)
+        assert state['draws']>0,(name,state)
+        frames=page.evaluate("""() => {
+          const module=window.StrategyWoodcutting;
+          const samples=[];
+          for(let frame=0;frame<8;frame++){
+            const c=document.createElement('canvas');
+            c.width=140;c.height=180;
+            const g=c.getContext('2d',{willReadFrequently:true});
+            module.draw(g,70,175,80,frame,'se');
+            const data=g.getImageData(0,0,140,180).data;
+            let covered=0;
+            for(let i=3;i<data.length;i+=4)if(data[i]>0)covered++;
+            samples.push({data:Array.from(data),covered});
+          }
+          const diff=(a,b)=>{
+            let count=0;
+            for(let i=0;i<a.length;i+=4){
+              if(a[i]!==b[i]||a[i+1]!==b[i+1]||
+                 a[i+2]!==b[i+2]||a[i+3]!==b[i+3])count++;
+            }
+            return count;
+          };
+          return {coverage:samples.map(s=>s.covered),
+            differences:samples.slice(1).map((s,i)=>diff(s.data,samples[i].data)),
+            impact:[module.impact(3),module.impact(4),module.impact(5)]};
+        }""")
+        assert min(frames['coverage'])>100,(name,frames['coverage'])
+        assert min(frames['differences'])>80,(name,frames['differences'])
+        assert frames['impact']==[False,True,True]
+        assert not errors,(name,errors)
+        print(name,'видимая рубка:',state['draws'],'отрисовок,',
+              len(frames['differences'])+1,'различающихся кадров')
+        context.close()
+    browser.close()
