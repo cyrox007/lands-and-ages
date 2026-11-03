@@ -2,10 +2,11 @@ extends RefCounted
 ## GPU-меш только показывает состояние WorldMap, Surface и Climate.
 
 const Relief = preload("res://scripts/relief.gd")
+const Appearance = preload("res://scripts/landscape_appearance.gd")
 
 static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 		surface: RefCounted = null, mode: int = 0,
-		climate: RefCounted = null) -> ArrayMesh:
+		climate: RefCounted = null, hydro: RefCounted = null) -> ArrayMesh:
 	if world == null:
 		world = load("res://scripts/world_map.gd").new()
 	var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
@@ -14,6 +15,10 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 	var y0 := bounds.position.y
 	var width := bounds.size.x
 	var height := bounds.size.y
+	# Физические массивы готовятся однажды до обхода вершин.
+	if mode == 0 and surface != null and hydro != null:
+		hydro.ensure_ready()
+		surface.ensure_ready()
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -29,7 +34,10 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 			normals.push_back(normal)
 			var cell := Vector2i(mini(x, world.config.width - 1),
 				mini(y, world.config.height - 1))
-			if mode == 0 or surface == null:
+			if mode == 0 and surface != null and hydro != null:
+				colors.push_back(Appearance.color_at(vertex, h, normal,
+					world, surface, hydro))
+			elif mode == 0 or surface == null:
 				colors.push_back(Relief.relief_color(h, normal))
 			elif mode == 5:
 				colors.push_back(surface.snow_color_at(cell))
