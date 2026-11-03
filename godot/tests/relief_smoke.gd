@@ -65,7 +65,7 @@ func _run() -> void:
 			var current := queue[index]
 			index += 1
 			for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-				var neighbour := current + offset
+				var neighbour: Vector2i = current + offset
 				if labels.get(neighbour, "") != kind or visited.has(neighbour):
 					continue
 				visited[neighbour] = true
