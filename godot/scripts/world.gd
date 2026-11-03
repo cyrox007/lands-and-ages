@@ -10,6 +10,7 @@ const Hydrology = preload("res://scripts/hydrology.gd")
 const WaterMesh = preload("res://scripts/water_mesh.gd")
 const Boundary = preload("res://scripts/world_boundary.gd")
 const Surface = preload("res://scripts/surface.gd")
+const Climate = preload("res://scripts/climate.gd")
 
 const VIEW_RADIUS := 4
 const BUILD_PER_FRAME := 2
@@ -20,8 +21,8 @@ const MAX_ZOOM := 105.0
 var _world_model: RefCounted
 var _hydro: RefCounted
 var _surface: RefCounted
-var _view_mode := 1
-var _temperature := 12.0
+var _climate: RefCounted
+var _view_mode := 4
 var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
@@ -41,6 +42,8 @@ func _ready() -> void:
 	_hydro.rebuild()
 	_surface = Surface.new(_world_model, _hydro)
 	_surface.rebuild()
+	_climate = Climate.new(_world_model, _hydro)
+	_climate.rebuild()
 	_center = Vector2(_world_model.config.width, _world_model.config.height) * 0.5
 	_setup_environment()
 	_setup_materials()
@@ -92,26 +95,26 @@ func _setup_interface() -> void:
 	add_child(canvas_layer)
 	var panel := PanelContainer.new()
 	panel.position = Vector2(14, 14)
-	panel.custom_minimum_size = Vector2(300, 112)
+	panel.custom_minimum_size = Vector2(320, 130)
 	canvas_layer.add_child(panel)
 	var column := VBoxContainer.new()
 	panel.add_child(column)
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 4: грунт, влага и снег — физические слои, а не типы клеток."
+	info.text = "Этап 5: климат, местная погода и биомы связаны с природной картой."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
-	var rain_button := Button.new()
-	rain_button.text = "Осадки: сухо / обычно / ливень"
-	rain_button.pressed.connect(_cycle_rainfall)
-	column.add_child(rain_button)
-	var temperature_button := Button.new()
-	temperature_button.text = "Мороз / оттепель"
-	temperature_button.pressed.connect(_cycle_temperature)
-	column.add_child(temperature_button)
+	var day_button := Button.new()
+	day_button.text = "Следующий день"
+	day_button.pressed.connect(func(): _advance_days(1))
+	column.add_child(day_button)
+	var season_button := Button.new()
+	season_button.text = "Вперёд на сезон (+24 дня)"
+	season_button.pressed.connect(func(): _advance_days(Climate.SEASON_DAYS))
+	column.add_child(season_button)
 	var view_button := Button.new()
-	view_button.text = "Слой: рельеф / грунт / влажность"
+	view_button.text = "Слой: рельеф / почва / влага / температура / биом"
 	view_button.pressed.connect(_cycle_view)
 	column.add_child(view_button)
 	var hint := Label.new()
@@ -119,7 +122,6 @@ func _setup_interface() -> void:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(hint)
 	_update_hud()
-
 
 func _update_camera() -> void:
 	var offset := Vector3(45.0, 63.0, 45.0)
@@ -206,7 +208,7 @@ func _create_chunk(coord: Vector2i) -> void:
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
 	ground.mesh = Chunk.create_mesh(coord.x, coord.y, 1, _world_model,
-		_surface, _view_mode)
+		_surface, _view_mode, _climate)
 	ground.material_override = _ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
@@ -223,37 +225,27 @@ func _create_chunk(coord: Vector2i) -> void:
 
 
 func _on_world_changed(_chunks: Array[Vector2i], _revision: int) -> void:
-	# Изменение одной высоты способно перенаправить воду далеко вниз по бассейну.
-	# Пока перестраиваем водосбор целиком; оптимизация зависит от будущего профиля.
+	# Грунты и климат читают один рельеф; водосбор пересчитывается первым.
 	_hydro.rebuild()
 	_surface.rebuild()
+	_climate.rebuild()
+	_hydro.apply_rainfall_map(_climate.rainfall_map())
 	_refresh_visible(true)
 
 
-func _cycle_rainfall() -> void:
-	var next := 2.2
-	if _hydro.rainfall > 1.5:
-		next = 0.4
-	elif _hydro.rainfall < 0.8:
-		next = 1.0
-	_hydro.set_rainfall(next)
-	_surface.advance_day(next, _temperature)
-	_refresh_visible(true)
-	_update_hud()
-
-
-func _cycle_temperature() -> void:
-	_temperature = 12.0 if _temperature < 0.0 else -9.0
-	_surface.advance_day(_hydro.rainfall, _temperature)
+func _advance_days(number: int) -> void:
+	for step in range(number):
+		_climate.set_day(_climate.day + 1)
+		_hydro.apply_rainfall_map(_climate.rainfall_map())
+		_surface.advance_climate_day(_climate)
 	_refresh_visible(true)
 	_update_hud()
 
 
 func _cycle_view() -> void:
-	_view_mode = (_view_mode + 1) % 3
+	_view_mode = (_view_mode + 1) % 5
 	_refresh_visible(true)
 	_update_hud()
-
 
 func _update_hud() -> void:
 	if _status == null:
@@ -261,15 +253,18 @@ func _update_hud() -> void:
 	var profile := Relief.profile_at(_world_model, _center)
 	var water: Dictionary = _hydro.water_at(_world_model.config.cell_at(_center))
 	var amounts: Dictionary = _hydro.water_count()
-	var ground: Dictionary = _surface.profile_at(_world_model.config.cell_at(_center))
-	_status.text = "ЗЕМЛИ И ЭПОХИ · ПРИРОДНЫЕ РУБЕЖИ\n"
+	var cell: Vector2i = _world_model.config.cell_at(_center)
+	var ground: Dictionary = _surface.profile_at(cell)
+	var weather: Dictionary = _climate.weather_at(cell)
+	var biome: String = _climate.biome_at(cell, _surface)
+	_status.text = "ЗЕМЛИ И ЭПОХИ · КЛИМАТ И БИОМЫ\n"
 	_status.text += "Карта %d×%d · seed %d\n" % [
 		_world_model.config.width, _world_model.config.height,
 		_world_model.config.seed]
 	_status.text += "%s · высота %.2f · уклон %.1f°\n" % [
 		profile["form"], profile["height"], profile["slope_degrees"]]
-	_status.text += "Водосбор %.0f · вода %.2f · осадки ×%.1f\n" % [
-		water["catchment"], water["depth"], _hydro.rainfall]
+	_status.text += "Водосбор %.0f · вода %.2f · осадки %.2f\n" % [
+		water["catchment"], water["depth"], weather["precipitation"]]
 	_status.text += "Море %d · озёра %d · реки %d\n" % [
 		amounts["ocean"], amounts["lakes"], amounts["rivers"]]
 	var edge := Boundary.geography_at(_center.x, _center.y,
@@ -279,9 +274,13 @@ func _update_hud() -> void:
 	_status.text += "%s · почва %.2f м · плодородие %.0f%% · влажность %.0f%%\n" % [
 		ground["substrate"], ground["depth"], float(ground["fertility"]) * 100.0,
 		float(ground["moisture"]) * 100.0]
-	_status.text += "День %d · воздух %.0f° · снег %.0f%% · промерзание %.0f%%\n" % [
-		_surface.day, _surface.temperature, float(ground["snow"]) * 100.0,
-		float(ground["frost"]) * 100.0]
+	_status.text += "День %d · %s · воздух %.1f° · %s\n" % [
+		_climate.day, weather["season"], weather["temperature"], weather["weather"]]
+	_status.text += "Биом: %s · влажность воздуха %.0f%%\n" % [
+		biome, float(weather["humidity"]) * 100.0]
+	_status.text += "Снег %.0f%% · промерзание %.0f%% · потенциал роста %.0f%%\n" % [
+		float(ground["snow"]) * 100.0, float(ground["frost"]) * 100.0,
+		float(ground["growth_potential"]) * 100.0]
 	_status.text += "FPS %d · чанки %d/%d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size()]
