@@ -83,14 +83,14 @@ func _test_storms() -> void:
 	_check(storm_days > 0, "За год формируются реальные грозовые области")
 	_check(total > 0, "За год молнии ударяют в землю")
 	_check(total == first.total_strikes, "Счётчик молний соответствует событиям")
-	var saved := JSON.parse_string(JSON.stringify(first.to_data()))
+	var saved: Dictionary = JSON.parse_string(JSON.stringify(first.to_data()))
 	var restored := WeatherEvents.new(a["map"], a["climate"], a["surface"], a["hydro"])
 	_check(restored.load_data(saved), "История молний восстанавливается")
 	_check(restored.advance_day(96).is_empty(),
 		"Загрузка не повторяет удары последнего дня")
 	_check(restored.total_strikes == total,
 		"После загрузки сохраняется число физических ударов")
-	var invalid := saved.duplicate(true)
+	var invalid: Dictionary = saved.duplicate(true)
 	invalid["last_day"] = 999
 	_check(not restored.load_data(invalid), "Нельзя восстановить события будущих дней")
 	invalid = saved.duplicate(true)
@@ -143,18 +143,18 @@ func _test_flood_and_wetlands() -> void:
 				float(soil["waterlogging"]))
 	_check(max_waterlogging > 0.5,
 		"Многодневные дожди накапливают заболачивание")
-	var saved := JSON.parse_string(JSON.stringify(surface.to_data()))
+	var saved: Dictionary = JSON.parse_string(JSON.stringify(surface.to_data()))
 	var restored := Surface.new(world, hydro)
 	restored.rebuild()
 	_check(restored.load_data(saved), "Заболоченность сохраняется в формате 4")
-	var older := saved.duplicate(true)
+	var older: Dictionary = saved.duplicate(true)
 	older["version"] = 3
 	older.erase("waterlogging")
 	_check(restored.load_data(older), "Сохранения поверхности версии 3 читаются")
 	older["version"] = 2
 	older.erase("sediment_changes")
 	_check(restored.load_data(older), "Сохранения поверхности версии 2 читаются")
-	var broken := saved.duplicate(true)
+	var broken: Dictionary = saved.duplicate(true)
 	broken["waterlogging"] = "AA=="
 	_check(not restored.load_data(broken), "Повреждённый слой болота отклоняется")
 	var mesh := Chunk.create_mesh(0, 0, 1, world, surface, 7)
