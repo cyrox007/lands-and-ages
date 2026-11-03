@@ -135,4 +135,4 @@ visual            ID атласа, точка привязки, вариант, 
 - Камера, масштаб и FPS не влияют на симуляцию.
 - Экономика и старые сохранения воспроизводятся после миграции; проверен реальный Android.
 
-**Связанные документы:** [WORLD-FOUNDATION-AUDIT.md](WORLD-FOUNDATION-AUDIT.md), [WORLD-MIGRATION-PLAN.md](WORLD-MIGRATION-PLAN.md).
+**Связанные документы:** [WORLD-FOUNDATION-AUDIT.md](WORLD-FOUNDATION-AUDIT.md), [WORLD-ALGORITHMS-V1.md](WORLD-ALGORITHMS-V1.md), [WORLD-MIGRATION-PLAN.md](WORLD-MIGRATION-PLAN.md).
