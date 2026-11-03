@@ -1,4 +1,5 @@
 extends RefCounted
+const SnapshotCodec = preload("res://scripts/world_snapshot_codec.gd")
 ## Физическая поверхность: субстрат, почва и изменяемые вода, снег и промерзание.
 ## Не зависит от камеры, цвета меша и устаревшего climate.gd.
 
@@ -542,10 +543,8 @@ func load_snapshot(data: Dictionary) -> bool:
 			"waterlogging", "runoff", "sediment"]:
 		if not (data.get(field) is String):
 			return false
-		var raw: PackedByteArray = Marshalls.base64_to_raw(data[field])
-		if raw.size() != count * 4:
-			return false
-		var values: PackedFloat32Array = raw.to_float32_array()
+		var values: PackedFloat32Array = SnapshotCodec.decode_float32(
+			data[field], count)
 		if values.size() != count:
 			return false
 		for value in values:
