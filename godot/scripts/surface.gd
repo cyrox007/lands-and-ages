@@ -150,10 +150,11 @@ func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
 		kind = ROCK
 	elif slope > 0.95 or (height > 4.0 and area > 0.72):
 		kind = GRAVEL
-	elif hydro.wetness_at(i) > 0.65 and slope < 0.3:
-		# Тонкодисперсные отложения на мокрых плоских участках.
+	elif hydro.lake_at(i) and slope < 0.3:
+		# Постоянная озёрная котловина накапливает мелкую фракцию.
+		# Суточный дождь не может сменить геологический субстрат.
 		kind = CLAY
-	elif area < 0.30 and hydro.wetness_at(i) < 0.45:
+	elif area < 0.30 and not hydro.lake_at(i):
 		kind = SAND
 	elif area > 0.72:
 		kind = CLAY
