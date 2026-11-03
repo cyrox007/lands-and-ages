@@ -408,6 +408,10 @@ func to_data() -> Dictionary:
 
 func load_data(data: Dictionary) -> bool:
 	ensure_ready()
+	print("ДИАГНОСТИКА surface: версия=", data.get("version"),
+		", подпись=", data.get("world_signature") == JSON.stringify(world.to_data()),
+		", наносы=", typeof(data.get("sediment_changes")),
+		", слоёв=", _type.size())
 	var raw_version = data.get("version")
 	if not (raw_version is int or raw_version is float):
 		return false
