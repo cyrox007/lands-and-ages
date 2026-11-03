@@ -2,10 +2,11 @@ extends RefCounted
 ## Детерминированные высоты. Формулы согласованы с world-terrain.js.
 ## Хранение вершин не зависит от порядка загрузки чанков.
 
-const WIDTH := 256
-const HEIGHT := 192
-const SEED := 1729
-const HEIGHT_SCALE := 0.9
+const Config = preload("res://scripts/world_config.gd")
+const WIDTH := Config.DEFAULT_WIDTH
+const HEIGHT := Config.DEFAULT_HEIGHT
+const SEED := Config.DEFAULT_SEED
+const HEIGHT_SCALE := Config.DEFAULT_HEIGHT_SCALE
 
 static func hash2(x: int, y: int, seed: int) -> float:
 	var n: int = (x * 374761393 + y * 668265263 + seed * 1442695041) & 0xffffffff
@@ -31,8 +32,12 @@ static func _gaussian(x: float, y: float, cx: float, cy: float, rx: float, ry: f
 
 
 static func vertex_height(x: int, y: int, seed: int = SEED) -> float:
-	var u := float(x) / float(WIDTH)
-	var v := float(y) / float(HEIGHT)
+	return vertex_height_on_map(x, y, WIDTH, HEIGHT, seed)
+
+
+static func vertex_height_on_map(x: int, y: int, width: int, height: int, seed: int) -> float:
+	var u := float(x) / float(width)
+	var v := float(y) / float(height)
 	var hills := _gaussian(u, v, 0.21, 0.28, 0.16, 0.24)
 	var lowland := _gaussian(u, v, 0.14, 0.76, 0.19, 0.18)
 	var mesa_radius := Vector2((u - 0.71) / 0.15, (v - 0.28) / 0.21).length()

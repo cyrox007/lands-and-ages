@@ -37,6 +37,16 @@ jobs:
           timeout 75s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --script res://tests/world_smoke.gd 2>&1 | tee /tmp/world-smoke.log
           grep -q "успешно" /tmp/world-smoke.log
+      - name: Проверка устройства мира — этап 1
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          timeout 75s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_map_smoke.gd 2>&1 | tee /tmp/world-map-smoke.log
+          grep -q "Этап 1:.*успешно" /tmp/world-map-smoke.log
+          if grep -E "SCRIPT ERROR|Invalid call|Failed to load|ERROR:" /tmp/world-map-smoke.log; then
+            exit 1
+          fi
       - name: Загрузка игровой сцены
         timeout-minutes: 2
         run: |
