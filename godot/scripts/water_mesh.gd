@@ -1,12 +1,91 @@
 extends RefCounted
-## Отрисовка только водной поверхности; все её уровни берутся из гидрологии.
+## Отрисовка водной поверхности по действующим отметкам гидрологии.
+## Прибрежные треугольники обрезаются по реальной геометрии грунта.
+
+const WATER_OFFSET := 0.018
+const SHORE_FADE_DEPTH := 0.7
+
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
 		c: Vector3, d: Vector3, tint: Color) -> void:
 	tool.set_color(tint)
 	tool.set_normal(Vector3.UP)
+	tool.set_uv(Vector2(1.0, 0.0))
 	for vertex in [a, b, c, a, c, d]:
 		tool.add_vertex(vertex)
+
+
+static func _clip_submerged_triangle(points: PackedVector2Array,
+		ground: PackedFloat32Array, level: float) -> PackedVector3Array:
+	# X/Y — мировая позиция; Z — глубина для берегового материала.
+	var polygon := PackedVector3Array()
+	var previous := points.size() - 1
+	for current in range(points.size()):
+		var was_wet := ground[previous] <= level
+		var is_wet := ground[current] <= level
+		if was_wet != is_wet:
+			var fraction := clampf((level - ground[previous]) /
+				(ground[current] - ground[previous]), 0.0, 1.0)
+			var edge := points[previous].lerp(points[current], fraction)
+			polygon.append(Vector3(edge.x, edge.y, 0.0))
+		if is_wet:
+			var point := points[current]
+			var depth := clampf((level - ground[current]) /
+				SHORE_FADE_DEPTH, 0.0, 1.0)
+			polygon.append(Vector3(point.x, point.y, depth))
+		previous = current
+	return polygon
+
+
+static func _add_polygon(tool: SurfaceTool, world: RefCounted,
+		polygon: PackedVector3Array, level: float, tint: Color) -> int:
+	if polygon.size() < 3:
+		return 0
+	var added := 0
+	tool.set_color(tint)
+	tool.set_normal(Vector3.UP)
+	for i in range(1, polygon.size() - 1):
+		var a := Vector2(polygon[0].x, polygon[0].y)
+		var b := Vector2(polygon[i].x, polygon[i].y)
+		var c := Vector2(polygon[i + 1].x, polygon[i + 1].y)
+		if absf((b - a).cross(c - a)) < 0.000001:
+			continue
+		for vertex in [polygon[0], polygon[i], polygon[i + 1]]:
+			tool.set_uv(Vector2(vertex.z, 0.0))
+			tool.add_vertex(world.config.to_scene(
+				Vector2(vertex.x, vertex.y), level + WATER_OFFSET))
+		added += 1
+	return added
+
+
+static func _water_cell(tool: SurfaceTool, world: RefCounted,
+		cell: Vector2i, level: float, tint: Color) -> int:
+	var x := cell.x
+	var y := cell.y
+	var a := Vector2i(x, y)
+	var b := Vector2i(x + 1, y)
+	var c := Vector2i(x, y + 1)
+	var d := Vector2i(x + 1, y + 1)
+	var ha: float = world.vertex_at(a)
+	var hb: float = world.vertex_at(b)
+	var hc: float = world.vertex_at(c)
+	var hd: float = world.vertex_at(d)
+	if maxf(maxf(ha, hb), maxf(hc, hd)) <= level:
+		_quad(tool, world.config.to_scene(Vector2(a), level + WATER_OFFSET),
+			world.config.to_scene(Vector2(b), level + WATER_OFFSET),
+			world.config.to_scene(Vector2(d), level + WATER_OFFSET),
+			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint)
+		return 2
+
+	# Разбиение совпадает с диагональю физического меша Chunk.
+	var first := _clip_submerged_triangle(
+		PackedVector2Array([Vector2(a), Vector2(c), Vector2(b)]),
+		PackedFloat32Array([ha, hc, hb]), level)
+	var second := _clip_submerged_triangle(
+		PackedVector2Array([Vector2(d), Vector2(b), Vector2(c)]),
+		PackedFloat32Array([hd, hb, hc]), level)
+	return _add_polygon(tool, world, first, level, tint) + \
+		_add_polygon(tool, world, second, level, tint)
 
 
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
@@ -25,7 +104,7 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			var index: int = hydro.cell_index(cell)
 			if not hydro.has_water(index):
 				continue
-			var level: float = hydro.level_at(index) + 0.018
+			var level: float = hydro.level_at(index)
 			var lake: bool = hydro.lake_at(index)
 			var ocean: bool = hydro.ocean_at(index)
 			var river: bool = hydro.river_at(index)
@@ -38,40 +117,33 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				color = Color(0.22, 0.37, 0.38, 0.83)
 			if surface != null:
 				var frost: float = surface.frost_at_index(index)
-				# Лёд проявляется постепенно по мере промерзания воды.
 				var ice: float = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
 			if ocean or lake or not river:
-				var a: Vector3 = world.config.to_scene(Vector2(x, y), level)
-				var b: Vector3 = world.config.to_scene(Vector2(x + 1, y), level)
-				var c: Vector3 = world.config.to_scene(Vector2(x + 1, y + 1), level)
-				var d: Vector3 = world.config.to_scene(Vector2(x, y + 1), level)
-				_quad(tool, a, b, c, d, color)
-				added += 1
+				added += _water_cell(tool, world, cell, level, color)
 				continue
 
-			# Течение — лента от середины клетки к её следующему узлу.
+			# Русло сохраняет прежнюю физически связанную ленту.
 			var next: int = hydro.downstream_of(index)
 			var start := Vector2(float(x) + 0.5, float(y) + 0.5)
 			var finish := start
-			var end_level := level
+			var end_level := level + WATER_OFFSET
 			if next >= 0:
 				var target: Vector2i = hydro.cell_from_index(next)
 				finish = Vector2(float(target.x) + 0.5, float(target.y) + 0.5)
 				if hydro.has_water(next):
-					end_level = hydro.level_at(next) + 0.018
+					end_level = hydro.level_at(next) + WATER_OFFSET
 				else:
 					end_level = world.height_at(finish) + 0.06
 			else:
 				finish += Vector2(0.0, 0.18)
 			var direction := (finish - start).normalized()
-			var normal := Vector2(-direction.y, direction.x) * 0.24
-			var a: Vector3 = world.config.to_scene(start - normal, level)
-			var b: Vector3 = world.config.to_scene(start + normal, level)
-			var c: Vector3 = world.config.to_scene(finish + normal, end_level)
-			var d: Vector3 = world.config.to_scene(finish - normal, end_level)
-			_quad(tool, a, b, c, d, color)
-			added += 1
+			var side := Vector2(-direction.y, direction.x) * 0.24
+			_quad(tool, world.config.to_scene(start - side, level + WATER_OFFSET),
+				world.config.to_scene(start + side, level + WATER_OFFSET),
+				world.config.to_scene(finish + side, end_level),
+				world.config.to_scene(finish - side, end_level), color)
+			added += 2
 	if added > 0:
 		tool.commit(result)
 	return result
