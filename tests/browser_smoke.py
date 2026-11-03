@@ -11,8 +11,9 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
+navigation=(root/'navigation.js').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
 visual=(root/'visual-model.js').read_text('utf8')
 mill_pack=(root/'mill-pack.js').read_text('utf8')
@@ -45,6 +46,7 @@ def mount(page,prior=None,boot="mission"):
         removeItem(k){s.delete(k)},clear(){s.clear()},entries(){return Array.from(s)}
       }});
     }''',prior)
+    page.add_script_tag(content=navigation)
     page.add_script_tag(content=engine)
     page.add_script_tag(content=visual)
     page.add_script_tag(content=mill_pack)
@@ -580,6 +582,7 @@ with sync_playwright() as pw:
         page.add_style_tag(content=legacy_css)
         page.evaluate('''() => Object.defineProperty(window,'localStorage',{configurable:true,value:{
           getItem(){return null},setItem(){},removeItem(){}}})''')
+        page.add_script_tag(content=navigation)
         page.add_script_tag(content=engine)
         page.add_script_tag(content=visual)
         page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)

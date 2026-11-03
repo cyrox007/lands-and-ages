@@ -243,9 +243,9 @@
     prior.x=x;prior.y=y;
     motion.set(key,prior);
   }
+  const Navigation=window.StrategyNavigation;
   function movementDirection(dx,dy){
-    const sx=dx-dy,sy=dx+dy;
-    return (sy<0?'n':'s')+(sx<0?'w':'e');
+    return Navigation.facing({x:0,y:0},{x:dx,y:dy});
   }
   function updateMotion(){
     const active=new Set();
@@ -299,7 +299,9 @@
       state==='walk'||state==='carry'?V.gaitFrame(previous?.distance??0):
       state==='idle'?Math.floor(animationClock*1.7+seed*1.91)%8:
       V.animationFrame(state,animationClock,seed);
-    const direction=face?.moving?face.direction:(previous?.direction||'se');
+    const direction=moving?
+      (agent?previous?.direction:face?.direction)||entity.facing||'se':
+      entity.facing||previous?.direction||'se';
     return {sheet:fallback,art:illustratedSheet(role,state),
       activity:activity?.id||state,state,frame,row:facingRow[direction]??0,
       direction,travelled:previous?.distance||0};
@@ -1901,7 +1903,16 @@
     loggerStates:LOGGER_STATES.slice(),
     woodcutters:()=>game.workAgents.filter(a=>
       game.buildings.some(b=>b.id===a.buildingId&&b.type==='logger'))
-      .map(a=>({phase:a.phase,progress:a.progress,target:a.target})),
+      .map(a=>({phase:a.phase,progress:a.progress,target:a.target,
+        x:a.x,y:a.y,direction:workerState(a,'logger').direction,
+        path:a.path||[]})),
+    walkable:(x,y)=>game.walkable(x,y),
+    approachCells:(x,y)=>game.approachCells({x,y}),
+    walkPath:(from,to)=>game.walkRoute(from,to),
+    workerFacing:(buildingId)=>{
+      const a=game.workAgents.find(a=>a.buildingId===buildingId);
+      return a?workerState(a,game.buildings.find(b=>b.id===buildingId)?.type||'logger').direction:null;
+    },
     professionAction:(role,context)=>Profession?.resolve(role,context),
     productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();

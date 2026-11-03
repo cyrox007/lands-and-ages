@@ -5,6 +5,8 @@
   if(root)root.StrategyEngine=api;
 })(typeof globalThis==='object'?globalThis:this,function(){
   'use strict';
+  const Nav=typeof module==='object'&&module.exports?
+    require('./navigation.js'):globalThis.StrategyNavigation;
   const W=26,H=18,SETTLEMENT_RADIUS=9;
   const RES=['logs','boards','stone','grain','vegetables','flour','bread'];
   const RES_NAME={logs:'Брёвна',boards:'Доски',stone:'Камень',grain:'Зерно',vegetables:'Овощи',flour:'Мука',bread:'Хлеб'};
@@ -375,22 +377,77 @@
       }
       return opts.length?{x:opts[0][0],y:opts[0][1]}:null;
     }
+    // Склад, дома, недостроенные объекты и природные преграды не проходимы.
+    walkable(x,y){
+      if(!inside(x,y))return false;
+      const cell=this.tiles[id(x,y)];
+      if(['forest','hills','water','ruin'].includes(cell.terrain))return false;
+      if(this.buildingAt(x,y)||this.siteAt(x,y)||this.fieldAt(x,y))return false;
+      // Кусты изображаются на тех же клетках, поэтому тоже участвуют в коллизии.
+      if(!this.roads[id(x,y)]&&(x*31+y*47+x*y*11)%13===0)return false;
+      return true;
+    }
+    // Производственная логистика передвигается только по завершённым дорогам.
     route(from,to){
-      if(!from||!to)return null;
-      const start=id(from.x,from.y),goal=id(to.x,to.y);
-      if(!this.roads[start]||!this.roads[goal])return null;
-      const seen=new Int32Array(W*H).fill(-1),q=[start];seen[start]=start;
-      for(let i=0;i<q.length;i++){
-        const v=q[i];if(v===goal)break;
-        const {x,y}=xy(v);
-        for(const [nx,ny] of adj(x,y)){
-          const n=id(nx,ny);if(seen[n]!==-1||!this.roads[n])continue;
-          seen[n]=v;q.push(n);
+      return Nav.route(W,H,from,to,(x,y)=>this.roads[id(x,y)]&&
+        this.walkable(x,y));
+    }
+    walkRoute(from,to){
+      const path=Nav.route(W,H,from,to,(x,y)=>this.walkable(x,y));
+      return path?.map(Nav.centre)||null;
+    }
+    approachPath(from,object){
+      const path=Nav.approach(W,H,from,object,(x,y)=>this.walkable(x,y));
+      return path?.map(Nav.centre)||null;
+    }
+    // Точки взаимодействия выбираются рядом с объектом, не внутри него.
+    approachCells(object){
+      return Nav.perimeter(object,W,H).filter(p=>this.walkable(p.x,p.y));
+    }
+    recoverAgent(agent){
+      if(this.walkable(Math.floor(agent.x),Math.floor(agent.y)))return true;
+      // Миграция старого сохранения: раньше рабочие появлялись внутри склада.
+      const safe=Nav.nearest(W,H,agent,(x,y)=>this.walkable(x,y));
+      if(!safe)return false;
+      agent.x=safe.x+.5;agent.y=safe.y+.5;
+      agent.path=[];agent.segment=0;
+      return true;
+    }
+    // Движение проходит по центрам соседних свободных клеток.
+    advanceAgentPath(agent,object,dt){
+      if(!Array.isArray(agent.path)||!agent.path.length){
+        agent.path=this.approachPath(agent,object);
+        agent.segment=0;
+        if(!agent.path)return false;
+      }
+      let remaining=dt*1.65;
+      while(remaining>0&&agent.segment<agent.path.length-1){
+        const next=agent.path[agent.segment+1];
+        if(!this.walkable(Math.floor(next.x),Math.floor(next.y))){
+          agent.path=[];agent.segment=0;
+          return false;
+        }
+        const dx=next.x-agent.x,dy=next.y-agent.y,dist=Math.hypot(dx,dy);
+        if(dist<.00001){
+          agent.x=next.x;agent.y=next.y;agent.segment++;
+          continue;
+        }
+        agent.facing=Nav.facing({x:0,y:0},{x:dx,y:dy},agent.facing);
+        if(remaining>=dist){
+          agent.x=next.x;agent.y=next.y;agent.segment++;remaining-=dist;
+        }else{
+          agent.x+=dx/dist*remaining;agent.y+=dy/dist*remaining;
+          remaining=0;
         }
       }
-      if(seen[goal]<0)return null;
-      const path=[];for(let p=goal;p!==start;p=seen[p])path.push(xy(p));
-      path.push(xy(start));return path.reverse();
+      if(agent.segment<agent.path.length-1)return false;
+      const last=agent.path.at(-1);
+      agent.x=last.x;agent.y=last.y;
+      const width=object.size?.w||1,height=object.size?.h||1;
+      agent.facing=Nav.facing(agent,{x:object.x+width/2,y:object.y+height/2},
+        agent.facing);
+      agent.path=[];agent.segment=0;
+      return true;
     }
     connected(building){
       if(building?.type==='mill'&&!['operational','damaged'].includes(this.millState(building).phase))return false;
@@ -471,7 +528,12 @@
           const entrance=this.entrance(site),path=entrance&&this.route(source,entrance);
           if(!path)continue;
           worker.site=site.id;worker.path=path;worker.segment=0;
-          worker.phase=path.length===1?'work':'travel';break;
+          worker.phase=path.length===1?'work':'travel';
+          if(worker.phase==='work')worker.facing=Nav.facing(
+            {x:worker.x+.5,y:worker.y+.5},
+            {x:site.x+(site.size?.w||1)/2,y:site.y+(site.size?.h||1)/2},
+            worker.facing);
+          break;
         }
       }
     }
@@ -481,11 +543,23 @@
       let remaining=dt*1.6;
       while(remaining>0&&b.segment<b.path.length-1){
         const target=b.path[b.segment+1],dx=target.x-b.x,dy=target.y-b.y,d=Math.hypot(dx,dy);
+        if(!this.walkable(target.x,target.y)){
+          const site=this.siteById(b.site),entrance=this.entrance(site);
+          const path=entrance&&this.route({x:Math.round(b.x),y:Math.round(b.y)},entrance);
+          if(path){b.path=path;b.segment=0;}
+          return;
+        }
         if(d<.0001){b.x=target.x;b.y=target.y;b.segment++;continue;}
         if(d<=remaining){b.x=target.x;b.y=target.y;b.segment++;remaining-=d;}
         else {b.x+=dx*remaining/d;b.y+=dy*remaining/d;remaining=0;}
       }
-      if(b.segment===b.path.length-1)b.phase='work';
+      if(b.segment===b.path.length-1){
+        b.phase='work';
+        const site=this.siteById(b.site);
+        if(site)b.facing=Nav.facing({x:b.x+.5,y:b.y+.5},
+          {x:site.x+(site.size?.w||1)/2,
+           y:site.y+(site.size?.h||1)/2},b.facing);
+      }
     }
     advanceConstruction(dt){
       this.dispatchBuilders();
@@ -607,21 +681,28 @@
       if(r.point){if(r.point==='wealth')this.coins+=r.gain;else this[r.point]+=r.gain;}
     }
     // Reservations exclude cargo/jobs already allocated to a carrier.
-    resourceCell(b,type){
-      let best=null,dist=Infinity;
-      for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++)
+    resourceCell(b,type,agent=null){
+      let best=null,cost=Infinity;
+      for(let y=Math.max(0,b.y-3);y<=Math.min(H-1,b.y+3);y++){
         for(let x=Math.max(0,b.x-3);x<=Math.min(W-1,b.x+3);x++){
-          const tile=this.tiles[id(x,y)],d=distance({x,y},b);
-          if(((type==='logger'&&tile.terrain==='forest'&&tile.wood>=2&&['mature','old'].includes(this.treeStage(tile)))||
-              (type==='quarry'&&tile.terrain==='hills'&&tile.stone>=2)||
-              (type==='farm'&&this.fields.some(f=>f.x===x&&f.y===y&&f.stage==='ripe'))) &&
-             d<dist){best={x,y};dist=d;}
+          const tile=this.tiles[id(x,y)];
+          const tree=type==='logger'&&tile.terrain==='forest'&&tile.wood>=2&&
+            ['mature','old'].includes(this.treeStage(tile));
+          const stone=type==='quarry'&&tile.terrain==='hills'&&tile.stone>=2;
+          const crop=type==='farm'&&this.fields.some(f=>
+            f.x===x&&f.y===y&&f.stage==='ripe');
+          if(!tree&&!stone&&!crop)continue;
+          const path=agent?this.approachPath(agent,{x,y}):null;
+          if(agent&&!path)continue;
+          const length=path?.length??distance({x,y},b);
+          if(length>=cost)continue;
+          cost=length;best={x,y,path};
         }
+      }
       return best;
     }
-    // Separate resident task from carrier logistics: residents walk from
-    // their workshop to the natural source, work, and return with a real load.
-    // Only arrival at the workshop deposits newly extracted resources.
+    // Люди не входят в дерево или здание: они подходят к соседней клетке,
+    // разворачиваются к цели и только после этого начинают работу.
     advanceWorkAgents(dt){
       if(this.scenario!=='settlement')return;
       const primary=new Set(['logger','quarry','farm']);
@@ -629,55 +710,63 @@
         const b=this.buildings.find(v=>v.id===a.buildingId);
         return Boolean(b&&primary.has(b.type)&&((this.staff[b.id]||0)>0||a.carrying));
       });
+      const home=this.entrance(this.warehouse());
       for(const b of this.buildings){
         if(!primary.has(b.type)||(this.staff[b.id]||0)<1)continue;
-        if(!this.workAgents.some(a=>a.buildingId===b.id))
-          this.workAgents.push({buildingId:b.id,x:this.warehouse().x+.5,
-            y:this.warehouse().y+.5,phase:'arrive',target:null,progress:0,carrying:null});
+        if(this.workAgents.some(a=>a.buildingId===b.id))continue;
+        if(!home)continue;
+        this.workAgents.push({buildingId:b.id,x:home.x+.5,y:home.y+.5,
+          phase:'arrive',target:null,progress:0,carrying:null,
+          path:[],segment:0,facing:'se'});
       }
       for(const a of this.workAgents){
         const b=this.buildings.find(v=>v.id===a.buildingId);
-        if(!b)continue;
+        if(!b||!this.recoverAgent(a))continue;
         if(a.phase==='idle'){
-          a.x=b.x+.5;a.y=b.y+.5;b.progress=0;
+          b.progress=0;
           if(!this.readyToProduce(b))continue;
-          const cell=this.resourceCell(b,b.type);
+          const cell=this.resourceCell(b,b.type,a);
           if(!cell)continue;
-          a.target=cell;a.phase='out';a.progress=0;
+          a.target={x:cell.x,y:cell.y};
+          a.path=cell.path;a.segment=0;a.phase='out';a.progress=0;
         }
-        if(a.phase==='out'||a.phase==='return'||a.phase==='arrive'){
-          const destination=a.phase==='return'||a.phase==='arrive'?
-            {x:b.x+.5,y:b.y+.5}:{x:a.target.x+.5,y:a.target.y+.5};
-          const dx=destination.x-a.x,dy=destination.y-a.y,d=Math.hypot(dx,dy),travel=dt*1.65;
-          if(d>travel){a.x+=dx/d*travel;a.y+=dy/d*travel;}
-          else {
-            a.x=destination.x;a.y=destination.y;
-            if(a.phase==='out'){a.phase='work';a.progress=0;}
-            else {
-              if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
-              a.carrying=null;a.phase='idle';b.progress=0;
-            }
+        if(['out','return','arrive'].includes(a.phase)){
+          const destination=a.phase==='out'?a.target:b;
+          if(!destination){a.phase='idle';a.path=[];continue;}
+          const arrived=this.advanceAgentPath(a,destination,dt);
+          if(!arrived)continue;
+          if(a.phase==='out'){
+            a.phase='work';a.progress=0;
+          }else{
+            if(a.carrying)b.goods[a.carrying.res]+=a.carrying.amount;
+            a.carrying=null;a.phase='idle';b.progress=0;
           }
-        }else if(a.phase==='work'){
-          if((this.staff[b.id]||0)<1){a.phase='return';continue;}
-          a.progress+=dt;b.progress=a.progress;
-          const duration=ECONOMY_PACE.gathering[b.type];
-          if(a.progress<duration)continue;
-          const cell=a.target,tile=this.tiles[id(cell.x,cell.y)];
-          if(b.type==='logger'&&this.harvestTree(tile,2)){
-            a.carrying={res:'logs',amount:2};
-          }else if(b.type==='quarry'&&tile.stone>=2){
-            tile.stone-=2;a.carrying={res:'stone',amount:2};
-          }else if(b.type==='farm'){
-            const field=this.fieldAt(cell.x,cell.y);
-            if(field&&field.stage==='ripe'){
-              a.carrying=field.crop==='vegetables'?{res:'vegetables',amount:2}:
-                {res:'grain',amount:field.crop==='barley'?3:2};
-              field.stage='sown';field.progress=0;field.harvests++;
-            }
-          }
-          a.phase='return';a.progress=0;b.progress=0;
+          continue;
         }
+        if(a.phase!=='work')continue;
+        if(!a.target){a.phase='return';continue;}
+        a.facing=Nav.facing(a,Nav.centre(a.target),a.facing);
+        if((this.staff[b.id]||0)<1){
+          a.phase='return';a.path=[];continue;
+        }
+        a.progress+=dt;b.progress=a.progress;
+        const duration=ECONOMY_PACE.gathering[b.type];
+        if(a.progress<duration)continue;
+        const tile=this.tiles[id(a.target.x,a.target.y)];
+        if(b.type==='logger'&&this.harvestTree(tile,2)){
+          a.carrying={res:'logs',amount:2};
+        }else if(b.type==='quarry'&&tile.stone>=2){
+          tile.stone-=2;a.carrying={res:'stone',amount:2};
+        }else if(b.type==='farm'){
+          const field=this.fieldAt(a.target.x,a.target.y);
+          if(field&&field.stage==='ripe'){
+            a.carrying=field.crop==='vegetables'?{res:'vegetables',amount:2}:
+              {res:'grain',amount:field.crop==='barley'?3:2};
+            field.stage='sown';field.progress=0;field.harvests++;
+          }
+        }
+        a.phase='return';a.path=[];a.segment=0;
+        a.progress=0;b.progress=0;
       }
     }
     reservedFrom(bId,k){return this.carriers.reduce((sum,c)=>sum+(c.job?.source===bId&&c.job.res===k&&!c.carrying?c.job.amount:0),0);}
@@ -762,6 +851,15 @@
         }
         const next=c.path[c.segment+1];
         const dx=next.x-c.x,dy=next.y-c.y,d=Math.hypot(dx,dy);
+        if(!this.walkable(next.x,next.y)){
+          const target=c.job.phase==='pickup'?
+            this.buildings.find(b=>b.id===c.job.source):
+            this.buildings.find(b=>b.id===c.job.target)||this.siteById(c.job.target);
+          const entrance=this.entrance(target);
+          const path=entrance&&this.route({x:Math.round(c.x),y:Math.round(c.y)},entrance);
+          if(path){c.path=path;c.segment=0;}
+          return;
+        }
         if(d<.0001){c.x=next.x;c.y=next.y;c.segment++;continue;}
         if(remaining>=d){c.x=next.x;c.y=next.y;c.segment++;remaining-=d;}
         else{c.x+=dx*remaining/d;c.y+=dy*remaining/d;remaining=0;}
@@ -769,6 +867,14 @@
     }
     arrive(c){
       const job=c.job;
+      const object=job.phase==='pickup'?
+        this.buildings.find(b=>b.id===job.source):
+        this.buildings.find(b=>b.id===job.target)||this.siteById(job.target);
+      if(object){
+        c.facing=Nav.facing({x:c.x+.5,y:c.y+.5},
+          {x:object.x+(object.size?.w||1)/2,
+           y:object.y+(object.size?.h||1)/2},c.facing);
+      }
       if(job.phase==='pickup'){
         const source=this.buildings.find(b=>b.id===job.source);
         const available=Math.min(source?.goods[job.res]||0,job.amount);
