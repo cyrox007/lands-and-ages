@@ -51,13 +51,8 @@ static func _cell_color(cell: Vector2i, normal: Vector3,
 	color = color.lerp(ROCK, exposed * 0.85)
 	color = color.lerp(GRAVEL, smoothstep(3.7, 8.3, height) * 0.22)
 
-	var proximity := _near_water(cell, world, hydro)
 	if hydro.has_water(index):
 		color = color.lerp(SEA_FLOOR, 0.65)
-	else:
-		var beach: float = proximity.x * (1.0 - exposed)
-		color = color.lerp(SAND, beach * 0.65)
-		color = color.lerp(WETLAND, proximity.y * 0.22)
 
 	var moisture: float = surface.moisture_at_index(index)
 	color = color.lerp(Color(0.21, 0.26, 0.22), moisture * 0.23)
@@ -73,6 +68,7 @@ static func color_at(vertex: Vector2i, height: float, normal: Vector3,
 	# Поэтому соседние GPU-чанки не получают цветовых швов.
 	var total := Color(0.0, 0.0, 0.0, 0.0)
 	var count := 0
+	var dry_cells := 0
 	for dy in [-1, 0]:
 		for dx in [-1, 0]:
 			var cell := vertex + Vector2i(dx, dy)
@@ -80,4 +76,15 @@ static func color_at(vertex: Vector2i, height: float, normal: Vector3,
 				continue
 			total += _cell_color(cell, normal, height, world, surface, hydro)
 			count += 1
-	return total / float(maxi(count, 1))
+			if not hydro.has_water(hydro.cell_index(cell)):
+				dry_cells += 1
+	var color := total / float(maxi(count, 1))
+	# Береговое влияние достаточно вычислить раз на вершину,
+	# а не четыре раза на каждую соседнюю клетку.
+	var shore := _near_water(vertex, world, hydro)
+	var land_share := float(dry_cells) / float(maxi(count, 1))
+	var gentle := 1.0 - smoothstep(0.14, 0.46,
+		1.0 - clampf(normal.y, 0.0, 1.0))
+	color = color.lerp(SAND, shore.x * land_share * gentle * 0.60)
+	color = color.lerp(WETLAND, shore.y * land_share * 0.20)
+	return color
