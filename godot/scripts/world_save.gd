@@ -66,7 +66,7 @@ static func capture(state: Dictionary) -> Dictionary:
 		"hydrology": hydro.to_snapshot(),
 		"climate": climate.to_data(),
 		"surface": surface.to_snapshot(),
-		"weather": weather.to_data(),
+		"weather": weather.to_snapshot(),
 		"natural": natural.to_data(),
 		"disasters": disasters.to_data()
 	}
@@ -108,7 +108,7 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if climate.day != int(saved_day) or surface.day != int(saved_day):
 		return {}
 	var weather := Weather.new(world, climate, surface, hydro)
-	if not weather.load_data(snapshot["weather"]):
+	if not weather.load_snapshot(snapshot["weather"]):
 		return {}
 	var natural := Natural.new(world, hydro, surface, climate)
 	if not natural.load_data(snapshot["natural"]):
