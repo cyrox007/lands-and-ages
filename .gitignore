@@ -10,3 +10,8 @@ Thumbs.db
 .env.*
 !.env.example
 play.html
+
+# Импортированные ресурсы редактора Godot не храним в Git.
+godot/.godot/
+godot/.import/
+godot/export.cfg

@@ -1,0 +1,24 @@
+; Проект-полигон Lands and Ages. Игровой прототип в корне репозитория не изменяется.
+
+config_version=5
+
+[application]
+
+config/name="Земли и эпохи — GPU-полигон"
+run/main_scene="res://scenes/world.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/description="Нативный полигон природного мира 256×192"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/handheld/orientation=1
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
+environment/defaults/default_clear_color=Color(0.47, 0.62, 0.72, 1)
