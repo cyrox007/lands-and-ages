@@ -195,6 +195,26 @@ func _test_live_scene() -> void:
 		"Фоновый расчёт подключён к восстановленной карте")
 	_check(scene._world_model.vertices_changed.is_connected(scene._on_world_changed),
 		"Сигналы карты подключены к новой сцене")
+	scene._queue_days(2)
+	scene._request_storage("save")
+	_check(scene._storage_request == "save",
+		"При перемотке сохранение ставится в очередь")
+	timeout = Time.get_ticks_msec() + 90000
+	while scene._storage_request != "" or scene._day_task_id >= 0:
+		await process_frame
+		if Time.get_ticks_msec() > timeout:
+			_check(false, "Запрос записи не дождался окончания очереди")
+			break
+	var later: Dictionary = Save.read_file(TEST_PATH)
+	_check(not later.is_empty() and later["climate"].day == 3,
+		"После перемотки сохраняется завершённый третий день")
+	var live_before: RefCounted = scene._world_model
+	var file := FileAccess.open(TEST_PATH, FileAccess.WRITE)
+	file.store_string("повреждённое сохранение")
+	file.close()
+	scene._request_storage("load")
+	_check(scene._world_model == live_before and scene._climate.day == 3,
+		"Неисправный файл не разрушает текущую физическую сцену")
 	scene.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PATH))
