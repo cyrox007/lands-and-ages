@@ -204,7 +204,10 @@ func load_data(data: Dictionary) -> bool:
 	if data.get("version") != FORMAT_VERSION \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
-	if not (data.get("day") is int) or int(data["day"]) < 0:
+	if not (data.get("day") is int or data.get("day") is float):
+		return false
+	var saved_day: float = float(data["day"])
+	if not is_finite(saved_day) or saved_day < 0.0 or saved_day != float(int(saved_day)):
 		return false
 	if not (data.get("temperature") is float or data.get("temperature") is int) \
 			or not (data.get("precipitation") is float or data.get("precipitation") is int):
