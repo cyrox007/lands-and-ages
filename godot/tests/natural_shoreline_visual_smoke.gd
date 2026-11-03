@@ -58,6 +58,9 @@ func _check_world_meshes() -> void:
 	hydro.rebuild()
 	var surface := Surface.new(world, hydro)
 	surface.rebuild()
+	# Снимок гидрологии требует заполненной карты локального стока.
+	# Это обычная последовательность инициализации игрового мира.
+	hydro.apply_rainfall_map(surface.runoff_map())
 	var map_before: Dictionary = world.to_data()
 	var hydro_before: Dictionary = hydro.to_snapshot()
 	var surface_before: Dictionary = surface.to_snapshot()
