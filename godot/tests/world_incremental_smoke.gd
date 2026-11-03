@@ -188,6 +188,37 @@ func _batch_and_render_queue() -> void:
 	view.free()
 
 
+func _large_world_budget() -> void:
+	var state := _make_state(256, 192, 1729)
+	var world: RefCounted = state["map"]
+	var cell := _safe_cell(state)
+	_check(cell.x >= 0, "На большой карте найден локальный участок суши")
+	if cell.x < 0:
+		return
+	var before: float = world.vertex_at(cell)
+	_check(world.set_vertex(cell, before + 0.03),
+		"Малая деформация принимается в мире 256×192")
+	var started := Time.get_ticks_usec()
+	state["hydro"].ensure_ready()
+	var chunks: Array[Vector2i] = world.take_dirty_chunks()
+	for coord in state["hydro"].last_changed_chunks:
+		if not chunks.has(coord):
+			chunks.append(coord)
+	state["climate"].rebuild(chunks)
+	state["surface"].rebuild(chunks)
+	state["surface"].synchronize_climate(state["climate"],
+		state["climate"].last_updated_rows)
+	var elapsed := Time.get_ticks_usec() - started
+	_check(state["hydro"].full_rebuilds == 2,
+		"Глобальная гидрология на большой карте рассчитывается один раз")
+	_check(state["surface"].last_rebuilt_cells > 0
+		and state["surface"].last_rebuilt_cells <= 256 * 192,
+		"Число обрабатываемых клеток большого мира ограничено")
+	print("Этап 6.6, 256×192: CPU=", elapsed,
+		" мкс, грунт=", state["surface"].last_rebuilt_cells,
+		" клеток, климат=", state["climate"].last_rebuild_rows, " строк")
+
+
 func _weather_does_not_change_rock() -> void:
 	var state := _make_state(32, 32, 581)
 	var map: RefCounted = state["map"]
@@ -231,6 +262,7 @@ func _initialize() -> void:
 	_ocean_fallback()
 	_batch_and_render_queue()
 	_weather_does_not_change_rock()
+	_large_world_budget()
 	if not failures.is_empty():
 		for failure in failures.slice(0, 20):
 			push_error("Этап 6.6: " + failure)
