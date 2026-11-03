@@ -127,7 +127,7 @@ func _run() -> void:
 	basin.ensure_ready()
 	_check(is_equal_approx(float(basin.water_at(Vector2i(5, 5))["ground"]),
 		bowl_world.height_at(Vector2(5.5, 5.5))), "Грунт и гидрология читают один мир")
-	_check(basin.water_at(Vector2i(6, 6))["ground"] > -1.0,
+	_check(basin.water_at(Vector2i(6, 5))["ground"] > -1.0,
 		"Гидрология перестроена по изменённому рельефу")
 
 	# Проверка масштабирования: мир не обязан быть кратен чанкам.
