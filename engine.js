@@ -23,6 +23,18 @@
     embassy:{name:'Посольство',symbol:'◆',cost:80,boards:4,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'diplomacy',gain:3,time:10}},
     barracks:{name:'Казармы',symbol:'⚑',cost:65,boards:3,max:8,workers:1,recipe:{in:{bread:1,boards:1},point:'military',gain:3,time:10}}
   };
+  // В новом поселении полный цикл добычи должен занимать заметное игровое время.
+  // Старую миссию не ускоряем и не замедляем задним числом.
+  const ECONOMY_PACE={
+    gathering:{logger:12,quarry:14,farm:10},
+    production:{sawmill:15,mill:16,bakery:18,academy:20,theatre:20,
+      market:18,embassy:22,barracks:22},
+    fields:{clearing:8,sown:7,growing:{wheat:30,barley:26,vegetables:34}}
+  };
+  const productionTime=(type,scenario='legacy')=>{
+    const original=DEF[type]?.recipe?.time||0;
+    return scenario==='settlement'?(ECONOMY_PACE.production[type]||original):original;
+  };
   // Площадь застройки можно расширять для следующих зданий.
   const FOOTPRINT={
     warehouse:[2,2],logger:[1,1],quarry:[1,1],sawmill:[1,1],
@@ -194,9 +206,10 @@
         const farm=this.fieldFarm(f);
         if(!farm||(this.staff[farm.id]||0)<1||!this.connected(farm)||f.stage==='ripe')continue;
         f.progress+=dt;
-        const durations={clearing:4,sown:3,growing:f.crop==='vegetables'?18:f.crop==='barley'?12:15};
-        if(f.progress>=durations[f.stage]){
-          f.progress-=durations[f.stage];
+        const timings=ECONOMY_PACE.fields;
+        const duration=f.stage==='growing'?timings.growing[f.crop]:timings[f.stage];
+        if(f.progress>=duration){
+          f.progress-=duration;
           f.stage=f.stage==='clearing'?'sown':f.stage==='sown'?'growing':'ripe';
         }
       }
@@ -281,7 +294,7 @@
       const working=worker&&['operational','damaged'].includes(state.phase)&&this.readyToProduce(b);
       return {phase:state.phase,integrity:state.integrity,worker,working,
         input:{grain:b.goods.grain},output:{flour:b.goods.flour},
-        processing:b.progress/DEF.mill.recipe.time,repair:state.repairProgress};
+        processing:b.progress/productionTime('mill',this.scenario),repair:state.repairProgress};
     }
     damageMill(buildingId,amount){
       if(this.paused)return this.blockedOnPause();
@@ -573,8 +586,9 @@
       if(this.scenario==='settlement'&&['logger','quarry','farm'].includes(b.type))return;
       if(!this.readyToProduce(b)){b.progress=0;return;}
       b.progress+=dt*(b.type==='mill'?Math.max(.3,this.millState(b).integrity/100):1);
-      if(b.progress<r.time)return;
-      b.progress-=r.time;
+      const duration=productionTime(b.type,this.scenario);
+      if(b.progress<duration)return;
+      b.progress-=duration;
       if(!this.readyToProduce(b))return;
       let outputs=r.out||{};
       if(b.type==='farm'&&this.scenario==='settlement'){
@@ -647,7 +661,7 @@
         }else if(a.phase==='work'){
           if((this.staff[b.id]||0)<1){a.phase='return';continue;}
           a.progress+=dt;b.progress=a.progress;
-          const duration=b.type==='quarry'?2.3:b.type==='farm'?2:2.6;
+          const duration=ECONOMY_PACE.gathering[b.type];
           if(a.progress<duration)continue;
           const cell=a.target,tile=this.tiles[id(cell.x,cell.y)];
           if(b.type==='logger'&&this.harvestTree(tile,2)){
@@ -913,5 +927,5 @@
       }catch(_){return null;}
     }
   }
-  return {Game,W,H,RES,RES_NAME,DEF,COLORS,id,xy};
+  return {Game,W,H,RES,RES_NAME,DEF,ECONOMY_PACE,productionTime,COLORS,id,xy};
 });
