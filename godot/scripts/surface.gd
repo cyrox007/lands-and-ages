@@ -35,6 +35,22 @@ func _init(map: RefCounted, hydrology: RefCounted) -> void:
 	hydro = hydrology
 
 
+static func _geology_field(x: int, y: int, seed: int) -> float:
+	# Осадочные области распределены плавно, без случайной клетки-глины
+	# посреди независимого песчаного региона.
+	var fx := float(x) / 46.0
+	var fy := float(y) / 46.0
+	var gx := floori(fx)
+	var gy := floori(fy)
+	var u := smoothstep(0.0, 1.0, fx - float(gx))
+	var v := smoothstep(0.0, 1.0, fy - float(gy))
+	var north := lerpf(Terrain.hash2(gx, gy, seed + 7201),
+		Terrain.hash2(gx + 1, gy, seed + 7201), u)
+	var south := lerpf(Terrain.hash2(gx, gy + 1, seed + 7201),
+		Terrain.hash2(gx + 1, gy + 1, seed + 7201), u)
+	return lerpf(north, south, v)
+
+
 func _index(cell: Vector2i) -> int:
 	if not world.config.contains_cell(cell):
 		return -1
@@ -72,17 +88,19 @@ func rebuild() -> void:
 			var height: float = (a + b + c + d) * 0.25
 			var slope: float = Vector2((b + d - a - c) * 0.5,
 				(c + d - a - b) * 0.5).length()
-			var area: float = Terrain.hash2(floori(float(x) / 18.0),
-				floori(float(y) / 18.0), world.config.seed + 7201)
+			var area: float = _geology_field(x, y, world.config.seed)
 			var detail: float = Terrain.hash2(x, y, world.config.seed + 7202)
 			var kind := LOAM
 			if slope > 1.75 or (height > 7.5 and area > 0.42):
 				kind = ROCK
 			elif slope > 0.95 or (height > 4.0 and area > 0.72):
 				kind = GRAVEL
-			elif area < 0.26:
+			elif hydro.wetness_at(i) > 0.65 and slope < 0.3:
+				# Тонкодисперсные отложения на мокрых плоских участках.
+				kind = CLAY
+			elif area < 0.30 and hydro.wetness_at(i) < 0.45:
 				kind = SAND
-			elif area > 0.70:
+			elif area > 0.72:
 				kind = CLAY
 			_type[i] = kind
 			_depth[i] = 0.0 if kind == ROCK else clampf(
