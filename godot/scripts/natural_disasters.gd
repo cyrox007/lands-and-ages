@@ -6,6 +6,7 @@ signal disaster_occurred(event: Dictionary)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
+const Climate = preload("res://scripts/climate.gd")
 const FORMAT_VERSION := 1
 const MAX_EVENTS_PER_DAY := 4
 const SAMPLE_AXIS := 4
@@ -100,16 +101,15 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 	surface.ensure_ready()
 	climate.ensure_ready()
 	var i: int = hydro.cell_index(cell)
-	var ground: Dictionary = surface.profile_at(cell)
-	var weather: Dictionary = climate.weather_at(cell)
-	var moisture: float = ground["moisture"]
-	var snow: float = ground["snow"]
-	var air: float = weather["temperature"]
-	var liquid: float = weather["rainfall"]
-	var wind: float = weather["wind_speed"]
-	var storm: float = weather["storm_intensity"]
-	var depth: float = ground["depth"]
-	var rock: bool = ground["substrate"] == "скала"
+	var moisture: float = surface.moisture_at_index(i)
+	var snow: float = surface.snow_at_index(i)
+	var air: float = climate.temperature_at_index(i)
+	var liquid: float = climate.precipitation_at_index(i) \
+		* (1.0 - Climate.snowfall_fraction(air))
+	var wind: float = climate.wind_at_index(i)
+	var storm: float = climate.storm_at_index(i)
+	var depth: float = surface.soil_depth_at_index(i)
+	var rock: bool = surface.rock_at_index(i)
 	var covered: bool = hydro.has_water(i)
 	var target := Vector2i(-1, -1)
 	var steep := 0.0
