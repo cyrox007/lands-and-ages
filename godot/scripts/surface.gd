@@ -32,6 +32,7 @@ var _frost := PackedFloat32Array()
 var _air_temperature := PackedFloat32Array()
 var _runoff := PackedFloat32Array()
 var _sediment := PackedFloat32Array()
+var _sediment_balance := 0.0
 var snow_coverage := 0.0
 
 
@@ -100,6 +101,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 		_snow.fill(0.0)
 		_frost.fill(0.0)
 		_sediment.fill(0.0)
+		_sediment_balance = 0.0
 	for y in range(world.config.height):
 		for x in range(world.config.width):
 			var i: int = y * world.config.width + x
@@ -239,10 +241,8 @@ func transfer_sediment(source: Vector2i, target: Vector2i,
 
 func sediment_balance() -> float:
 	ensure_ready()
-	var total := 0.0
-	for value in _sediment:
-		total += value
-	return total
+	# Баланс кэшируется: HUD не обходит десятки тысяч клеток.
+	return _sediment_balance
 
 
 func sediment_color_at(cell: Vector2i) -> Color:
@@ -425,6 +425,7 @@ func load_data(data: Dictionary) -> bool:
 		return false
 	var loaded_sediment := PackedFloat32Array()
 	loaded_sediment.resize(_type.size())
+	var loaded_balance := 0.0
 	var occupied := {}
 	for raw in sediment_changes:
 		if not (raw is Array) or raw.size() != 2:
@@ -446,6 +447,7 @@ func load_data(data: Dictionary) -> bool:
 			return false
 		occupied[index] = true
 		loaded_sediment[index] = float(units) / SEDIMENT_UNITS
+		loaded_balance += loaded_sediment[index]
 	if not (data.get("day") is int or data.get("day") is float):
 		return false
 	var saved_day: float = float(data["day"])
@@ -475,6 +477,7 @@ func load_data(data: Dictionary) -> bool:
 		_frost[i] = float(frozen[i]) / 255.0
 		_air_temperature[i] = float(air[i]) / 255.0 * 120.0 - 60.0
 	_sediment = loaded_sediment
+	_sediment_balance = loaded_balance
 	day = int(data["day"])
 	temperature = temp
 	precipitation = rain
