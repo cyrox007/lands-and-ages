@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|unit-ground|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 navigation=(root/'navigation.js').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
@@ -22,6 +22,7 @@ worker_art=(root/'worker-art.js').read_text('utf8')
 painted_motion=(root/'painted-motion.js').read_text('utf8')
 profession_actions=(root/'profession-actions.js').read_text('utf8')
 profession_frames=(root/'profession-frames.js').read_text('utf8')
+unit_ground=(root/'unit-ground.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 logger_atlases={state:'data:image/webp;base64,'+base64.b64encode(
     (root/'assets/characters/logger'/('logger-'+state+'.webp')).read_bytes()).decode('ascii')
@@ -55,6 +56,7 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=painted_motion)
     page.add_script_tag(content=profession_actions)
     page.add_script_tag(content=profession_frames)
+    page.add_script_tag(content=unit_ground)
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
@@ -586,6 +588,7 @@ with sync_playwright() as pw:
         page.add_script_tag(content=engine)
         page.add_script_tag(content=visual)
         page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
+        page.add_script_tag(content=unit_ground)
         page.add_script_tag(content=ui)
         page.wait_for_function('Boolean(window.__strategyDebug)')
         metrics=page.evaluate('''() => {
