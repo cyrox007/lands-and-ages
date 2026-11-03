@@ -6,7 +6,8 @@ signal surface_changed(revision: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Climate = preload("res://scripts/climate.gd")
-const FORMAT_VERSION := 2
+const FORMAT_VERSION := 3
+const SEDIMENT_UNITS := 1000000.0
 const ROCK := 0
 const GRAVEL := 1
 const SAND := 2
@@ -30,6 +31,8 @@ var _snow := PackedFloat32Array()
 var _frost := PackedFloat32Array()
 var _air_temperature := PackedFloat32Array()
 var _runoff := PackedFloat32Array()
+var _sediment := PackedFloat32Array()
+var _sediment_balance := 0.0
 var snow_coverage := 0.0
 
 
@@ -70,13 +73,10 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	# Геология пересчитывается, но снег и влага вне зоны воздействия остаются.
 	hydro.ensure_ready()
 	var count: int = world.config.width * world.config.height
-	var preserve := _type.size() == count and _terrain_revision >= 0 \
-		and not affected_chunks.is_empty()
-	var old_moisture := _moisture.duplicate() if preserve else PackedFloat32Array()
-	var old_snow := _snow.duplicate() if preserve else PackedFloat32Array()
-	var old_frost := _frost.duplicate() if preserve else PackedFloat32Array()
-	var old_air := _air_temperature.duplicate() if preserve else PackedFloat32Array()
-	var old_runoff := _runoff.duplicate() if preserve else PackedFloat32Array()
+	var has_state := _type.size() == count and _terrain_revision >= 0
+	var preserve := has_state and not affected_chunks.is_empty()
+	# При локальной деформации обрабатываем лишь затронутые чанки.
+	# Сезонный покров и накопленные наносы не пересоздаются.
 	var affected := PackedByteArray()
 	affected.resize(count)
 	if preserve:
@@ -94,13 +94,19 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	_frost.resize(count)
 	_air_temperature.resize(count)
 	_runoff.resize(count)
-	_air_temperature.fill(12.0)
-	_runoff.fill(0.0)
-	_snow.fill(0.0)
-	_frost.fill(0.0)
+	_sediment.resize(count)
+	if not has_state:
+		_air_temperature.fill(12.0)
+		_runoff.fill(0.0)
+		_snow.fill(0.0)
+		_frost.fill(0.0)
+		_sediment.fill(0.0)
+		_sediment_balance = 0.0
 	for y in range(world.config.height):
 		for x in range(world.config.width):
 			var i: int = y * world.config.width + x
+			if preserve and affected[i] == 0:
+				continue
 			var a: float = world.vertex_at(Vector2i(x, y))
 			var b: float = world.vertex_at(Vector2i(x + 1, y))
 			var c: float = world.vertex_at(Vector2i(x, y + 1))
@@ -132,13 +138,10 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 			_porosity[i] = [0.03, 0.72, 0.84, 0.27, 0.56][kind]
 			_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
 				0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
-			if preserve:
-				_air_temperature[i] = old_air[i]
-				if affected[i] == 0:
-					_runoff[i] = old_runoff[i]
-					_moisture[i] = 1.0 if hydro.has_water(i) else old_moisture[i]
-					_snow[i] = old_snow[i]
-					_frost[i] = old_frost[i]
+			if has_state:
+				# Полный пересчёт после внешней правки тоже сохраняет
+				# историю грунта и погоду, а не начинает мир заново.
+				_moisture[i] = 1.0 if hydro.has_water(i) else _moisture[i]
 	_terrain_revision = world.revision
 	_update_snow_coverage()
 	revision += 1
@@ -202,6 +205,59 @@ func runoff_map() -> PackedFloat32Array:
 
 func runoff_at_index(index: int) -> float:
 	return _runoff[index] if index >= 0 and index < _runoff.size() else 0.0
+
+
+func transfer_sediment(source: Vector2i, target: Vector2i,
+		amount: float) -> bool:
+	# Две вершины меняются атомарно, а происхождение наносов хранится
+	# отдельно от базовой геологии и самого физического рельефа.
+	ensure_ready()
+	if not world.config.contains_cell(source) or not world.config.contains_cell(target):
+		return false
+	if source == target or not is_finite(amount) or amount < 0.0005 or amount > 0.05:
+		return false
+	var a := _index(source)
+	var b := _index(target)
+	if _depth[a] + _sediment[a] < amount + 0.01:
+		return false
+	var source_height: float = world.vertex_at(source)
+	var target_height: float = world.vertex_at(target)
+	if not world.apply_vertex_changes({
+			source: source_height - amount, target: target_height + amount}):
+		return false
+	# Подписчики WorldMap уже могли перестроить Surface в этом же вызове.
+	# Дополнительно обработаем случай изолированного теста без подписчика.
+	if _terrain_revision != world.revision:
+		var chunks: Array[Vector2i] = [world.config.chunk_of(source)]
+		var target_chunk: Vector2i = world.config.chunk_of(target)
+		if not chunks.has(target_chunk):
+			chunks.append(target_chunk)
+		rebuild(chunks)
+	_sediment[a] -= amount
+	_sediment[b] += amount
+	revision += 1
+	surface_changed.emit(revision)
+	return true
+
+
+func sediment_balance() -> float:
+	ensure_ready()
+	# Баланс кэшируется: HUD не обходит десятки тысяч клеток.
+	return _sediment_balance
+
+
+func sediment_color_at(cell: Vector2i) -> Color:
+	ensure_ready()
+	var i := _index(cell)
+	if i < 0:
+		return Color.DARK_GRAY
+	var amount: float = _sediment[i]
+	var base := Color(0.42, 0.42, 0.43)
+	if amount > 0.0:
+		return base.lerp(Color(0.93, 0.73, 0.38),
+			clampf(amount / 0.05, 0.0, 1.0))
+	return base.lerp(Color(0.29, 0.25, 0.21),
+		clampf(-amount / 0.05, 0.0, 1.0))
 
 
 func snow_color_at(cell: Vector2i) -> Color:
@@ -280,14 +336,18 @@ func profile_at(cell: Vector2i) -> Dictionary:
 
 	var thermal := clampf((_air_temperature[i] + 6.0) / 13.0, 0.0, 1.0) \
 		* clampf((46.0 - _air_temperature[i]) / 13.0, 0.0, 1.0)
-	var growth := _fertility[i] * clampf((wet - 0.12) * 1.8, 0.0, 1.0) * thermal
+	var depth := maxf(0.0, _depth[i] + _sediment[i])
+	var fertility := clampf(_fertility[i] + maxf(0.0, _sediment[i]) * 0.16,
+		0.0, 1.0)
+	var growth := fertility * clampf((wet - 0.12) * 1.8, 0.0, 1.0) * thermal
 	return {
-		"cell": cell, "substrate": NAMES[_type[i]], "depth": _depth[i],
-		"fertility": _fertility[i], "porosity": _porosity[i],
+		"cell": cell, "substrate": NAMES[_type[i]], "depth": depth,
+		"base_depth": _depth[i], "sediment": _sediment[i],
+		"fertility": fertility, "porosity": _porosity[i],
 		"moisture": wet, "snow": _snow[i], "frost": _frost[i],
 		"muddy": muddy, "cover": cover, "temperature": _air_temperature[i],
 		"growth_potential": growth,
-		"erosion_risk": clampf((1.0 - _depth[i] / 2.5)
+		"erosion_risk": clampf((1.0 - depth / 2.5)
 			* (0.25 + wet * 0.5), 0.0, 1.0)
 	}
 
@@ -308,6 +368,9 @@ func color_at(cell: Vector2i, mode: int = 0) -> Color:
 	color = color.lerp(Color(0.25, 0.22, 0.17), _moisture[i] * 0.38)
 	if _frost[i] > 0.55:
 		color = color.lerp(Color(0.69, 0.75, 0.78), _frost[i] * 0.28)
+	if _sediment[i] > 0.001:
+		color = color.lerp(Color(0.74, 0.59, 0.37),
+			clampf(_sediment[i] * 9.0, 0.0, 0.55))
 	if _snow[i] > 0.0:
 		color = color.lerp(Color(0.91, 0.94, 0.96), _snow[i])
 	return color
@@ -328,8 +391,14 @@ func to_data() -> Dictionary:
 		snow[i] = roundi(_snow[i] * 255.0)
 		frozen[i] = roundi(_frost[i] * 255.0)
 		air[i] = clampi(roundi((_air_temperature[i] + 60.0) / 120.0 * 255.0), 0, 255)
+	var sediment_changes := []
+	for i in range(_sediment.size()):
+		var units := roundi(_sediment[i] * SEDIMENT_UNITS)
+		if units != 0:
+			sediment_changes.append([i, units])
 	return {
 		"version": FORMAT_VERSION, "world_signature": JSON.stringify(world.to_data()),
+		"sediment_changes": sediment_changes,
 		"day": day, "temperature": temperature, "precipitation": precipitation,
 		"moisture": Marshalls.raw_to_base64(water),
 		"snow": Marshalls.raw_to_base64(snow),
@@ -340,9 +409,46 @@ func to_data() -> Dictionary:
 
 func load_data(data: Dictionary) -> bool:
 	ensure_ready()
-	if data.get("version") != FORMAT_VERSION \
+	var raw_version = data.get("version")
+	if not (raw_version is int or raw_version is float):
+		return false
+	var version := int(raw_version)
+	if float(version) != float(raw_version) \
+			or (version != 2 and version != FORMAT_VERSION) \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
+	var sediment_changes: Array = []
+	if version == FORMAT_VERSION:
+		if not (data.get("sediment_changes") is Array):
+			return false
+		sediment_changes = data["sediment_changes"]
+	if sediment_changes.size() > _type.size():
+		return false
+	var loaded_sediment := PackedFloat32Array()
+	loaded_sediment.resize(_type.size())
+	var loaded_balance := 0.0
+	var occupied := {}
+	for raw in sediment_changes:
+		if not (raw is Array) or raw.size() != 2:
+			return false
+		if not (raw[0] is int or raw[0] is float) \
+				or not (raw[1] is int or raw[1] is float):
+			return false
+		var raw_index := float(raw[0])
+		var raw_units := float(raw[1])
+		if not is_finite(raw_index) or not is_finite(raw_units) \
+				or raw_index != float(int(raw_index)) \
+				or raw_units != float(int(raw_units)):
+			return false
+		var index := int(raw_index)
+		var units := int(raw_units)
+		if index < 0 or index >= _type.size() or occupied.has(index):
+			return false
+		if abs(units) > 100000000:
+			return false
+		occupied[index] = true
+		loaded_sediment[index] = float(units) / SEDIMENT_UNITS
+		loaded_balance += loaded_sediment[index]
 	if not (data.get("day") is int or data.get("day") is float):
 		return false
 	var saved_day: float = float(data["day"])
@@ -371,6 +477,8 @@ func load_data(data: Dictionary) -> bool:
 		_snow[i] = float(snow[i]) / 255.0
 		_frost[i] = float(frozen[i]) / 255.0
 		_air_temperature[i] = float(air[i]) / 255.0 * 120.0 - 60.0
+	_sediment = loaded_sediment
+	_sediment_balance = loaded_balance
 	day = int(data["day"])
 	temperature = temp
 	precipitation = rain

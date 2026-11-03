@@ -62,7 +62,7 @@ func _initialize() -> void:
 	var first := _make_world()
 	var second := _make_world()
 	var changed := 0
-	var counts := {"water": 0, "wind": 0, "slide": 0}
+	var counts := {"water": 0, "wind": 0, "slide": 0, "coast": 0}
 	var initial_map: RefCounted = first["map"]
 	var initial_sum := _height_sum(initial_map)
 	var first_process: RefCounted = first["processes"]

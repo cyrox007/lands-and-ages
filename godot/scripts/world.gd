@@ -115,7 +115,7 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 6.2: рельеф постепенно меняют вода, ветер и неустойчивые склоны."
+	info.text = "Этап 6.3: вода, ветер и море переносят грунт и изменяют берега."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
 	var day_button := Button.new()
@@ -127,7 +127,7 @@ func _setup_interface() -> void:
 	season_button.pressed.connect(func(): _queue_days(Climate.SEASON_DAYS))
 	column.add_child(season_button)
 	var view_button := Button.new()
-	view_button.text = "Слой: рельеф / почва / влага / температура / биом / снег"
+	view_button.text = "Слой: рельеф / почва / влага / температура / биом / снег / наносы"
 	view_button.pressed.connect(_cycle_view)
 	column.add_child(view_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
@@ -282,7 +282,7 @@ func _simulate_one_day() -> void:
 
 
 func _cycle_view() -> void:
-	_view_mode = (_view_mode + 1) % 6
+	_view_mode = (_view_mode + 1) % 7
 	_refresh_visible(true)
 	_update_hud()
 
@@ -322,6 +322,8 @@ func _update_hud() -> void:
 	_status.text += "Промерзание %.0f%% · потенциал роста %.0f%%\n" % [
 		float(ground["frost"]) * 100.0,
 		float(ground["growth_potential"]) * 100.0]
+	_status.text += "Отложения здесь %.3f · баланс %.6f\n" % [
+		float(ground["sediment"]), _surface.sediment_balance()]
 	_status.text += "Ветер %.1f · изменённых вершин %d\n" % [
 		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
 	_status.text += "%s\n" % _process_status
