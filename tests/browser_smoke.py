@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 root=Path(__file__).resolve().parents[1]
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','',(root/'index.html').read_text('utf8'))
-html=re.sub(r'<script defer src="(?:navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|unit-ground|ui)\.js(?:\?[^"]+)?"></script>','',html)
 css=(root/'style.css').read_text('utf8')
 navigation=(root/'navigation.js').read_text('utf8')
 engine=(root/'engine.js').read_text('utf8')
@@ -22,6 +22,7 @@ worker_art=(root/'worker-art.js').read_text('utf8')
 painted_motion=(root/'painted-motion.js').read_text('utf8')
 profession_actions=(root/'profession-actions.js').read_text('utf8')
 profession_frames=(root/'profession-frames.js').read_text('utf8')
+unit_ground=(root/'unit-ground.js').read_text('utf8')
 ui=(root/'ui.js').read_text('utf8')
 logger_atlases={state:'data:image/webp;base64,'+base64.b64encode(
     (root/'assets/characters/logger'/('logger-'+state+'.webp')).read_bytes()).decode('ascii')
@@ -55,6 +56,7 @@ def mount(page,prior=None,boot="mission"):
     page.add_script_tag(content=painted_motion)
     page.add_script_tag(content=profession_actions)
     page.add_script_tag(content=profession_frames)
+    page.add_script_tag(content=unit_ground)
     page.evaluate('(uri) => { window.StrategyResourceAtlas=uri; }',
         'data:image/webp;base64,'+base64.b64encode(
           (root/'assets/resources/construction-resources.webp').read_bytes()).decode('ascii'))
@@ -391,6 +393,22 @@ with sync_playwright() as pw:
         assert len(residents)==4,(name,residents)
         assert len(set(r['variant'] for r in residents))==4
         page.wait_for_function('window.__strategyDebug().paintedReady()',timeout=20000)
+        # Все изображения и тени привязаны к земле, включая масштаб 208%.
+        ground=page.evaluate("""() => {
+          const d=window.__strategyDebug(),M=window.StrategyUnitGround;
+          const coordinates=d.unitGroundAt(12.5,10.5);
+          const results={};
+          for(const kind of ['logger','painted','classic']){
+            const rect=d.unitSpriteRect(12.5,10.5,42,kind);
+            results[kind]=M.footAt(rect,kind);
+          }
+          const shade=d.unitShadowRect(12.5,10.5,.34);
+          return {ground:coordinates,feet:results,
+            shadow:{x:shade.x+shade.width/2,y:shade.y+shade.height/2}};
+        }""")
+        for point in [*ground['feet'].values(),ground['shadow']]:
+            assert abs(point['x']-ground['ground']['x'])<.001,(name,ground)
+            assert abs(point['y']-ground['ground']['y'])<.001,(name,ground)
         size=page.evaluate('window.__strategyDebug().paintedSize()')
         assert size=={'width':1056,'height':144},(name,size)
         assert len(page.evaluate('window.__strategyDebug().paintedRoles'))==11
@@ -586,6 +604,7 @@ with sync_playwright() as pw:
         page.add_script_tag(content=engine)
         page.add_script_tag(content=visual)
         page.evaluate('(assets) => { window.StrategyAssets=assets; }',assets)
+        page.add_script_tag(content=unit_ground)
         page.add_script_tag(content=ui)
         page.wait_for_function('Boolean(window.__strategyDebug)')
         metrics=page.evaluate('''() => {
