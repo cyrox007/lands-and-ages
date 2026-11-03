@@ -22,6 +22,9 @@ var revision := 0
 var temperature := 12.0
 var precipitation := 0.0
 var _terrain_revision := -1
+var full_rebuilds := 0
+var partial_rebuilds := 0
+var last_rebuilt_cells := 0
 var _type := PackedByteArray()
 var _depth := PackedFloat32Array()
 var _fertility := PackedFloat32Array()
@@ -71,21 +74,10 @@ func ensure_ready() -> void:
 
 
 func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
-	# Геология пересчитывается, но снег и влага вне зоны воздействия остаются.
 	hydro.ensure_ready()
 	var count: int = world.config.width * world.config.height
 	var has_state := _type.size() == count and _terrain_revision >= 0
-	var preserve := has_state and not affected_chunks.is_empty()
-	# При локальной деформации обрабатываем лишь затронутые чанки.
-	# Сезонный покров и накопленные наносы не пересоздаются.
-	var affected := PackedByteArray()
-	affected.resize(count)
-	if preserve:
-		for chunk in affected_chunks:
-			var bounds: Rect2i = world.config.chunk_rect(chunk)
-			for y in range(bounds.position.y, bounds.end.y):
-				for x in range(bounds.position.x, bounds.end.x):
-					affected[y * world.config.width + x] = 1
+	var partial := has_state and not affected_chunks.is_empty()
 	_type.resize(count)
 	_depth.resize(count)
 	_fertility.resize(count)
@@ -105,50 +97,73 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 		_sediment.fill(0.0)
 		_waterlogged.fill(0.0)
 		_sediment_balance = 0.0
-	for y in range(world.config.height):
-		for x in range(world.config.width):
-			var i: int = y * world.config.width + x
-			if preserve and affected[i] == 0:
-				continue
-			var a: float = world.vertex_at(Vector2i(x, y))
-			var b: float = world.vertex_at(Vector2i(x + 1, y))
-			var c: float = world.vertex_at(Vector2i(x, y + 1))
-			var d: float = world.vertex_at(Vector2i(x + 1, y + 1))
-			var height: float = (a + b + c + d) * 0.25
-			var slope: float = Vector2((b + d - a - c) * 0.5,
-				(c + d - a - b) * 0.5).length()
-			var area: float = _geology_field(x, y, world.config.seed)
-			var detail: float = Terrain.hash2(x, y, world.config.seed + 7202)
-			var kind := LOAM
-			if slope > 1.75 or (height > 7.5 and area > 0.42):
-				kind = ROCK
-			elif slope > 0.95 or (height > 4.0 and area > 0.72):
-				kind = GRAVEL
-			elif hydro.wetness_at(i) > 0.65 and slope < 0.3:
-				# Тонкодисперсные отложения на мокрых плоских участках.
-				kind = CLAY
-			elif area < 0.30 and hydro.wetness_at(i) < 0.45:
-				kind = SAND
-			elif area > 0.72:
-				kind = CLAY
-			_type[i] = kind
-			_depth[i] = 0.0 if kind == ROCK else clampf(
-				1.7 - slope * 0.56 - maxf(0.0, height - 4.0) * 0.11
-				+ (detail - 0.5) * 0.38, 0.08, 2.5)
-			var base_fertility: float = [0.0, 0.18, 0.28, 0.57, 0.70][kind]
-			_fertility[i] = clampf(base_fertility * minf(1.0,
-				_depth[i] / 0.7) + (detail - 0.5) * 0.12, 0.0, 1.0)
-			_porosity[i] = [0.03, 0.72, 0.84, 0.27, 0.56][kind]
-			_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
-				0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
-			if has_state:
-				# Полный пересчёт после внешней правки тоже сохраняет
-				# историю грунта и погоду, а не начинает мир заново.
-				_moisture[i] = 1.0 if hydro.has_water(i) else _moisture[i]
+	last_rebuilt_cells = 0
+	if partial:
+		# Только переданные чанки: больше нет полного обхода сетки
+		# ради пропуска остальных клеток.
+		var visited := {}
+		for chunk in affected_chunks:
+			var bounds: Rect2i = world.config.chunk_rect(chunk)
+			for y in range(bounds.position.y, bounds.end.y):
+				for x in range(bounds.position.x, bounds.end.x):
+					var i := y * world.config.width + x
+					if visited.has(i):
+						continue
+					visited[i] = true
+					_rebuild_cell(x, y, has_state)
+					last_rebuilt_cells += 1
+		partial_rebuilds += 1
+	else:
+		for y in range(world.config.height):
+			for x in range(world.config.width):
+				_rebuild_cell(x, y, has_state)
+		last_rebuilt_cells = count
+		full_rebuilds += 1
 	_terrain_revision = world.revision
-	_update_snow_coverage()
+	# Изменение породы не меняет уже накопленный снег.
+	if not has_state:
+		_update_snow_coverage()
 	revision += 1
 	surface_changed.emit(revision)
+
+
+func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
+	var i := y * world.config.width + x
+	var a: float = world.vertex_at(Vector2i(x, y))
+	var b: float = world.vertex_at(Vector2i(x + 1, y))
+	var c: float = world.vertex_at(Vector2i(x, y + 1))
+	var d: float = world.vertex_at(Vector2i(x + 1, y + 1))
+	var height: float = (a + b + c + d) * 0.25
+	var slope: float = Vector2((b + d - a - c) * 0.5,
+		(c + d - a - b) * 0.5).length()
+	var area: float = _geology_field(x, y, world.config.seed)
+	var detail: float = Terrain.hash2(x, y, world.config.seed + 7202)
+	var kind := LOAM
+	if slope > 1.75 or (height > 7.5 and area > 0.42):
+		kind = ROCK
+	elif slope > 0.95 or (height > 4.0 and area > 0.72):
+		kind = GRAVEL
+	elif hydro.wetness_at(i) > 0.65 and slope < 0.3:
+		# Тонкодисперсные отложения на мокрых плоских участках.
+		kind = CLAY
+	elif area < 0.30 and hydro.wetness_at(i) < 0.45:
+		kind = SAND
+	elif area > 0.72:
+		kind = CLAY
+	_type[i] = kind
+	_depth[i] = 0.0 if kind == ROCK else clampf(
+		1.7 - slope * 0.56 - maxf(0.0, height - 4.0) * 0.11
+		+ (detail - 0.5) * 0.38, 0.08, 2.5)
+	var base_fertility: float = [0.0, 0.18, 0.28, 0.57, 0.70][kind]
+	_fertility[i] = clampf(base_fertility * minf(1.0,
+		_depth[i] / 0.7) + (detail - 0.5) * 0.12, 0.0, 1.0)
+	_porosity[i] = [0.03, 0.72, 0.84, 0.27, 0.56][kind]
+	_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
+		0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
+	if has_state:
+		# Полный пересчёт после внешней правки тоже сохраняет
+		# историю грунта и погоду, а не начинает мир заново.
+		_moisture[i] = 1.0 if hydro.has_water(i) else _moisture[i]
 
 
 func synchronize_climate(climate: RefCounted) -> void:
