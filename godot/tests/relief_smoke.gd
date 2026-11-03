@@ -46,9 +46,38 @@ func _run() -> void:
 	for form in Landforms.FORM_NAMES:
 		_check(seen.has(form), "На стандартной карте видна форма: " + form)
 
+	# Большие формы должны образовывать протяжённые связные зоны,
+	# а не случайно разбросанные независимые клетки.
+	var labels := {}
+	for y in range(4, 192, 4):
+		for x in range(4, 256, 4):
+			labels[Vector2i(x / 4, y / 4)] = Landforms.form_at(float(x), float(y), 1729)
+	var visited := {}
+	var largest := {}
+	for start in labels.keys():
+		if visited.has(start):
+			continue
+		var kind: String = labels[start]
+		var queue: Array[Vector2i] = [start]
+		visited[start] = true
+		var index := 0
+		while index < queue.size():
+			var current := queue[index]
+			index += 1
+			for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+				var neighbour := current + offset
+				if labels.get(neighbour, "") != kind or visited.has(neighbour):
+					continue
+				visited[neighbour] = true
+				queue.append(neighbour)
+		largest[kind] = maxi(int(largest.get(kind, 0)), queue.size())
+	for form in Landforms.FORM_NAMES:
+		_check(int(largest.get(form, 0)) >= 12,
+			"Связная площадь не менее 192 клеток: " + form)
+
 	# У каждого seed своя карта. Координатная формула не зависит от размеров карты.
 	var different := 0
-	for seed in range(30, 55):
+	for seed in range(30, 130):
 		var a := WorldMap.new(Config.new(256, 192, seed))
 		var b := WorldMap.new(Config.new(320, 240, seed))
 		var c := WorldMap.new(Config.new(256, 192, seed + 1))
@@ -60,7 +89,7 @@ func _run() -> void:
 				"Повторный запрос не изменяет мир")
 			if not is_equal_approx(first, c.vertex_at(pos)):
 				different += 1
-	_check(different >= 70, "Разные seed дают различные формы рельефа")
+	_check(different >= 295, "100 разных seed дают различные формы рельефа")
 	_check(world.vertex_at(Vector2i(48, 52)) == world.vertex_at(Vector2i(48, 52)),
 		"Нет изменений от порядка генерации")
 
