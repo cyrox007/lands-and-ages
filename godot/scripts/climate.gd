@@ -85,6 +85,13 @@ func ensure_ready() -> void:
 		rebuild()
 
 
+func rebuild_if_stale(affected_chunks: Array[Vector2i] = []) -> bool:
+	if _terrain_revision == world.revision:
+		return false
+	rebuild(affected_chunks)
+	return true
+
+
 func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	hydro.ensure_ready()
 	# Морская связность не менялась: морское влияние сохранено.
