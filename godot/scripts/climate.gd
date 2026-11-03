@@ -97,7 +97,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	# Морская связность не менялась: морское влияние сохранено.
 	# Ветровая тень идёт с запада, поэтому обновляем целые строки,
 	# а не только высоты непосредственно в изменённых чанках.
-	var partial := _terrain_revision >= 0 \
+	var partial: bool = _terrain_revision >= 0 \
 		and _width == world.config.width \
 		and _height == world.config.height \
 		and _ocean_revision == hydro.ocean_revision \
