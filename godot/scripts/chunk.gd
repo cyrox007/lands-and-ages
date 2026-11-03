@@ -27,7 +27,8 @@ static func cover_color(surface: Dictionary) -> Color:
 	return Color(0.39, 0.34, 0.28)
 
 
-static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null) -> ArrayMesh:
+static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
+		surface: RefCounted = null, mode: int = 0) -> ArrayMesh:
 	if world == null:
 		world = load("res://scripts/world_map.gd").new()
 	var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
@@ -49,7 +50,12 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null) ->
 			var normal: Vector3 = world.normal_at(vertex)
 			vertices.push_back(world.config.to_scene(Vector2(float(x), float(y)), h))
 			normals.push_back(normal)
-			colors.push_back(Relief.relief_color(h, normal))
+			if surface == null or mode == 0:
+				colors.push_back(Relief.relief_color(h, normal))
+			else:
+				var cell := Vector2i(mini(x, world.config.width - 1),
+					mini(y, world.config.height - 1))
+				colors.push_back(surface.color_at(cell, mode - 1))
 	var stride := width + 1
 	for j in range(height):
 		for i in range(width):
