@@ -1,0 +1,48 @@
+name: Godot GPU world pilot
+
+on:
+  push:
+    paths:
+      - "godot/**"
+      - ".github/workflows/godot-pilot.yml"
+  pull_request:
+    paths:
+      - "godot/**"
+      - ".github/workflows/godot-pilot.yml"
+
+jobs:
+  world-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2 из официального релиза
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --version
+      - name: Импорт и проверка проекта
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --editor --import --quit 2>&1 | tee /tmp/godot-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/godot-import.log; then
+            exit 1
+          fi
+      - name: Тест высот, климата и чанков
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          timeout 75s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_smoke.gd 2>&1 | tee /tmp/world-smoke.log
+          grep -q "успешно" /tmp/world-smoke.log
+      - name: Загрузка игровой сцены
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          timeout 50s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 25 2>&1 | tee /tmp/world-runtime.log
+          if grep -E "SCRIPT ERROR|Invalid call|Failed to load|ERROR:" /tmp/world-runtime.log; then
+            exit 1
+          fi
