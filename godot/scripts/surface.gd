@@ -272,6 +272,25 @@ func sediment_color_at(cell: Vector2i) -> Color:
 		clampf(-amount / 0.05, 0.0, 1.0))
 
 
+func water_state_color_at(cell: Vector2i) -> Color:
+	# Обзорный режим: отличаем обычные воды, временный паводок
+	# и медленное заболачивание суши.
+	ensure_ready()
+	var i := _index(cell)
+	if i < 0:
+		return Color.DARK_GRAY
+	if hydro.ocean_at(i):
+		return Color(0.10, 0.31, 0.55)
+	if hydro.lake_at(i) or hydro.river_at(i):
+		return Color(0.18, 0.49, 0.74)
+	var flood := hydro.flood_depth_at(i)
+	if flood > 0.0:
+		return Color(0.24, 0.39, 0.32).lerp(
+			Color(0.17, 0.63, 0.88), clampf(flood * 2.0, 0.35, 1.0))
+	return Color(0.44, 0.45, 0.30).lerp(
+		Color(0.15, 0.33, 0.24), _waterlogged[i])
+
+
 func snow_color_at(cell: Vector2i) -> Color:
 	# Отдельный обзорный слой показывает постепенное наступление зимы.
 	ensure_ready()
