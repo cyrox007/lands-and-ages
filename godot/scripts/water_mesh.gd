@@ -29,18 +29,18 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			var lake: bool = hydro.lake_at(index)
 			var ocean: bool = hydro.ocean_at(index)
 			var river: bool = hydro.river_at(index)
-			var color := Color(0.17, 0.39, 0.58, 0.87)
+			var color := Color(0.16, 0.34, 0.38, 0.92)
 			if ocean:
-				color = Color(0.12, 0.29, 0.47, 0.88)
+				color = Color(0.12, 0.27, 0.35, 0.93)
 			elif lake:
-				color = Color(0.14, 0.33, 0.49, 0.90)
+				color = Color(0.14, 0.31, 0.37, 0.91)
 			elif not river:
-				color = Color(0.23, 0.54, 0.65, 0.82)
+				color = Color(0.22, 0.37, 0.38, 0.83)
 			if surface != null:
-				var state: Dictionary = surface.profile_at(cell)
+				var frost: float = surface.frost_at_index(index)
 				# Лёд проявляется постепенно по мере промерзания воды.
-				var ice: float = smoothstep(0.20, 0.90, float(state["frost"]))
-				color = color.lerp(Color(0.72, 0.85, 0.93, 0.96), ice)
+				var ice: float = smoothstep(0.20, 0.90, frost)
+				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
 			if ocean or lake or not river:
 				var a: Vector3 = world.config.to_scene(Vector2(x, y), level)
 				var b: Vector3 = world.config.to_scene(Vector2(x + 1, y), level)
