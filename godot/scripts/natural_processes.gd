@@ -34,30 +34,28 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 	surface.ensure_ready()
 	climate.ensure_ready()
 	var i: int = hydro.cell_index(cell)
-	var soil: Dictionary = surface.profile_at(cell)
-	var water: Dictionary = hydro.water_at(cell)
-	if bool(water["ocean"]) or bool(water["lake"]):
+	if hydro.ocean_at(i) or hydro.lake_at(i):
 		return {}
 	var from_height: float = world.vertex_at(cell)
-	var next: Vector2i = water["downstream"]
+	var next: Vector2i = hydro.cell_from_index(hydro.downstream_of(i))
 	var drop := 0.0
 	if world.config.contains_cell(next) and not hydro.ocean_at(hydro.cell_index(next)):
 		drop = maxf(0.0, from_height - world.vertex_at(next))
-	var moisture: float = soil["moisture"]
-	var snow: float = soil["snow"]
-	var depth: float = soil["depth"]
+	var moisture: float = surface.moisture_at_index(i)
+	var snow: float = surface.snow_at_index(i)
+	var depth: float = surface.soil_depth_at_index(i)
 	var runoff: float = surface.runoff_at_index(i)
-	var flow: float = water["discharge"]
-	var resistant := 0.0 if soil["substrate"] == "скала" else 1.0
+	var flow: float = hydro.discharge_at_index(i)
+	var resistant := 0.0 if surface.rock_at_index(i) else 1.0
 	# Сопоставимая шкала рисков: речной поток может переносить грунт
 	# даже при небольшом уклоне, а не всегда проигрывать ветру.
 	var water_risk := clampf(2.5 * resistant \
 		* clampf(drop / 0.45, 0.0, 1.0) \
 		* clampf((flow - 1.0) / 12.0, 0.0, 1.0) \
 		* clampf(0.20 + moisture * 0.5 + runoff * 0.65, 0.0, 1.0) \
-		* float(soil["erosion_risk"]), 0.0, 1.0)
+		* surface.erosion_risk_at_index(i), 0.0, 1.0)
 	var wind_speed: float = climate.wind_at_index(i)
-	var exposed: bool = soil["substrate"] in ["песок", "щебень"]
+	var exposed: bool = surface.exposed_at_index(i)
 	var east := cell + Vector2i(1, 0)
 	var wind_risk := 0.0
 	if exposed and snow < 0.08 and moisture < 0.32 \
