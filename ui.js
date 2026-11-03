@@ -53,6 +53,8 @@
   const Profession=window.StrategyProfessionActions;
   const Frames=window.StrategyProfessionFrames;
   const Ground=window.StrategyUnitGround;
+  const Terrain=window.StrategyTerrain,Relief=window.StrategyReliefPreview;
+  let reliefMode=false,reliefModel=null,reliefMesh=null;
   // Лесоруб использует реальные растровые кадры, без дорисовки суставов и топора.
   const LOGGER_STATES=['idle','walk','fell_tree','carry_logs'];
   const loggerAtlases={};
@@ -1468,9 +1470,59 @@
     ctx.strokeText(tip,center.x,yy);ctx.fillText(tip,center.x,yy);
     ctx.restore();
   }
+  // Просмотр высот работает на существующей карте, но отдельно от экономики.
+  function reliefWorld(){
+    if(!reliefModel||reliefModel.seed!==game.seed){
+      reliefModel=Terrain.create(W,H,game.seed);
+      reliefMesh=Relief.render(reliefModel);
+    }
+    return {model:reliefModel,mesh:reliefMesh};
+  }
+  function drawRelief(){
+    const {model,mesh}=reliefWorld(),origin=screen(0,0);
+    ctx.drawImage(mesh.canvas,origin.x-mesh.originX*zoom,
+      origin.y-mesh.originY*zoom,mesh.width*zoom,mesh.height*zoom);
+
+    ctx.save();ctx.textAlign='center';
+    for(const region of model.regions){
+      const z=model.heightAt(region.x,region.y);
+      const p=screen(region.x,region.y);
+      p.y-=z*Relief.HEIGHT_SCALE*zoom;
+      if(p.x<-70||p.x>width+70||p.y<-60||p.y>height+50)continue;
+      const font=Math.max(10,Math.min(14,11*zoom));
+      ctx.font='bold '+font+'px sans-serif';
+      const text=region.name+' · '+z.toFixed(1);
+      const boxWidth=ctx.measureText(text).width+17;
+      ctx.fillStyle='rgba(18,37,31,.84)';
+      ctx.fillRect(p.x-boxWidth/2,p.y-28,boxWidth,19);
+      ctx.fillStyle='#f3e8cd';ctx.fillText(text,p.x,p.y-14);
+    }
+    ctx.textAlign='left';
+    const caption='ВЫСОТНЫЙ ПОЛИГОН · F1 · 6 ФОРМ РЕЛЬЕФА';
+    ctx.font='bold 11px sans-serif';
+    const captionWidth=ctx.measureText(caption).width+19;
+    const top=height<540?94:86;
+    ctx.fillStyle='rgba(18,37,31,.92)';ctx.fillRect(10,top,captionWidth,29);
+    ctx.fillStyle='#f3e4bb';ctx.fillText(caption,20,top+19);
+    ctx.restore();
+  }
+  function setReliefMode(enabled){
+    reliefMode=Boolean(enabled);
+    const button=$('reliefBtn');
+    button.setAttribute('aria-pressed',String(reliefMode));
+    button.textContent=reliefMode?'◈ Игра':'⛰ Рельеф';
+    if(reliefMode){
+      reliefWorld();selectTool('inspect');setPanel('none');
+      $('mapHint').textContent='Полигон рельефа: проведи по карте, увеличивай и нажимай на склон. Игра временно остановлена.';
+    }else{
+      $('mapHint').textContent='Осмотр: коснись клетки карты. Рельеф пока не влияет на экономику.';
+    }
+    draw();
+  }
   function draw(){
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.fillStyle='#233f38';ctx.fillRect(0,0,width,height);
+    if(reliefMode){drawRelief();return;}
     // Camera-agnostic culling: project map coordinates, discard tiles outside
     // the viewport with an extended margin for tall buildings and trees.
     const margin=tileSize()*2.6;
@@ -1730,6 +1782,7 @@
      }
   }
   function act(cell){
+    if(reliefMode)return;
     if(paused&&mode!=='inspect'){notify('Снимите игру с паузы, чтобы строить и исследовать.');return;}
     const {x,y}=cell;if(x<0||x>=W||y<0||y>=H){notify('За пределами карты');return;}
     if(mode==='inspect'){inspectAt(x,y);return;}
@@ -1772,6 +1825,17 @@
   const endPointer=e=>{
     if(!pointer||e.pointerId!==pointer.id)return;
     const p=canvasPointer(e);if(!pointer.moved&&e.type==='pointerup'){
+      if(reliefMode){
+        const {model,mesh}=reliefWorld();
+        const position=Relief.pick(model,mesh,p.x,p.y,screen(0,0),zoom);
+        if(position){
+          const region=model.regions.find(r=>r.id===position.region);
+          notify((region?.name||'Поверхность')+
+            ' · высота '+position.z.toFixed(2)+
+            ' · координаты '+position.x.toFixed(1)+', '+position.y.toFixed(1));
+        }
+        pointer=null;return;
+      }
       const hit=mode==='inspect'?pickBuilding(p.x,p.y):null;
       const cell=hit?{x:hit.x,y:hit.y}:cellAt(p.x,p.y);
       if(pointer.pointerType==='touch'&&mode!=='inspect'&&mode!=='excavate'){
@@ -1835,6 +1899,7 @@
     camera.x=clamp(camera.x+delta[0],-1,W+1);camera.y=clamp(camera.y+delta[1],-1,H+1);
   }));
   $('zoomIn').addEventListener('click',()=>zoomBy(.2));$('zoomOut').addEventListener('click',()=>zoomBy(-.2));
+  $('reliefBtn').addEventListener('click',()=>setReliefMode(!reliefMode));
   $('taxSlider').addEventListener('input',e=>{game.setTax(Number(e.target.value));$('taxValue').textContent=game.tax+'%';persist();});
   function setPaused(value){
     paused=Boolean(value);
@@ -1875,7 +1940,7 @@
   function loop(now){
     if(!last)last=now;
     const dt=Math.max(0,Math.min(.08,(now-last)/1000));last=now;
-    if(!paused){game.step(dt*speed);animationClock+=dt*speed;updateMotion();}
+    if(!paused&&!reliefMode){game.step(dt*speed);animationClock+=dt*speed;updateMotion();}
     // At most 60 render updates per second; simulation time uses actual frame delta.
     if(now-lastDraw>=16.6){draw();lastDraw=now;}
     if(now-lastHud>=450){updateHUD();lastHud=now;}
@@ -1894,7 +1959,15 @@
       construction:game.construction.map(site=>({id:site.id,materials:Resource?.visibleMaterials(site)}))}),
     millGroundLayout:(name)=>name==='body'?M.layout(tileSize(),tileHeight()):
       M.stageLayout(name,tileSize(),tileHeight()),
-    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',visualVersion:'0.5.8-resource-sprites',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
+    touchPlacement,hover,mission:game.missionProgress(),paused,mode,zoom,projection:'isometric',
+    reliefEnabled:reliefMode,
+    reliefSummary:()=>Relief.summary(reliefWorld().model),
+    reliefPoint:(x,y)=>({height:reliefWorld().model.heightAt(x,y),
+      slope:reliefWorld().model.slopeAt(x,y),
+      region:reliefWorld().model.regionAt(x,y)}),
+    reliefPick:(x,y)=>{const {model,mesh}=reliefWorld();
+      return Relief.pick(model,mesh,x,y,screen(0,0),zoom);},
+    toggleRelief:()=>setReliefMode(!reliefMode),visualVersion:'0.5.8-resource-sprites',roadKind:(x,y)=>V.roadKind(V.roadMask(game.roads,x,y,W,H)),roadPaving:(x,y)=>{
       const mask=V.roadMask(game.roads,x,y,W,H);
       const plan=V.cobblestonePlan(mask);
       return {mask,kind:V.roadKind(mask),stones:plan.center.length+
