@@ -52,7 +52,9 @@
   const PaintedMotion=window.StrategyPaintedMotion;
   const Profession=window.StrategyProfessionActions;
   const Frames=window.StrategyProfessionFrames;
+  const Woodcutting=window.StrategyWoodcutting;
   const professionSheets=new Map();
+  let woodcuttingDrawCount=0;
   const paintedCounters={idle:0,walk:0,work:0,carry:0};
   const professionCounters={};
   const frameCounters={};
@@ -761,9 +763,15 @@
     const w=t*1.14*scale,ht=h*3.05*scale;
     castShadow(p.x,p.y+h*.10,t,h,scale*1.04,.30);
     blob(p.x,p.y+h*.20,t*.33*scale,h*.13,'#153a2d',.26);
+    const woodcutter=game.workAgents.find(a=>a.phase==='work'&&
+      a.target?.x===x&&a.target?.y===y&&
+      game.buildings.some(b=>b.id===a.buildingId&&b.type==='logger'));
     const wind=(!isSmall?Math.sin(animationClock*.8+x*.6+y*.9)*.009:0);
-    ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind);
+    const shake=woodcutter&&Woodcutting?Woodcutting.sway(woodcutter.progress):0;
+    ctx.save();ctx.translate(p.x,p.y+h*.18);ctx.rotate(wind+shake);
     ctx.drawImage(sprite,-w/2,-ht,w,ht);ctx.restore();
+    if(woodcutter&&Woodcutting)
+      Woodcutting.chips(ctx,p.x,p.y-h*.30,t*.7,woodcutter.progress);
   }
   function ruins(x,y){
     const p=screen(x+.5,y+.5),t=tileSize(),h=tileHeight();
@@ -1342,7 +1350,15 @@
       drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
     }
     if(a.carrying)drawCargo(a.carrying,p.x+t*.17,p.y-h*.08,t,h);
-    if(!animated&&a.phase==='work'){
+    // Топор должен быть виден и с готовым художественным спрайтом.
+    // Раньше замах показывался только в резервной отрисовке !animated.
+    if(role==='logger'&&a.phase==='work'&&Woodcutting){
+      const frame=Woodcutting.frameAt(a.progress);
+      const facing=workerState(a,role).direction;
+      if(Woodcutting.draw(ctx,p.x,p.y+h*.19,t*.44,frame,facing))
+        woodcuttingDrawCount++;
+    }
+    if(!animated&&a.phase==='work'&&!(role==='logger'&&Woodcutting)){
       const wave=Math.sin(animationClock*9+a.buildingId);
       if(b.type==='logger'){
         line(p.x+t*.045,p.y-h*.11,p.x+t*(.17+.06*wave),p.y-h*(.40+.05*wave),'#94673b',2.5*zoom);
@@ -1861,6 +1877,11 @@
     frameCounts:()=>({...frameCounters}),
     frameSheets:()=>Array.from(professionSheets.keys()),
     framePose:(role,action,frame,direction)=>Frames?.pose(role,action,frame,direction),
+    woodcuttingDraws:()=>woodcuttingDrawCount,
+    woodcuttingFrame:(seconds)=>Woodcutting?.frameAt(seconds),
+    woodcutters:()=>game.workAgents.filter(a=>
+      game.buildings.some(b=>b.id===a.buildingId&&b.type==='logger'))
+      .map(a=>({phase:a.phase,progress:a.progress,target:a.target})),
     professionAction:(role,context)=>Profession?.resolve(role,context),
     productionAt:(type)=>{const b=game.buildings.find(v=>v.type===type);return b?V.productionActive(b,game.connected(b),game.readyToProduce(b)):false;},workerPose:(role,index=0)=>workerState((role==='builder'?game.builders:game.carriers)[index],role),porterPoseForCargo:(res)=>workerState({...game.carriers[0],carrying:res?{res,amount:1}:null},'porter'),workerAtlas:(role,mode)=>{const img=workerSheets[`worker-${role}-${mode}`];return img?.naturalWidth?{width:img.naturalWidth,height:img.naturalHeight}:null;},screen:(x,y)=>screen(x+.5,y+.5),step:(n)=>{for(let i=0;i<n*10;i++){if(!paused){game.step(.1);animationClock+=.1;updateMotion();}}updateHUD();draw();}});
 })();
