@@ -32,6 +32,7 @@ var _flood := PackedByteArray()
 var _water_level := PackedFloat32Array()
 var _wetness := PackedFloat32Array()
 var _heap: Array[int] = []
+var _summary := {"lakes": 0, "rivers": 0, "flooded": 0}
 
 
 func _init(source: RefCounted) -> void:
@@ -241,6 +242,16 @@ func _recalculate_water() -> void:
 					distance[near] = distance[current] + 1
 					sources.append(near)
 
+	# Счётчики вычисляются при изменении водного режима, а не каждый кадр.
+	var lakes := 0
+	var rivers := 0
+	var floods := 0
+	for i in range(count):
+		lakes += int(_lake[i] != 0)
+		rivers += int(_river[i] != 0 and _lake[i] == 0)
+		floods += int(_flood[i] != 0)
+	_summary = {"lakes": lakes, "rivers": rivers, "flooded": floods}
+
 	# Влажность здесь — признак соседства воды, а не свойства почвы.
 	for i in range(count):
 		if not is_nan(_water_level[i]):
@@ -316,14 +327,7 @@ func outlet_count() -> int:
 
 func water_count() -> Dictionary:
 	ensure_ready()
-	var lakes := 0
-	var rivers := 0
-	var floods := 0
-	for i in range(_ground.size()):
-		lakes += int(_lake[i] != 0)
-		rivers += int(_river[i] != 0 and _lake[i] == 0)
-		floods += int(_flood[i] != 0)
-	return {"lakes": lakes, "rivers": rivers, "flooded": floods}
+	return _summary.duplicate()
 
 
 func to_data() -> Dictionary:
