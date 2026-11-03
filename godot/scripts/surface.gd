@@ -283,7 +283,7 @@ func water_state_color_at(cell: Vector2i) -> Color:
 		return Color(0.10, 0.31, 0.55)
 	if hydro.lake_at(i) or hydro.river_at(i):
 		return Color(0.18, 0.49, 0.74)
-	var flood := hydro.flood_depth_at(i)
+	var flood: float = hydro.flood_depth_at(i)
 	if flood > 0.0:
 		return Color(0.24, 0.39, 0.32).lerp(
 			Color(0.17, 0.63, 0.88), clampf(flood * 2.0, 0.35, 1.0))
@@ -353,7 +353,7 @@ func profile_at(cell: Vector2i) -> Dictionary:
 	var frozen: bool = _frost[i] > 0.55
 	var muddy: bool = (_type[i] == CLAY or _type[i] == LOAM) \
 		and wet > 0.67 and not frozen and not hydro.has_water(i)
-	var is_wetland := _waterlogged[i] > 0.66 and not hydro.has_water(i)
+	var is_wetland: bool = _waterlogged[i] > 0.66 and not hydro.has_water(i)
 	var cover := "голый грунт"
 	if hydro.has_water(i):
 		cover = "лёд" if frozen else "вода"
