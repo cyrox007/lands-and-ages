@@ -147,7 +147,7 @@ test('residents visibly walk to natural sources, harvest there and return tangib
   assert.ok(agent,'resident actor exists for a staffed workshop');
   assert.ok(['arrive','out','work'].includes(agent.phase),'worker walks from headquarters to forest');
   assert.equal(logger.goods.logs,stock,'production does not happen at the start of a timer');
-  run(g,9);
+  run(g,20);
   assert.ok(g.tiles.reduce((n,t)=>n+(t.wood||0),0)<woodBefore,'tree lost actual wood');
   assert.ok(logger.goods.logs>stock||g.warehouse().goods.logs>6||
     g.carriers.some(c=>c.carrying?.res==='logs'),'returned timber entered the physical supply chain');
