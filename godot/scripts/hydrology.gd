@@ -7,7 +7,7 @@ signal water_changed(revision: int)
 const Boundary = preload("res://scripts/world_boundary.gd")
 const RIVER_THRESHOLD := 180.0
 const LAKE_THRESHOLD := 0.06
-const FLOOD_START := 1.5
+const FLOOD_START := 0.95
 const MAX_FLOOD_STEPS := 2
 const DIRECTIONS := [
 	Vector2i(-1, 0), Vector2i(0, -1),
@@ -276,7 +276,7 @@ func _recalculate_water() -> void:
 			_wetness[i] = clampf(_local_rain[i] * 0.25, 0.0, 1.0)
 
 	var sources: Array[int] = []
-	var stage := 0.04 + maxf(0.0, rainfall - 1.0) * 0.10
+	var flood_sources: Array[int] = []
 	for i in range(count):
 		if _ocean[i] != 0:
 			_water_level[i] = Boundary.SEA_LEVEL
@@ -290,21 +290,26 @@ func _recalculate_water() -> void:
 			continue
 		_lake[i] = int(is_lake)
 		_river[i] = int(is_river)
-		_water_level[i] = _spill[i] + stage
+		# Уровень зависит от реальных осадков всего водосбора,
+		# а не среднего дождя по карте, который скрывал ливни.
+		var pressure := _discharge[i] / maxf(1.0, _catchment[i])
+		var pulse := clampf((pressure - FLOOD_START) / 1.30, 0.0, 1.0)
+		_water_level[i] = _spill[i] + 0.04 + pulse * 0.72
 		_wetness[i] = 1.0
-		sources.append(i)
+		if pulse > 0.13:
+			flood_sources.append(i)
 
-	# Подтопление возможно лишь возле реального русла или озера.
-	# Это локальная модель разлива, не симуляция скоростей течения.
-	if rainfall >= FLOOD_START:
+	# Разлив распространяется только от реального водного источника.
+	# За два шага по пойме он не перепрыгивает через высокий берег.
+	if not flood_sources.is_empty():
 		var distance := PackedByteArray()
 		distance.resize(count)
 		distance.fill(255)
-		for index in sources:
+		for index in flood_sources:
 			distance[index] = 0
 		var cursor := 0
-		while cursor < sources.size():
-			var current := sources[cursor]
+		while cursor < flood_sources.size():
+			var current := flood_sources[cursor]
 			cursor += 1
 			if distance[current] >= MAX_FLOOD_STEPS:
 				continue
@@ -316,7 +321,9 @@ func _recalculate_water() -> void:
 				if nx < 0 or ny < 0 or nx >= _width or ny >= _height:
 					continue
 				var near: int = ny * _width + nx
-				var level := _water_level[current] - 0.02
+				if _ocean[near] != 0:
+					continue
+				var level := _water_level[current] - 0.025
 				if _ground[near] >= level - 0.01:
 					continue
 				if is_nan(_water_level[near]) or level > _water_level[near]:
@@ -325,7 +332,7 @@ func _recalculate_water() -> void:
 					_flood[near] = 1
 				if distance[near] > distance[current] + 1:
 					distance[near] = distance[current] + 1
-					sources.append(near)
+					flood_sources.append(near)
 
 	# Счётчики вычисляются при изменении водного режима, а не каждый кадр.
 	var lakes := 0
@@ -406,6 +413,28 @@ func level_at(index: int) -> float:
 	if not has_water(index):
 		return NAN
 	return _water_level[index]
+
+
+func flood_depth_at(index: int) -> float:
+	ensure_ready()
+	if index < 0 or index >= _flood.size() or _flood[index] == 0:
+		return 0.0
+	return maxf(0.0, _water_level[index] - _ground[index])
+
+
+func flow_pressure_at(index: int) -> float:
+	ensure_ready()
+	if index < 0 or index >= _discharge.size():
+		return 0.0
+	return _discharge[index] / maxf(1.0, _catchment[index])
+
+
+func river_mouth_at(index: int) -> bool:
+	ensure_ready()
+	if index < 0 or index >= _downstream.size() or _river[index] == 0:
+		return false
+	var next := _downstream[index]
+	return next >= 0 and _ocean[next] != 0
 
 
 func downstream_of(index: int) -> int:
