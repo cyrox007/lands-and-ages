@@ -1,0 +1,39 @@
+{
+  "version": "0.5.19",
+  "role": "logger",
+  "frameWidth": 96,
+  "frameHeight": 144,
+  "framesPerDirection": 8,
+  "directions": [
+    "se",
+    "sw",
+    "ne",
+    "nw"
+  ],
+  "states": {
+    "idle": "logger-idle.webp",
+    "walk": "logger-walk.webp",
+    "fell_tree": "logger-fell_tree.webp",
+    "carry_logs": "logger-carry_logs.webp"
+  },
+  "moduleAtlas": "logger-modules.webp",
+  "moduleMap": "modules.json",
+  "phase": {
+    "idle": "idle",
+    "out": "walk",
+    "arrive": "walk",
+    "work": "fell_tree",
+    "return": "carry_logs"
+  },
+  "framePolicy": {
+    "work": "progress*7 fps",
+    "walk": "distance",
+    "carry_logs": "distance"
+  },
+  "assetsSource": "Сгенерированные листы персонажа, отредактированные в оригинальные альфа-атласы",
+  "limitations": [
+    "Статичная стойка в idle; все 8 кадров повторяются",
+    "Разные поколения исходных листов дают различия костюма между состояниями",
+    "Некоторые кадры переноски нуждаются в художественной чистке"
+  ]
+}
