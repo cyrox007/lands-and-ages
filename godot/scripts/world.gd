@@ -210,7 +210,7 @@ func _create_chunk(coord: Vector2i) -> void:
 	ground.material_override = _ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
-	var water_mesh: ArrayMesh = WaterMesh.create_mesh(_world_model, _hydro, coord)
+	var water_mesh: ArrayMesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface)
 	if water_mesh.get_surface_count() > 0:
 		var water_node := MeshInstance3D.new()
 		water_node.name = "Поверхностная вода"
