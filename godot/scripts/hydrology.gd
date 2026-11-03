@@ -1,4 +1,5 @@
 extends RefCounted
+const SnapshotCodec = preload("res://scripts/world_snapshot_codec.gd")
 ## Гидрология поверх физического WorldMap: бассейны, сток, реки и озёра.
 ## Очерёдность обхода фиксирована, вода не определяет высоту грунта.
 
@@ -528,6 +529,51 @@ func outlet_count() -> int:
 func water_count() -> Dictionary:
 	ensure_ready()
 	return _summary.duplicate()
+
+
+# Для непрерывного мира нужен не только средний дождь,
+# но и пространственный сток, по которому рассчитаны все реки.
+func to_snapshot() -> Dictionary:
+	ensure_ready()
+	return {
+		"version": 1, "world_signature": JSON.stringify(world.to_data()),
+		"rainfall_exact": Marshalls.raw_to_base64(
+			PackedFloat64Array([rainfall]).to_byte_array()),
+		"local_rain": Marshalls.raw_to_base64(_local_rain.to_byte_array())
+	}
+
+
+func load_snapshot(data: Dictionary) -> bool:
+	if data.get("version") != 1 \
+			or data.get("world_signature") != JSON.stringify(world.to_data()):
+		return false
+	if not (data.get("rainfall_exact") is String):
+		return false
+	var exact: PackedFloat64Array = SnapshotCodec.decode_float64(
+		data["rainfall_exact"], 1)
+	if exact.size() != 1:
+		return false
+	var amount: float = exact[0]
+	if not is_finite(amount) or amount < 0.0 or amount > 3.0:
+		return false
+	if not (data.get("local_rain") is String):
+		return false
+	var count: int = world.config.width * world.config.height
+	var encoded: String = data["local_rain"]
+	var loaded := PackedFloat32Array()
+	if not encoded.is_empty():
+		loaded = SnapshotCodec.decode_float32(encoded, count)
+		if loaded.size() != count:
+			return false
+	for value in loaded:
+		if not is_finite(value) or value < 0.0 or value > 3.0:
+			return false
+	# Используем тот же глобальный алгоритм маршрутизации,
+	# но с сохранёнными осадками; новая случайная погода не создаётся.
+	rainfall = amount
+	_local_rain = loaded
+	rebuild()
+	return true
 
 
 func to_data() -> Dictionary:

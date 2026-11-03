@@ -16,6 +16,7 @@ const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
+const WorldSave = preload("res://scripts/world_save.gd")
 
 const VIEW_RADIUS := 4
 const MAX_BUILDS_PER_FRAME := 8
@@ -49,6 +50,9 @@ var _peak_day_step_us := 0
 var _visual_refreshes := 0
 var _last_day_profile_us: Dictionary = {}
 var _last_day_statistics: Dictionary = {}
+var _storage_request := ""
+var _storage_status := "Сохранений ещё нет"
+var _save_path: String = WorldSave.SAVE_PATH
 var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
@@ -162,6 +166,14 @@ func _setup_interface() -> void:
 	season_button.text = "Вперёд на сезон (+24 дня)"
 	season_button.pressed.connect(func(): _queue_days(Climate.SEASON_DAYS))
 	column.add_child(season_button)
+	var save_button := Button.new()
+	save_button.text = "Сохранить мир"
+	save_button.pressed.connect(_request_storage.bind("save"))
+	column.add_child(save_button)
+	var load_button := Button.new()
+	load_button.text = "Загрузить мир"
+	load_button.pressed.connect(_request_storage.bind("load"))
+	column.add_child(load_button)
 	var view_button := Button.new()
 	view_button.text = "Переключить слой карты"
 	view_button.pressed.connect(_cycle_view)
@@ -225,7 +237,7 @@ func _process(delta: float) -> void:
 			_day_task_id = -1
 			_complete_day(_day_runner.last_result)
 			_days_pending -= 1
-			if _days_pending == 0:
+			if _days_pending == 0 and _storage_request != "load":
 				_refresh_visible(true)
 				_visual_refreshes += 1
 	elif _days_pending > 0:
@@ -240,6 +252,14 @@ func _process(delta: float) -> void:
 			if _days_pending == 0:
 				_refresh_visible(true)
 				_visual_refreshes += 1
+	# Загрузка отменяет очередь сезонов только после завершения
+	# текущего рабочего дня. Сохранение ждёт конец всей перемотки.
+	if _day_task_id < 0 and not _storage_request.is_empty():
+		if _storage_request == "load":
+			_days_pending = 0
+			_perform_storage("load")
+		elif _days_pending == 0:
+			_perform_storage("save")
 	if _day_task_id < 0 and not _terrain_dirty.is_empty():
 		_flush_world_changes()
 	# Обновление мешей откладывается до конца перемотки,
@@ -370,6 +390,86 @@ func _flush_world_changes() -> void:
 		_refresh_visible(true)
 
 
+func _storage_models() -> Dictionary:
+	return {
+		"world": _world_model, "hydro": _hydro,
+		"surface": _surface, "climate": _climate,
+		"weather": _weather_events, "natural": _natural_processes,
+		"disasters": _natural_disasters
+	}
+
+
+func _request_storage(action: String) -> void:
+	if action not in ["save", "load"]:
+		return
+	if _day_task_id >= 0 or _days_pending > 0:
+		_storage_request = action
+		_storage_status = "Сохранение ожидает конец перемотки" if action == "save" \
+			else "Загрузка ожидает завершения текущего дня"
+		return
+	_perform_storage(action)
+
+
+func _perform_storage(action: String) -> void:
+	if _day_task_id >= 0:
+		return
+	_storage_request = ""
+	if action == "save":
+		_flush_world_changes()
+		if WorldSave.write_file(_storage_models(), _save_path):
+			_storage_status = "Мир сохранён · день %d" % _climate.day
+		else:
+			_storage_status = "Ошибка записи мира; предыдущее сохранение не затронуто"
+	elif action == "load":
+		var models: Dictionary = WorldSave.read_file(_save_path)
+		if models.is_empty():
+			_storage_status = "Нет корректного сохранения или повреждён файл"
+		else:
+			_install_loaded_world(models)
+			_storage_status = "Мир восстановлен · день %d" % _climate.day
+	_update_hud()
+
+
+func _install_loaded_world(models: Dictionary) -> void:
+	# Применяем новые модели только после проверки каждого слоя.
+	if _world_model.vertices_changed.is_connected(_on_world_changed):
+		_world_model.vertices_changed.disconnect(_on_world_changed)
+	_world_model = models["world"]
+	_world_model.vertices_changed.connect(_on_world_changed, CONNECT_DEFERRED)
+	_hydro = models["hydro"]
+	_surface = models["surface"]
+	_climate = models["climate"]
+	_weather_events = models["weather"]
+	_natural_processes = models["natural"]
+	_natural_disasters = models["disasters"]
+	_landscape_events = models["landscape"]
+	_day_runner = models["runner"]
+	_day_task_id = -1
+	_days_pending = 0
+	_last_completed_day = _climate.day
+	_last_synchronized_world_revision = _world_model.revision
+	_terrain_dirty.clear()
+	_last_day_step_us = 0
+	_peak_day_step_us = 0
+	_last_day_profile_us.clear()
+	_last_day_statistics.clear()
+	_lightning_life = 0.0
+	_lightning_light.visible = false
+	_weather_status = "Молний всего %d" % _weather_events.total_strikes
+	_disaster_status = "Стихийных событий всего %d" % _natural_disasters.total_events
+	_process_status = "Природные процессы восстановлены до дня %d" % \
+		_natural_processes.last_day
+	_last_event = "Мир успешно загружен"
+	_center = _world_model.config.clamp_point(_center)
+	_update_camera()
+	for chunk in _active.keys():
+		_active[chunk].queue_free()
+	_active.clear()
+	_pending.clear()
+	_chunk_center = Vector2i(-1, -1)
+	_refresh_visible(true)
+
+
 func _exit_tree() -> void:
 	# Не освобождаем карту, пока фоновый поток использует её массивы.
 	if _day_task_id >= 0:
@@ -440,10 +540,10 @@ func _update_hud() -> void:
 	if _summary == null:
 		return
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
-	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс" % [
+	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс\n%s" % [
 		_last_completed_day, Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), phase, _days_pending,
-		float(_peak_day_step_us) / 1000.0]
+		float(_peak_day_step_us) / 1000.0, _storage_status]
 	# Даже диагностическая панель не читает модель одновременно
 	# с фоновым потоком, иначе возникнет гонка массивов.
 	if _day_task_id >= 0 or _debug_details == null \

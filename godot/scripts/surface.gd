@@ -1,4 +1,5 @@
 extends RefCounted
+const SnapshotCodec = preload("res://scripts/world_snapshot_codec.gd")
 ## Физическая поверхность: субстрат, почва и изменяемые вода, снег и промерзание.
 ## Не зависит от камеры, цвета меша и устаревшего climate.gd.
 
@@ -495,6 +496,91 @@ func color_at(cell: Vector2i, mode: int = 0) -> Color:
 	if _snow[i] > 0.0:
 		color = color.lerp(Color(0.91, 0.94, 0.96), _snow[i])
 	return color
+
+
+# Полный игровой снимок хранит исходные Float32 без потери разрядности.
+# Старый экспорт to_data остаётся доступным для прежних версий.
+func to_snapshot() -> Dictionary:
+	ensure_ready()
+	return {
+		"version": 1, "world_signature": JSON.stringify(world.to_data()),
+		"day": day,
+		"daily_summary": Marshalls.raw_to_base64(
+			PackedFloat64Array([temperature, precipitation,
+				_sediment_balance]).to_byte_array()),
+		"moisture": Marshalls.raw_to_base64(_moisture.to_byte_array()),
+		"snow": Marshalls.raw_to_base64(_snow.to_byte_array()),
+		"frost": Marshalls.raw_to_base64(_frost.to_byte_array()),
+		"air_temperature": Marshalls.raw_to_base64(_air_temperature.to_byte_array()),
+		"waterlogging": Marshalls.raw_to_base64(_waterlogged.to_byte_array()),
+		"runoff": Marshalls.raw_to_base64(_runoff.to_byte_array()),
+		"sediment": Marshalls.raw_to_base64(_sediment.to_byte_array())
+	}
+
+
+func load_snapshot(data: Dictionary) -> bool:
+	ensure_ready()
+	if data.get("version") != 1 \
+			or data.get("world_signature") != JSON.stringify(world.to_data()):
+		return false
+	var saved_day: Variant = data.get("day")
+	if not (saved_day is int or saved_day is float) \
+			or not is_finite(float(saved_day)):
+		return false
+	if float(saved_day) != float(int(saved_day)) \
+			or float(saved_day) < 0.0 or float(saved_day) > 10000000.0:
+		return false
+	if not (data.get("daily_summary") is String):
+		return false
+	var daily: PackedFloat64Array = SnapshotCodec.decode_float64(
+		data["daily_summary"], 3)
+	if daily.size() != 3:
+		return false
+	for value in daily:
+		if not is_finite(value):
+			return false
+	if absf(daily[0]) > 150.0 or daily[1] < 0.0 or daily[1] > 3.0 \
+			or absf(daily[2]) > 64.0:
+		return false
+	var decoded := {}
+	var count: int = _type.size()
+	for field in ["moisture", "snow", "frost", "air_temperature",
+			"waterlogging", "runoff", "sediment"]:
+		if not (data.get(field) is String):
+			return false
+		var values: PackedFloat32Array = SnapshotCodec.decode_float32(
+			data[field], count)
+		if values.size() != count:
+			return false
+		for value in values:
+			if not is_finite(value):
+				return false
+			if field in ["moisture", "snow", "frost", "waterlogging"] \
+					and (value < 0.0 or value > 1.0):
+				return false
+			if field == "runoff" and (value < 0.0 or value > 3.0):
+				return false
+			if field == "air_temperature" and absf(value) > 150.0:
+				return false
+			if field == "sediment" and absf(value) > 64.0:
+				return false
+		decoded[field] = values
+	# Все поля проверены до первой записи в живой объект.
+	_moisture = decoded["moisture"]
+	_snow = decoded["snow"]
+	_frost = decoded["frost"]
+	_air_temperature = decoded["air_temperature"]
+	_waterlogged = decoded["waterlogging"]
+	_runoff = decoded["runoff"]
+	_sediment = decoded["sediment"]
+	_sediment_balance = daily[2]
+	day = int(saved_day)
+	temperature = daily[0]
+	precipitation = daily[1]
+	_update_snow_coverage()
+	revision += 1
+	surface_changed.emit(revision)
+	return true
 
 
 func to_data() -> Dictionary:
