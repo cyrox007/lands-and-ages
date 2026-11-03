@@ -504,8 +504,10 @@ func to_snapshot() -> Dictionary:
 	ensure_ready()
 	return {
 		"version": 1, "world_signature": JSON.stringify(world.to_data()),
-		"day": day, "temperature": temperature,
-		"precipitation": precipitation, "sediment_balance": _sediment_balance,
+		"day": day,
+		"daily_summary": Marshalls.raw_to_base64(
+			PackedFloat64Array([temperature, precipitation,
+				_sediment_balance]).to_byte_array()),
 		"moisture": Marshalls.raw_to_base64(_moisture.to_byte_array()),
 		"snow": Marshalls.raw_to_base64(_snow.to_byte_array()),
 		"frost": Marshalls.raw_to_base64(_frost.to_byte_array()),
@@ -528,14 +530,17 @@ func load_snapshot(data: Dictionary) -> bool:
 	if float(saved_day) != float(int(saved_day)) \
 			or float(saved_day) < 0.0 or float(saved_day) > 10000000.0:
 		return false
-	for key in ["temperature", "precipitation", "sediment_balance"]:
-		var value: Variant = data.get(key)
-		if not (value is int or value is float) or not is_finite(float(value)):
+	if not (data.get("daily_summary") is String):
+		return false
+	var daily: PackedFloat64Array = SnapshotCodec.decode_float64(
+		data["daily_summary"], 3)
+	if daily.size() != 3:
+		return false
+	for value in daily:
+		if not is_finite(value):
 			return false
-	if absf(float(data["temperature"])) > 150.0 \
-			or float(data["precipitation"]) < 0.0 \
-			or float(data["precipitation"]) > 3.0 \
-			or absf(float(data["sediment_balance"])) > 64.0:
+	if absf(daily[0]) > 150.0 or daily[1] < 0.0 or daily[1] > 3.0 \
+			or absf(daily[2]) > 64.0:
 		return false
 	var decoded := {}
 	var count: int = _type.size()
@@ -568,10 +573,10 @@ func load_snapshot(data: Dictionary) -> bool:
 	_waterlogged = decoded["waterlogging"]
 	_runoff = decoded["runoff"]
 	_sediment = decoded["sediment"]
-	_sediment_balance = float(data["sediment_balance"])
+	_sediment_balance = daily[2]
 	day = int(saved_day)
-	temperature = float(data["temperature"])
-	precipitation = float(data["precipitation"])
+	temperature = daily[0]
+	precipitation = daily[1]
 	_update_snow_coverage()
 	revision += 1
 	surface_changed.emit(revision)
