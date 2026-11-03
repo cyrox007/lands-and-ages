@@ -73,8 +73,8 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	# Геология пересчитывается, но снег и влага вне зоны воздействия остаются.
 	hydro.ensure_ready()
 	var count: int = world.config.width * world.config.height
-	var preserve := _type.size() == count and _terrain_revision >= 0 \
-		and not affected_chunks.is_empty()
+	var has_state := _type.size() == count and _terrain_revision >= 0
+	var preserve := has_state and not affected_chunks.is_empty()
 	# При локальной деформации обрабатываем лишь затронутые чанки.
 	# Сезонный покров и накопленные наносы не пересоздаются.
 	var affected := PackedByteArray()
@@ -95,7 +95,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	_air_temperature.resize(count)
 	_runoff.resize(count)
 	_sediment.resize(count)
-	if not preserve:
+	if not has_state:
 		_air_temperature.fill(12.0)
 		_runoff.fill(0.0)
 		_snow.fill(0.0)
@@ -138,8 +138,9 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 			_porosity[i] = [0.03, 0.72, 0.84, 0.27, 0.56][kind]
 			_moisture[i] = 1.0 if hydro.has_water(i) else clampf(
 				0.18 + hydro.wetness_at(i) * 0.48 + detail * 0.12, 0.0, 1.0)
-			if preserve:
-				# Пересчёт породы не означает новый игровой день.
+			if has_state:
+				# Полный пересчёт после внешней правки тоже сохраняет
+				# историю грунта и погоду, а не начинает мир заново.
 				_moisture[i] = 1.0 if hydro.has_water(i) else _moisture[i]
 	_terrain_revision = world.revision
 	_update_snow_coverage()
