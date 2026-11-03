@@ -1,10 +1,10 @@
 extends Node3D
-## Самостоятельный GPU-полигон: мир виден через чанки, экономика не подключена.
+## Показ физического рельефа GPU-чанками. Экономика и природные объекты не подключены.
 
 const Terrain = preload("res://scripts/terrain.gd")
 const WorldConfig = preload("res://scripts/world_config.gd")
 const WorldMap = preload("res://scripts/world_map.gd")
-const Climate = preload("res://scripts/climate.gd")
+const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 
 const VIEW_RADIUS := 4
@@ -13,14 +13,11 @@ const CAMERA_SPEED := 32.0
 const MIN_ZOOM := 16.0
 const MAX_ZOOM := 105.0
 
-var _day := 1
 var _world_model: RefCounted
 var _center := Vector2.ZERO
 var _camera: Camera3D
 var _terrain_holder: Node3D
 var _ground_material: StandardMaterial3D
-var _trunk_mesh: Mesh
-var _crown_mesh: Mesh
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
 var _chunk_center := Vector2i(-1, -1)
@@ -70,24 +67,6 @@ func _setup_materials() -> void:
 	_ground_material.vertex_color_use_as_albedo = true
 	_ground_material.roughness = 1.0
 	_ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.30, 0.21, 0.14)
-	var needles := StandardMaterial3D.new()
-	needles.albedo_color = Color(0.18, 0.38, 0.28)
-	var cylinder := CylinderMesh.new()
-	cylinder.height = 1.65
-	cylinder.top_radius = 0.12
-	cylinder.bottom_radius = 0.21
-	cylinder.radial_segments = 6
-	cylinder.material = wood
-	_trunk_mesh = cylinder
-	var sphere := SphereMesh.new()
-	sphere.radius = 1.0
-	sphere.height = 2.2
-	sphere.radial_segments = 6
-	sphere.rings = 4
-	sphere.material = needles
-	_crown_mesh = sphere
 
 
 func _setup_interface() -> void:
@@ -101,10 +80,10 @@ func _setup_interface() -> void:
 	panel.add_child(column)
 	_status = Label.new()
 	column.add_child(_status)
-	var next_button := Button.new()
-	next_button.text = "Следующее время года"
-	next_button.pressed.connect(_next_season)
-	column.add_child(next_button)
+	var info := Label.new()
+	info.text = "Этап 2: физический рельеф. Вода и климат пока отключены."
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(info)
 	var hint := Label.new()
 	hint.text = "WASD / стрелки — перемещение · колесо — масштаб · пальцем — сдвиг"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -196,11 +175,10 @@ func _create_chunk(coord: Vector2i) -> void:
 	var node := Node3D.new()
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
-	ground.mesh = Chunk.create_mesh(coord.x, coord.y, _day, _world_model)
+	ground.mesh = Chunk.create_mesh(coord.x, coord.y, 1, _world_model)
 	ground.material_override = _ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
-	node.add_child(Chunk.create_trees(coord.x, coord.y, _day, _trunk_mesh, _crown_mesh, _world_model.config.seed))
 	_terrain_holder.add_child(node)
 	_active[coord] = node
 
@@ -214,18 +192,16 @@ func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
 	_refresh_visible(false)
 
 
-func _next_season() -> void:
-	_day += Climate.SEASON_DAYS
-	_refresh_visible(true)
-	_update_hud()
-
-
 func _update_hud() -> void:
 	if _status == null:
 		return
-	_status.text = "ЗЕМЛИ И ЭПОХИ · GPU-полигон\n"
-	_status.text += "Карта %d×%d · регионы 12 · seed %d\n" % [
-		_world_model.config.width, _world_model.config.height, _world_model.config.seed]
-	_status.text += "%s · день %d · FPS %d · чанки %d/%d" % [
-		Climate.season_name(_day), _day, Engine.get_frames_per_second(),
-		_active.size(), _active.size() + _pending.size()]
+	var profile := Relief.profile_at(_world_model, _center)
+	_status.text = "ЗЕМЛИ И ЭПОХИ · РЕЛЬЕФ\n"
+	_status.text += "Карта %d×%d · генератор v%d · seed %d\n" % [
+		_world_model.config.width, _world_model.config.height,
+		_world_model.config.generator_version, _world_model.config.seed]
+	_status.text += "%s · высота %.2f · уклон %.1f°\n" % [
+		profile["form"], profile["height"], profile["slope_degrees"]]
+	_status.text += "FPS %d · чанки %d/%d" % [
+		Engine.get_frames_per_second(), _active.size(),
+		_active.size() + _pending.size()]
