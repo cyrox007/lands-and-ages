@@ -193,10 +193,10 @@ func _apply_weather(i: int, rain: float, air: float) -> void:
 	# с руслом/озером, но постепенно отступает при засухе.
 	var infiltration_excess := maxf(0.0, _moisture[i] - 0.68)
 	var water_feed := clampf(hydro.wetness_at(i) - 0.52, 0.0, 0.48)
-	var drainage := 0.018 + _porosity[i] * 0.026
+	var drainage := 0.008 + _porosity[i] * 0.018
 	_waterlogged[i] = 1.0 if hydro.has_water(i) else clampf(
-		_waterlogged[i] + infiltration_excess * 0.075
-		+ water_feed * 0.08 + melt * 0.035 - drainage,
+		_waterlogged[i] + infiltration_excess * 0.085
+		+ water_feed * 0.12 + melt * 0.035 - drainage,
 		0.0, 1.0)
 
 
@@ -353,7 +353,8 @@ func profile_at(cell: Vector2i) -> Dictionary:
 	var frozen: bool = _frost[i] > 0.55
 	var muddy: bool = (_type[i] == CLAY or _type[i] == LOAM) \
 		and wet > 0.67 and not frozen and not hydro.has_water(i)
-	var is_wetland: bool = _waterlogged[i] > 0.66 and not hydro.has_water(i)
+	var is_wetland: bool = _waterlogged[i] > 0.66 \
+		and hydro.wetness_at(i) > 0.36 and not hydro.has_water(i)
 	var cover := "голый грунт"
 	if hydro.has_water(i):
 		cover = "лёд" if frozen else "вода"
