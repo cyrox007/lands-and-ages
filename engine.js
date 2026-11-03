@@ -390,7 +390,7 @@
     // Производственная логистика передвигается только по завершённым дорогам.
     route(from,to){
       return Nav.route(W,H,from,to,(x,y)=>this.roads[id(x,y)]&&
-        !this.buildingAt(x,y)&&!this.siteAt(x,y));
+        this.walkable(x,y));
     }
     walkRoute(from,to){
       const path=Nav.route(W,H,from,to,(x,y)=>this.walkable(x,y));
@@ -528,7 +528,12 @@
           const entrance=this.entrance(site),path=entrance&&this.route(source,entrance);
           if(!path)continue;
           worker.site=site.id;worker.path=path;worker.segment=0;
-          worker.phase=path.length===1?'work':'travel';break;
+          worker.phase=path.length===1?'work':'travel';
+          if(worker.phase==='work')worker.facing=Nav.facing(
+            {x:worker.x+.5,y:worker.y+.5},
+            {x:site.x+(site.size?.w||1)/2,y:site.y+(site.size?.h||1)/2},
+            worker.facing);
+          break;
         }
       }
     }
@@ -538,6 +543,12 @@
       let remaining=dt*1.6;
       while(remaining>0&&b.segment<b.path.length-1){
         const target=b.path[b.segment+1],dx=target.x-b.x,dy=target.y-b.y,d=Math.hypot(dx,dy);
+        if(!this.walkable(target.x,target.y)){
+          const site=this.siteById(b.site),entrance=this.entrance(site);
+          const path=entrance&&this.route({x:Math.round(b.x),y:Math.round(b.y)},entrance);
+          if(path){b.path=path;b.segment=0;}
+          return;
+        }
         if(d<.0001){b.x=target.x;b.y=target.y;b.segment++;continue;}
         if(d<=remaining){b.x=target.x;b.y=target.y;b.segment++;remaining-=d;}
         else {b.x+=dx*remaining/d;b.y+=dy*remaining/d;remaining=0;}
@@ -840,6 +851,15 @@
         }
         const next=c.path[c.segment+1];
         const dx=next.x-c.x,dy=next.y-c.y,d=Math.hypot(dx,dy);
+        if(!this.walkable(next.x,next.y)){
+          const target=c.job.phase==='pickup'?
+            this.buildings.find(b=>b.id===c.job.source):
+            this.buildings.find(b=>b.id===c.job.target)||this.siteById(c.job.target);
+          const entrance=this.entrance(target);
+          const path=entrance&&this.route({x:Math.round(c.x),y:Math.round(c.y)},entrance);
+          if(path){c.path=path;c.segment=0;}
+          return;
+        }
         if(d<.0001){c.x=next.x;c.y=next.y;c.segment++;continue;}
         if(remaining>=d){c.x=next.x;c.y=next.y;c.segment++;remaining-=d;}
         else{c.x+=dx*remaining/d;c.y+=dy*remaining/d;remaining=0;}
