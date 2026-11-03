@@ -114,3 +114,26 @@ test('путь и ориентация сохраняются и восстан�
   for(let i=0;i<350;i++){g.step(.1);restored.step(.1);}
   assert.equal(restored.save(),g.save());
 });
+
+test('появившаяся на маршруте преграда вызывает обход, а не проход сквозь неё',()=>{
+  const g=new Game(1729,'settlement'),b=g.addBuilding('logger',12,9);
+  g.assignWorkers(b.id,1);
+  g.step(.1);
+  const worker=g.workAgents.find(a=>a.buildingId===b.id);
+  assert.ok(worker.path?.length>=2,'маршрут к лесничеству построен');
+  const next=worker.path[worker.segment+1];
+  const obstacle={x:Math.floor(next.x),y:Math.floor(next.y)};
+  g.tiles[id(obstacle.x,obstacle.y)].terrain='water';
+  assert.equal(g.walkable(obstacle.x,obstacle.y),false);
+  let foundAlternative=false;
+  for(let k=0;k<120;k++){
+    g.step(.1);
+    const here={x:Math.floor(worker.x),y:Math.floor(worker.y)};
+    assert.notDeepEqual(here,obstacle,'рабочий не может наступать в воду');
+    assert.ok(g.walkable(here.x,here.y));
+    if(worker.path?.length&&worker.path.every(p=>
+      Math.floor(p.x)!==obstacle.x||Math.floor(p.y)!==obstacle.y))
+      foundAlternative=true;
+  }
+  assert.ok(foundAlternative,'новый путь построен вокруг препятствия');
+});
