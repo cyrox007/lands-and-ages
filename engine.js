@@ -542,7 +542,13 @@
         if(d<=remaining){b.x=target.x;b.y=target.y;b.segment++;remaining-=d;}
         else {b.x+=dx*remaining/d;b.y+=dy*remaining/d;remaining=0;}
       }
-      if(b.segment===b.path.length-1)b.phase='work';
+      if(b.segment===b.path.length-1){
+        b.phase='work';
+        const site=this.siteById(b.site);
+        if(site)b.facing=Nav.facing({x:b.x+.5,y:b.y+.5},
+          {x:site.x+(site.size?.w||1)/2,
+           y:site.y+(site.size?.h||1)/2},b.facing);
+      }
     }
     advanceConstruction(dt){
       this.dispatchBuilders();
@@ -841,6 +847,14 @@
     }
     arrive(c){
       const job=c.job;
+      const object=job.phase==='pickup'?
+        this.buildings.find(b=>b.id===job.source):
+        this.buildings.find(b=>b.id===job.target)||this.siteById(job.target);
+      if(object){
+        c.facing=Nav.facing({x:c.x+.5,y:c.y+.5},
+          {x:object.x+(object.size?.w||1)/2,
+           y:object.y+(object.size?.h||1)/2},c.facing);
+      }
       if(job.phase==='pickup'){
         const source=this.buildings.find(b=>b.id===job.source);
         const available=Math.min(source?.goods[job.res]||0,job.amount);
