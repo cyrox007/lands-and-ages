@@ -4,6 +4,7 @@ extends RefCounted
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Climate = preload("res://scripts/climate.gd")
+const Relief = preload("res://scripts/relief.gd")
 const SIZE := 16
 
 static func cover_color(surface: Dictionary) -> Color:
@@ -45,11 +46,10 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null) ->
 			var y := y0 + j
 			var vertex := Vector2i(x, y)
 			var h: float = world.vertex_at(vertex)
-			var data := Climate.surface_at(mini(x, world.config.width - 1),
-				mini(y, world.config.height - 1), day, world.config.seed)
+			var normal: Vector3 = world.normal_at(vertex)
 			vertices.push_back(world.config.to_scene(Vector2(float(x), float(y)), h))
-			normals.push_back(world.normal_at(vertex))
-			colors.push_back(cover_color(data))
+			normals.push_back(normal)
+			colors.push_back(Relief.relief_color(h, normal))
 	var stride := width + 1
 	for j in range(height):
 		for i in range(width):

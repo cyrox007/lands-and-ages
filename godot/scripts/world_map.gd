@@ -15,6 +15,8 @@ var config: RefCounted
 var revision := 0
 var _heights: Dictionary = {}
 var _dirty: Dictionary = {}
+var _base_cache: Dictionary = {}
+const BASE_CACHE_LIMIT := 65536
 
 
 func _init(p_config: RefCounted = null) -> void:
@@ -31,8 +33,19 @@ func vertex_at(coord: Vector2i) -> float:
 	var key := vertex_id(coord)
 	if _heights.has(key):
 		return float(_heights[key])
-	return Terrain.vertex_height_on_map(coord.x, coord.y,
-		config.width, config.height, config.seed)
+	return _base_height(coord)
+
+
+func _base_height(coord: Vector2i) -> float:
+	var key := vertex_id(coord)
+	if _base_cache.has(key):
+		return float(_base_cache[key])
+	var value := Terrain.vertex_height_on_map(coord.x, coord.y,
+		config.width, config.height, config.seed, config.generator_version)
+	if _base_cache.size() >= BASE_CACHE_LIMIT:
+		_base_cache.clear()
+	_base_cache[key] = value
+	return value
 
 
 func height_at(point: Vector2) -> float:
@@ -112,8 +125,7 @@ func apply_vertex_changes(changes: Dictionary) -> bool:
 	var affected := {}
 	for coord in planned.keys():
 		var value: float = planned[coord]
-		var baseline := Terrain.vertex_height_on_map(coord.x, coord.y,
-			config.width, config.height, config.seed)
+		var baseline := _base_height(coord)
 		var key := vertex_id(coord)
 		if is_equal_approx(value, baseline):
 			_heights.erase(key)

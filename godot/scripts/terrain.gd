@@ -3,6 +3,7 @@ extends RefCounted
 ## Хранение вершин не зависит от порядка загрузки чанков.
 
 const Config = preload("res://scripts/world_config.gd")
+const ReliefV2 = preload("res://scripts/terrain_v2.gd")
 const WIDTH := Config.DEFAULT_WIDTH
 const HEIGHT := Config.DEFAULT_HEIGHT
 const SEED := Config.DEFAULT_SEED
@@ -35,7 +36,14 @@ static func vertex_height(x: int, y: int, seed: int = SEED) -> float:
 	return vertex_height_on_map(x, y, WIDTH, HEIGHT, seed)
 
 
-static func vertex_height_on_map(x: int, y: int, width: int, height: int, seed: int) -> float:
+static func vertex_height_on_map(x: int, y: int, width: int, height: int,
+		seed: int, generation: int = Config.DEFAULT_GENERATOR) -> float:
+	if generation == 2:
+		return ReliefV2.height_at(float(x), float(y), seed)
+	return _legacy_height(x, y, width, height, seed)
+
+
+static func _legacy_height(x: int, y: int, width: int, height: int, seed: int) -> float:
 	var u := float(x) / float(width)
 	var v := float(y) / float(height)
 	var hills := _gaussian(u, v, 0.21, 0.28, 0.16, 0.24)
