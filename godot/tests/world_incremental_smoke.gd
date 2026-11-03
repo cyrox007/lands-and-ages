@@ -129,7 +129,7 @@ func _ocean_fallback() -> void:
 	hydro.rebuild()
 	var climate := Climate.new(map, hydro)
 	climate.rebuild()
-	var before := hydro.ocean_revision
+	var before: int = hydro.ocean_revision
 	var shore := {
 		Vector2i(0, 0): -2.0,
 		Vector2i(0, 1): -2.0,
@@ -176,7 +176,7 @@ func _batch_and_render_queue() -> void:
 	_check(map.set_vertex(p, map.vertex_at(p) + 0.04), "Первое изменение принято")
 	_check(map.set_vertex(q, map.vertex_at(q) + 0.04), "Второе изменение принято")
 	_check(view._terrain_dirty.size() >= 1, "Деформации накапливаются")
-	var builds := hydro.full_rebuilds
+	var builds: int = hydro.full_rebuilds
 	view._flush_world_changes()
 	_check(hydro.full_rebuilds == builds + 1,
 		"Несколько правок объединены в один полный пересчёт водосбора")
