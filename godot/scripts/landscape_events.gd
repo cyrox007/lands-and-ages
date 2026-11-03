@@ -4,6 +4,7 @@ extends RefCounted
 
 signal event_applied(kind: String, bounds: Rect2i, revision: int)
 
+const Map = preload("res://scripts/world_map.gd")
 const MAX_VERTICES := 65000
 const MIN_RADIUS := 2.0
 const MAX_RADIUS := 144.0
@@ -77,7 +78,7 @@ func apply(kind: String, center: Vector2, radius: float, strength: float) -> Dic
 		var before: float = world.vertex_at(points[i])
 		var after := before + deltas[i]
 		# Нельзя обрезать высоты по лимиту: это нарушит баланс грунта.
-		if not is_finite(after) or after < world.MIN_HEIGHT or after > world.MAX_HEIGHT:
+		if not is_finite(after) or after < Map.MIN_HEIGHT or after > Map.MAX_HEIGHT:
 			return {}
 		changes[points[i]] = after
 		modified += 1
