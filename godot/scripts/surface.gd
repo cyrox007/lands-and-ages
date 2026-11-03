@@ -252,6 +252,34 @@ func transfer_sediment(source: Vector2i, target: Vector2i,
 	return true
 
 
+func transfer_snow(source: Vector2i, target: Vector2i,
+		amount: float) -> bool:
+	# Лавина перемещает снег, а не меняет геологическую высоту скалы.
+	ensure_ready()
+	if not world.config.contains_cell(source) \
+			or not world.config.contains_cell(target):
+		return false
+	if abs(source.x - target.x) + abs(source.y - target.y) != 1:
+		return false
+	if not is_finite(amount) or amount <= 0.0 or amount > 0.5:
+		return false
+	if world.vertex_at(source) <= world.vertex_at(target):
+		return false
+	var a := _index(source)
+	var b := _index(target)
+	if hydro.has_water(a) or hydro.has_water(b):
+		return false
+	var moved := minf(amount, _snow[a], 1.0 - _snow[b])
+	if moved < 0.005:
+		return false
+	_snow[a] -= moved
+	_snow[b] += moved
+	_update_snow_coverage()
+	revision += 1
+	surface_changed.emit(revision)
+	return true
+
+
 func sediment_balance() -> float:
 	ensure_ready()
 	# Баланс кэшируется: HUD не обходит десятки тысяч клеток.
