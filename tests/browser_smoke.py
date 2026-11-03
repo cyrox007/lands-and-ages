@@ -410,8 +410,25 @@ with sync_playwright() as pw:
             };
             const a=frame(0,0),b=frame(0,2),back=frame(2,0);
             const centre=g.getImageData(0*96+48,0*144+30,1,1).data[3];
+            const original=document.createElement('canvas');
+            original.width=96;original.height=144;
+            const base=original.getContext('2d',{willReadFrequently:true});
+            base.drawImage(image,Frames.ROLES[role]*96,0,96,144,0,0,96,144);
+            const source=base.getImageData(0,0,96,144).data;
+            const count=(data,start=0,end=144)=>{
+              let total=0;
+              for(let y=start;y<end;y++)
+                for(let x=0;x<96;x++)
+                  if(data[(y*96+x)*4+3]>12)total++;
+              return total;
+            };
+            const full=count(source),lower=count(source,96,144);
+            const variants=[a,b,frame(0,4),frame(1,2),frame(2,2),frame(3,6)];
+            const silhouetteRatio=Math.min(...variants.map(v=>count(v)/Math.max(1,full)));
+            const bootRatio=Math.min(...variants.map(v=>count(v,96,144)/Math.max(1,lower)));
             return {role,action,width:sheet.width,height:sheet.height,
-              different:pixels(a,b),differentBack:pixels(a,back),alpha:centre};
+              different:pixels(a,b),differentBack:pixels(a,back),
+              silhouetteRatio,bootRatio,alpha:centre};
           });
         }""")
         assert len(sheet_pixels)==5,(name,sheet_pixels)
@@ -419,6 +436,9 @@ with sync_playwright() as pw:
             assert item['width']==768 and item['height']==576,(name,item)
             assert item['different']>80,(name,item)
             assert item['differentBack']>150,(name,item)
+            # На всех ракурсах художник должен оставаться целым: голова, одежда, обе ноги.
+            assert item['silhouetteRatio']>.78,(name,item)
+            assert item['bootRatio']>.64,(name,item)
             assert item['alpha']>0,(name,item)
         # Реестр профессий доступен игре, а состояния выбираются по данным движка.
         catalogue=page.evaluate("""() => {
