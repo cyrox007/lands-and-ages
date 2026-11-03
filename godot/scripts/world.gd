@@ -39,6 +39,9 @@ var _process_status := "Естественные процессы ещё не и
 var _last_event := "Изменений ландшафта нет"
 var _view_mode := 4
 var _days_pending := 0
+var _last_day_step_us := 0
+var _peak_day_step_us := 0
+var _visual_refreshes := 0
 var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
@@ -51,6 +54,9 @@ var _last_chunk_build_us := 0
 var _chunk_rebuilds := 0
 var _chunk_center := Vector2i(-1, -1)
 var _status: Label
+var _summary: Label
+var _debug_details: VBoxContainer
+var _details_toggle: Button
 var _hud_timer := 0.0
 
 
@@ -131,16 +137,12 @@ func _setup_interface() -> void:
 	add_child(canvas_layer)
 	var panel := PanelContainer.new()
 	panel.position = Vector2(14, 14)
-	panel.custom_minimum_size = Vector2(320, 130)
+	panel.custom_minimum_size = Vector2(355, 0)
 	canvas_layer.add_child(panel)
 	var column := VBoxContainer.new()
 	panel.add_child(column)
-	_status = Label.new()
-	column.add_child(_status)
-	var info := Label.new()
-	info.text = "Этап 6.5: бури, засухи, паводки, лавины, сели и тектонические события."
-	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(info)
+	_summary = Label.new()
+	column.add_child(_summary)
 	var day_button := Button.new()
 	day_button.text = "Следующий день"
 	day_button.pressed.connect(func(): _queue_days(1))
@@ -150,19 +152,37 @@ func _setup_interface() -> void:
 	season_button.pressed.connect(func(): _queue_days(Climate.SEASON_DAYS))
 	column.add_child(season_button)
 	var view_button := Button.new()
-	view_button.text = "Слои: рельеф / почва / влага / температура / биом / снег / наносы / паводки"
+	view_button.text = "Переключить слой карты"
 	view_button.pressed.connect(_cycle_view)
 	column.add_child(view_button)
+	_details_toggle = Button.new()
+	_details_toggle.text = "Показать диагностику"
+	_details_toggle.pressed.connect(_toggle_debug)
+	column.add_child(_details_toggle)
+	_debug_details = VBoxContainer.new()
+	_debug_details.visible = false
+	column.add_child(_debug_details)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(360, 275)
+	_debug_details.add_child(scroll)
+	_status = Label.new()
+	_status.custom_minimum_size = Vector2(345, 0)
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	scroll.add_child(_status)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
 		event_button.pressed.connect(_apply_landscape_event.bind(kind))
-		column.add_child(event_button)
-	var hint := Label.new()
-	hint.text = "WASD / стрелки — перемещение · колесо — масштаб · пальцем — сдвиг"
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(hint)
+		_debug_details.add_child(event_button)
 	_update_hud()
+
+
+func _toggle_debug() -> void:
+	_debug_details.visible = not _debug_details.visible
+	_details_toggle.text = "Скрыть диагностику" if _debug_details.visible \
+		else "Показать диагностику"
+	_update_hud()
+
 
 func _update_camera() -> void:
 	var offset := Vector3(45.0, 63.0, 45.0)
@@ -186,28 +206,32 @@ func _process(delta: float) -> void:
 		movement.y += 1.0
 	if movement.length_squared() > 0.0:
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
-	# Большие переходы по календарю считаются по одному дню за кадр,
-	# чтобы управление камерой и интерфейс не блокировались на сезон.
-	if _days_pending > 0 and _pending.is_empty():
-		# Обновляем изображение после каждого шага, чтобы снег наступал
-		# на глазах, а не появлялся целиком в последний день сезона.
+	# Физика не пропускает дни. При ускоренном календаре экран
+	# показывает предыдущий полноценный кадр до конца перемотки.
+	if _days_pending > 0:
+		var step_started := Time.get_ticks_usec()
 		_simulate_one_day()
+		_last_day_step_us = Time.get_ticks_usec() - step_started
+		_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 		_days_pending -= 1
-		_refresh_visible(true)
-	# Внешние системы могут изменить ландшафт без нажатия кнопки:
-	# их сигнал тоже должен попасть в текущий кадр.
+		if _days_pending == 0:
+			# Только один пакет визуальных изменений на всю перемотку.
+			_refresh_visible(true)
+			_visual_refreshes += 1
 	if not _terrain_dirty.is_empty():
 		_flush_world_changes()
-	# Видеокарта не должна получать десятки мешей за один кадр.
-	# На быстром ПК обновляем больше чанков, на телефоне — меньше.
-	var frame_start := Time.get_ticks_usec()
-	var built := 0
-	while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
-		_create_chunk(_pending.pop_front())
-		built += 1
-		if Time.get_ticks_usec() - frame_start >= MESH_BUDGET_US:
-			break
-	_last_chunk_build_us = Time.get_ticks_usec() - frame_start
+	# Обновление мешей откладывается до конца перемотки,
+	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
+	_last_chunk_build_us = 0
+	if _days_pending == 0:
+		var frame_start := Time.get_ticks_usec()
+		var built := 0
+		while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
+			_create_chunk(_pending.pop_front())
+			built += 1
+			if Time.get_ticks_usec() - frame_start >= MESH_BUDGET_US:
+				break
+		_last_chunk_build_us = Time.get_ticks_usec() - frame_start
 	_hud_timer += delta
 	if _hud_timer > 0.3:
 		_update_hud()
@@ -322,9 +346,10 @@ func _flush_world_changes() -> void:
 	_climate.rebuild_if_stale(chunks)
 	_surface.rebuild(chunks)
 	_surface.synchronize_climate(_climate, _climate.last_updated_rows)
-	# Rebuild гидрологии уже использует сохранённый сток:
-	# второй apply_rainfall_map здесь был лишним.
-	_refresh_visible(true)
+	# Глобальный сток уже содержит воду текущего дня.
+	# Во время перемотки не создаём меши на каждом шаге.
+	if _days_pending == 0:
+		_refresh_visible(true)
 
 
 func _apply_landscape_event(kind: String) -> void:
@@ -373,7 +398,13 @@ func _cycle_view() -> void:
 	_update_hud()
 
 func _update_hud() -> void:
-	if _status == null:
+	if _summary == null:
+		return
+	_summary.text = "День %d · FPS %d · чанки %d/%d\nОчередь дней %d · пик шага %.1f мс" % [
+		_climate.day, Engine.get_frames_per_second(), _active.size(),
+		_active.size() + _pending.size(), _days_pending,
+		float(_peak_day_step_us) / 1000.0]
+	if _debug_details == null or not _debug_details.visible:
 		return
 	var profile := Relief.profile_at(_world_model, _center)
 	var water: Dictionary = _hydro.water_at(_world_model.config.cell_at(_center))
@@ -425,8 +456,12 @@ func _update_hud() -> void:
 	_status.text += "Почва: %d клеток · климат: %d строк · гидро: %d пересчётов\n" % [
 		_surface.last_rebuilt_cells, _climate.last_rebuild_rows,
 		_hydro.full_rebuilds]
-	_status.text += "GPU: %d мешей · кадр %.1f мс\n" % [
-		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0]
+	_status.text += "GPU: %d мешей · кадр %.1f мс · перерисовок сезонов %d\n" % [
+		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0,
+		_visual_refreshes]
+	_status.text += "Шаг физики: последний %.1f мс · максимум %.1f мс\n" % [
+		float(_last_day_step_us) / 1000.0,
+		float(_peak_day_step_us) / 1000.0]
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), _days_pending]
