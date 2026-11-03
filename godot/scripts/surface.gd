@@ -269,7 +269,7 @@ func transfer_snow(source: Vector2i, target: Vector2i,
 	var b := _index(target)
 	if hydro.has_water(a) or hydro.has_water(b):
 		return false
-	var moved := minf(amount, _snow[a], 1.0 - _snow[b])
+	var moved := minf(amount, minf(_snow[a], 1.0 - _snow[b]))
 	if moved < 0.005:
 		return false
 	_snow[a] -= moved
