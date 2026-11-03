@@ -789,9 +789,8 @@
     if(!stage)return;
     const species=tile.tree?.species||'oak';
     // Leave enough off-grid variation that forest rows do not trace diamonds.
-    const jitterX=((x*23+y*37+x*y*3)%19-9)*.037;
-    const jitterY=((x*17+y*13+x*y*5)%17-8)*.037;
-    const p=screen(x+.5+jitterX,y+.5+jitterY),t=tileSize(),h=tileHeight();
+    const centre=Navigation.treeCentre(x,y);
+    const p=screen(centre.x,centre.y),t=tileSize(),h=tileHeight();
     const sprite=treeSprite(species,stage,variation%4);
     const isSmall=stage==='sapling'||stage==='regrowing'||stage==='stump';
     const scale=stage==='stump'?.31:stage==='regrowing'?.37:stage==='sapling'?.45:
@@ -1905,7 +1904,15 @@
       game.buildings.some(b=>b.id===a.buildingId&&b.type==='logger'))
       .map(a=>({phase:a.phase,progress:a.progress,target:a.target,
         x:a.x,y:a.y,direction:workerState(a,'logger').direction,
-        path:a.path||[]})),
+        path:a.path||[],
+        contact:a.target?game.interactionAnchor(a.target):null,
+        atContact:a.target?Navigation.atContact(a,a.target,
+          game.interactionAnchor(a.target)):false})),
+    loggerContactPixels:(x,y)=> {
+      const anchor=game.interactionAnchor({x,y});
+      const projected=screen(anchor.x,anchor.y);
+      return {x:projected.x,y:projected.y+tileHeight()*.19};
+    },
     walkable:(x,y)=>game.walkable(x,y),
     approachCells:(x,y)=>game.approachCells({x,y}),
     walkPath:(from,to)=>game.walkRoute(from,to),
