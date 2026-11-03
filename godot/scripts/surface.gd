@@ -497,6 +497,88 @@ func color_at(cell: Vector2i, mode: int = 0) -> Color:
 	return color
 
 
+# Полный игровой снимок хранит исходные Float32 без потери разрядности.
+# Старый экспорт to_data остаётся доступным для прежних версий.
+func to_snapshot() -> Dictionary:
+	ensure_ready()
+	return {
+		"version": 1, "world_signature": JSON.stringify(world.to_data()),
+		"day": day, "temperature": temperature,
+		"precipitation": precipitation, "sediment_balance": _sediment_balance,
+		"moisture": Marshalls.raw_to_base64(_moisture.to_byte_array()),
+		"snow": Marshalls.raw_to_base64(_snow.to_byte_array()),
+		"frost": Marshalls.raw_to_base64(_frost.to_byte_array()),
+		"air_temperature": Marshalls.raw_to_base64(_air_temperature.to_byte_array()),
+		"waterlogging": Marshalls.raw_to_base64(_waterlogged.to_byte_array()),
+		"runoff": Marshalls.raw_to_base64(_runoff.to_byte_array()),
+		"sediment": Marshalls.raw_to_base64(_sediment.to_byte_array())
+	}
+
+
+func load_snapshot(data: Dictionary) -> bool:
+	ensure_ready()
+	if data.get("version") != 1 \
+			or data.get("world_signature") != JSON.stringify(world.to_data()):
+		return false
+	var saved_day: Variant = data.get("day")
+	if not (saved_day is int or saved_day is float) \
+			or not is_finite(float(saved_day)):
+		return false
+	if float(saved_day) != float(int(saved_day)) \
+			or float(saved_day) < 0.0 or float(saved_day) > 10000000.0:
+		return false
+	for key in ["temperature", "precipitation", "sediment_balance"]:
+		var value: Variant = data.get(key)
+		if not (value is int or value is float) or not is_finite(float(value)):
+			return false
+	if absf(float(data["temperature"])) > 150.0 \
+			or float(data["precipitation"]) < 0.0 \
+			or float(data["precipitation"]) > 3.0 \
+			or absf(float(data["sediment_balance"])) > 64.0:
+		return false
+	var decoded := {}
+	var count: int = _type.size()
+	for field in ["moisture", "snow", "frost", "air_temperature",
+			"waterlogging", "runoff", "sediment"]:
+		if not (data.get(field) is String):
+			return false
+		var raw: PackedByteArray = Marshalls.base64_to_raw(data[field])
+		if raw.size() != count * 4:
+			return false
+		var values: PackedFloat32Array = raw.to_float32_array()
+		if values.size() != count:
+			return false
+		for value in values:
+			if not is_finite(value):
+				return false
+			if field in ["moisture", "snow", "frost", "waterlogging"] \
+					and (value < 0.0 or value > 1.0):
+				return false
+			if field == "runoff" and (value < 0.0 or value > 3.0):
+				return false
+			if field == "air_temperature" and absf(value) > 150.0:
+				return false
+			if field == "sediment" and absf(value) > 64.0:
+				return false
+		decoded[field] = values
+	# Все поля проверены до первой записи в живой объект.
+	_moisture = decoded["moisture"]
+	_snow = decoded["snow"]
+	_frost = decoded["frost"]
+	_air_temperature = decoded["air_temperature"]
+	_waterlogged = decoded["waterlogging"]
+	_runoff = decoded["runoff"]
+	_sediment = decoded["sediment"]
+	_sediment_balance = float(data["sediment_balance"])
+	day = int(saved_day)
+	temperature = float(data["temperature"])
+	precipitation = float(data["precipitation"])
+	_update_snow_coverage()
+	revision += 1
+	surface_changed.emit(revision)
+	return true
+
+
 func to_data() -> Dictionary:
 	ensure_ready()
 	var water := PackedByteArray()
