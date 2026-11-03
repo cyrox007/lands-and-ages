@@ -86,3 +86,34 @@ test('выбор точки на большом рельефе не переби
   assert.ok(Math.abs(hit.x-x)<.35,JSON.stringify(hit));
   assert.ok(Math.abs(hit.y-y)<.35,JSON.stringify(hit));
 });
+
+test('кеш рельефа не пересоздаёт видимые чанки при превышении 16',()=>{
+  const originalDocument=global.document;
+  const noop=()=>{};
+  const drawing={setTransform:noop,beginPath:noop,moveTo:noop,
+    lineTo:noop,closePath:noop,fill:noop,stroke:noop,drawImage:noop};
+  global.document={createElement:()=>({getContext:()=>drawing})};
+  try{
+    const model={width:128,height:96,seed:1729,minimum:-2,maximum:8,
+      vertexAt:()=>0,normalAt:()=>({x:0,y:0,z:1})};
+    const environment={surfaceAt:()=>({cover:'grass',soil:{fertility:.5}})};
+    const zoom=.62,width=1440,height=900,camera={x:64,y:48};
+    const screen=(x,y)=>({x:width/2+(x-y-camera.x+camera.y)*41*zoom,
+      y:height/2+(x+y-camera.x-camera.y)*20.5*zoom});
+    const worldAt=(x,y)=>{
+      const u=(x-width/2)/(41*zoom),v=(y-height/2)/(20.5*zoom);
+      return {x:camera.x+(u+v)/2,y:camera.y+(v-u)/2};
+    };
+    const cache=new Map(),options={width,height,zoom,screen,worldAt,day:1,cache};
+    const first=Relief.drawVisible(model,environment,drawing,options);
+    const second=Relief.drawVisible(model,environment,drawing,options);
+    assert.ok(first.visibleChunks>16,JSON.stringify(first));
+    assert.equal(first.renderedChunks,first.visibleChunks);
+    assert.equal(second.renderedChunks,0,'неподвижная камера повторно растеризовала чанки');
+    assert.ok(second.cachedChunks>=second.visibleChunks);
+    assert.equal(second.rasterScale,.5);
+  }finally{
+    if(originalDocument===undefined)delete global.document;
+    else global.document=originalDocument;
+  }
+});

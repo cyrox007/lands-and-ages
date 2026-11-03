@@ -778,7 +778,13 @@ with sync_playwright() as pw:
         assert state['active']=='true'
         assert state['summary']['season']=='Весна',(name,state)
         assert state['pick'] is not None,(name,state)
-        assert page.evaluate('window.__strategyDebug().reliefDrawStats.cachedChunks<=16')
+        assert page.evaluate('window.__strategyDebug().reliefDrawStats.cachedChunks>=window.__strategyDebug().reliefDrawStats.visibleChunks')
+        before_idle=page.evaluate('window.__strategyDebug().reliefDrawCount')
+        page.wait_for_timeout(230)
+        after_idle=page.evaluate('window.__strategyDebug().reliefDrawCount')
+        assert after_idle==before_idle,(name,'статичный мир рисуется без изменений',before_idle,after_idle)
+        page.locator('#zoomOut').evaluate('(button) => button.click()')
+        page.wait_for_function('(before) => window.__strategyDebug().reliefDrawCount>before',arg=after_idle)
         page.locator('#seasonBtn').evaluate('(button) => button.click()')
         assert page.evaluate('window.__strategyDebug().reliefSummary().season')=='Лето'
         assert page.evaluate('window.__strategyDebug().reliefSurface(90,90).soil.fertility>=0')
