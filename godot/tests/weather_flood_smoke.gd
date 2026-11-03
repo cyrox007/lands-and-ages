@@ -49,6 +49,7 @@ func _test_storms() -> void:
 	var first: RefCounted = a["weather"]
 	var storm_days := 0
 	var wet_strikes := 0
+	var potential_ignitions := 0
 	var total := 0
 	_check(first.advance_day(4).is_empty(), "Грозы не обгоняют календарь")
 	for day in range(1, 97):
@@ -78,6 +79,8 @@ func _test_storms() -> void:
 			_check(float(event["ignition_potential"]) >= 0.0
 				and float(event["ignition_potential"]) <= 1.0,
 				"Риск возгорания зависит от условий поверхности")
+			if float(event["ignition_potential"]) > 0.02:
+				potential_ignitions += 1
 			if float(a["climate"].weather_at(cell)["rainfall"]) > 0.8:
 				wet_strikes += 1
 	_check(storm_days > 0, "За год формируются реальные грозовые области")
@@ -97,7 +100,8 @@ func _test_storms() -> void:
 	invalid["world_signature"] = "подмена"
 	_check(not restored.load_data(invalid), "Чужой мир отвергается")
 	print("Грозы: участков=", storm_days, " · ударов=", total,
-		" · ударов во время ливня=", wet_strikes)
+		" · ударов во время ливня=", wet_strikes,
+		" · возможных возгораний=", potential_ignitions)
 
 
 func _test_flood_and_wetlands() -> void:
@@ -136,13 +140,19 @@ func _test_flood_and_wetlands() -> void:
 		surface.advance_day(2.6, 16.0)
 		hydro.apply_rainfall_map(surface.runoff_map())
 	var max_waterlogging := 0.0
+	var wetland_cells := 0
 	for y in range(12):
 		for x in range(12):
-			var soil: Dictionary = surface.profile_at(Vector2i(x, y))
+			var cell := Vector2i(x, y)
+			if hydro.has_water(hydro.cell_index(cell)):
+				continue
+			var soil: Dictionary = surface.profile_at(cell)
 			max_waterlogging = maxf(max_waterlogging,
 				float(soil["waterlogging"]))
+			if bool(soil["wetland"]):
+				wetland_cells += 1
 	_check(max_waterlogging > 0.5,
-		"Многодневные дожди накапливают заболачивание")
+		"Многодневные дожди заболачивают сушу, не только озеро")
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(surface.to_data()))
 	var restored := Surface.new(world, hydro)
 	restored.rebuild()
@@ -161,7 +171,8 @@ func _test_flood_and_wetlands() -> void:
 	_check(mesh.get_surface_count() == 1,
 		"GPU имеет слой паводков и заболоченных земель")
 	print("Паводок: затоплено=", flooded["flooded"],
-		" · заболачивание=", max_waterlogging)
+		" · заболачивание суши=", max_waterlogging,
+		" · болотистых клеток=", wetland_cells)
 
 
 func _test_delta() -> void:
