@@ -660,8 +660,23 @@ with sync_playwright() as pw:
                 if(a[k]!==b[k]||a[k+1]!==b[k+1]||a[k+2]!==b[k+2]||a[k+3]!==b[k+3])n++;
               return n;
             };
+            // Проверяем не только наличие пикселей, но и реальный рост человека:
+            // в версии 0.5.19 отдельные кадры имели 72–80 px вместо 125.
+            const measure=data=>{
+              let top=144,bottom=0;
+              for(let y=0;y<144;y++)for(let x=0;x<96;x++)
+                if(data[(y*96+x)*4+3]>100){
+                  top=Math.min(top,y);bottom=Math.max(bottom,y+1);
+                }
+              return {height:bottom-top,foot:bottom};
+            };
+            const bounds=cells.map(measure);
             result[name]={width:img.naturalWidth,height:img.naturalHeight,
               minAlpha:Math.min(...cells.map(count)),
+              minVisibleHeight:Math.min(...bounds.map(v=>v.height)),
+              maxVisibleHeight:Math.max(...bounds.map(v=>v.height)),
+              minFoot:Math.min(...bounds.map(v=>v.foot)),
+              maxFoot:Math.max(...bounds.map(v=>v.foot)),
               diffFrame:diff(cells[0],cells[3]),
               diffFacing:diff(cells[0],cells[8])};
           }
@@ -673,6 +688,10 @@ with sync_playwright() as pw:
             item=observed[state]
             assert item['width']==768 and item['height']==576,(name,state,item)
             assert item['minAlpha']>500,(name,state,item)
+            assert item['minVisibleHeight']>=114,(name,state,'гном в кадре',item)
+            assert item['maxVisibleHeight']<=135,(name,state,item)
+            assert item['minFoot']>=130,(name,state,'потеряны ступни',item)
+            assert item['maxFoot']<=144,(name,state,item)
             assert item['diffFacing']>150,(name,state,item)
             if state!='idle':assert item['diffFrame']>80,(name,state,item)
         assert not errors,(name,errors)
