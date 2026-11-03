@@ -9,7 +9,8 @@ static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
 		tool.add_vertex(vertex)
 
 
-static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i) -> ArrayMesh:
+static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
+		surface: RefCounted = null) -> ArrayMesh:
 	hydro.ensure_ready()
 	var bounds: Rect2i = world.config.chunk_rect(chunk)
 	var result := ArrayMesh.new()
@@ -35,6 +36,10 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i) -
 				color = Color(0.14, 0.33, 0.49, 0.90)
 			elif not river:
 				color = Color(0.23, 0.54, 0.65, 0.82)
+			if surface != null:
+				var state: Dictionary = surface.profile_at(cell)
+				if state["cover"] == "лёд":
+					color = Color(0.72, 0.85, 0.93, 0.96)
 			if ocean or lake or not river:
 				var a: Vector3 = world.config.to_scene(Vector2(x, y), level)
 				var b: Vector3 = world.config.to_scene(Vector2(x + 1, y), level)
