@@ -53,7 +53,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 					var cell := Vector2i(x0 + mini(span_x - 1,
 						(sx * 2 + 1) * span_x / 8),
 						y0 + mini(span_y - 1, (sy * 2 + 1) * span_y / 8))
-					var i := hydro.cell_index(cell)
+					var i: int = hydro.cell_index(cell)
 					var storm: float = climate.storm_at_index(i)
 					if storm > strength:
 						strength = storm
@@ -66,7 +66,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 				continue
 			var profile: Dictionary = surface.profile_at(chosen)
 			var weather: Dictionary = climate.weather_at(chosen)
-			var i := hydro.cell_index(chosen)
+			var i: int = hydro.cell_index(chosen)
 			var dryness := clampf((0.54 - float(profile["moisture"])) / 0.54,
 				0.0, 1.0)
 			var ignition := strength * dryness \
