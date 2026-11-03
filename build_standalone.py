@@ -4,7 +4,7 @@ import re,json,base64
 root=Path(__file__).resolve().parent
 html=(root/'index.html').read_text('utf8')
 html=re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]+)?">','<style>'+ (root/'style.css').read_text('utf8')+'</style>',html)
-html=re.sub(r'<script defer src="(?:navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|unit-ground|ui)\.js(?:\?[^"]+)?"></script>','',html)
+html=re.sub(r'<script defer src="(?:world-terrain|world-relief-preview|navigation|engine|visual-model|mill-pack|resource-pack|worker-art|painted-motion|profession-actions|profession-frames|unit-ground|ui)\.js(?:\?[^"]+)?"></script>','',html)
 assets={p.stem:'data:image/webp;base64,'+base64.b64encode(p.read_bytes()).decode('ascii') for p in sorted((root/'assets').glob('*.webp'))}
 assert len(assets)==12
 mill_files={'start':'mill-states-start.webp',
@@ -36,6 +36,8 @@ scripts=('window.StrategyLoggerAtlases='+json.dumps(logger_atlases,separators=('
          'window.StrategyAssets='+json.dumps(assets,separators=(',',':'))+';\n'+
          'window.StrategyMillAtlases='+json.dumps(mill_assets,separators=(',',':'))+';\n'+
          'window.StrategyMillDetailAssets='+json.dumps(detail_assets,separators=(',',':'))+';\n'+
+         (root/'world-terrain.js').read_text('utf8')+'\n;\n'+
+         (root/'world-relief-preview.js').read_text('utf8')+'\n;\n'+
          (root/'navigation.js').read_text('utf8')+'\n;\n'+
          (root/'engine.js').read_text('utf8')+'\n;\n'+
          (root/'visual-model.js').read_text('utf8')+'\n;\n'+
