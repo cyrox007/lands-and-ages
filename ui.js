@@ -59,7 +59,7 @@
   for(const state of LOGGER_STATES){
     const image=new Image();
     image.src=window.StrategyLoggerAtlases?.[state]||
-      ('assets/characters/logger/logger-'+state+'.webp');
+      ('assets/characters/logger/logger-'+state+'.webp?v=0.5.20-height');
     loggerAtlases[state]=image;
   }
   const loggerAtlasReady=state=>{
