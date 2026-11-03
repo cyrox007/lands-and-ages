@@ -20,6 +20,7 @@ var revision := 0
 var ocean_revision := 0
 var full_rebuilds := 0
 var flow_updates := 0
+var last_changed_chunks: Array[Vector2i] = []
 var _terrain_revision := -1
 var _width := 0
 var _height := 0
@@ -106,6 +107,10 @@ func _seed_border(index: int, visited: PackedByteArray) -> void:
 
 func rebuild() -> void:
 	var previous_ocean := _ocean.duplicate()
+	var previous_lake := _lake.duplicate()
+	var previous_river := _river.duplicate()
+	var previous_wetness := _wetness.duplicate()
+	var previous_level := _water_level.duplicate()
 	full_rebuilds += 1
 	_width = world.config.width
 	_height = world.config.height
@@ -175,6 +180,23 @@ func rebuild() -> void:
 	if previous_ocean != _ocean:
 		ocean_revision += 1
 	_recalculate_water()
+	# Даже маленькая правка рельефа может перенаправить реку далеко.
+	# Сообщаем Surface все изменённые водные чанки, а не только место удара.
+	last_changed_chunks.clear()
+	if previous_wetness.size() == count:
+		var dirty := {}
+		for i in range(count):
+			var had_water: bool = not is_nan(previous_level[i])
+			var has_water_now: bool = not is_nan(_water_level[i])
+			if had_water != has_water_now \
+					or previous_ocean[i] != _ocean[i] \
+					or previous_lake[i] != _lake[i] \
+					or previous_river[i] != _river[i] \
+					or not is_equal_approx(previous_wetness[i], _wetness[i]):
+				var cell := Vector2i(i % _width, i / _width)
+				dirty[world.config.chunk_of(cell)] = true
+		for chunk in dirty.keys():
+			last_changed_chunks.append(chunk)
 	revision += 1
 	water_changed.emit(revision)
 
