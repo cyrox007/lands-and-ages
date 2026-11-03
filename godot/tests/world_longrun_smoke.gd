@@ -56,6 +56,30 @@ func _state(config: RefCounted) -> Dictionary:
 	}
 
 
+func _short_value(value: Variant) -> String:
+	var encoded := JSON.stringify(value, "", true, true)
+	if encoded.length() > 300:
+		return "%d символов, SHA-256 %s" % [
+			encoded.length(), encoded.sha256_text()]
+	return encoded
+
+
+func _report_mismatch(first: Dictionary, second: Dictionary) -> void:
+	for section in first.keys():
+		if first[section] == second.get(section):
+			continue
+		if first[section] is Dictionary and second.get(section) is Dictionary:
+			for key in first[section].keys():
+				if first[section][key] != second[section].get(key):
+					print("Различие снимка: ", section, "/", key,
+						" · исходное ", _short_value(first[section][key]),
+						" · загружено ", _short_value(second[section].get(key)))
+		else:
+			print("Различие снимка: ", section, " · исходное ",
+				_short_value(first[section]), " · загружено ",
+				_short_value(second.get(section)))
+
+
 func _same(a: Dictionary, b: Dictionary, label: String) -> void:
 	_check(a["climate"].day == b["climate"].day,
 		label + ": календарь непрерывен")
@@ -67,7 +91,11 @@ func _same(a: Dictionary, b: Dictionary, label: String) -> void:
 		label + ": расход рек")
 	_check(a["hydro"]._water_level == b["hydro"]._water_level,
 		label + ": уровень воды")
-	_check(Save.capture(a) == Save.capture(b),
+	var first: Dictionary = Save.capture(a)
+	var second: Dictionary = Save.capture(b)
+	if first != second:
+		_report_mismatch(first, second)
+	_check(first == second,
 		label + ": все сохранённые природные состояния совпадают")
 
 
