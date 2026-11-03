@@ -15,6 +15,7 @@ const LandscapeEvents = preload("res://scripts/landscape_events.gd")
 const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
+const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 
 const VIEW_RADIUS := 4
 const MAX_BUILDS_PER_FRAME := 8
@@ -39,9 +40,14 @@ var _process_status := "Естественные процессы ещё не и
 var _last_event := "Изменений ландшафта нет"
 var _view_mode := 4
 var _days_pending := 0
+var _day_runner: RefCounted
+var _day_task_id := -1
+var _last_completed_day := 1
+var _last_synchronized_world_revision := 0
 var _last_day_step_us := 0
 var _peak_day_step_us := 0
 var _visual_refreshes := 0
+var _last_day_profile_us: Dictionary = {}
 var _water_material: StandardMaterial3D
 var _center := Vector2.ZERO
 var _camera: Camera3D
@@ -62,7 +68,8 @@ var _hud_timer := 0.0
 
 func _ready() -> void:
 	_world_model = WorldMap.new(WorldConfig.new())
-	_world_model.vertices_changed.connect(_on_world_changed)
+	# Изменения из фоновой симуляции приходят в главный поток.
+	_world_model.vertices_changed.connect(_on_world_changed, CONNECT_DEFERRED)
 	_hydro = Hydrology.new(_world_model)
 	_hydro.rebuild()
 	_surface = Surface.new(_world_model, _hydro)
@@ -79,6 +86,9 @@ func _ready() -> void:
 	_climate.set_day(1)
 	_surface.advance_climate_day(_climate)
 	_hydro.apply_rainfall_map(_surface.runoff_map())
+	_ensure_day_runner()
+	_last_completed_day = _climate.day
+	_last_synchronized_world_revision = _world_model.revision
 	_center = Vector2(_world_model.config.width, _world_model.config.height) * 0.5
 	_setup_environment()
 	_setup_materials()
@@ -206,24 +216,35 @@ func _process(delta: float) -> void:
 		movement.y += 1.0
 	if movement.length_squared() > 0.0:
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
-	# Физика не пропускает дни. При ускоренном календаре экран
-	# показывает предыдущий полноценный кадр до конца перемотки.
-	if _days_pending > 0:
-		var step_started := Time.get_ticks_usec()
-		_simulate_one_day()
-		_last_day_step_us = Time.get_ticks_usec() - step_started
-		_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
-		_days_pending -= 1
-		if _days_pending == 0:
-			# Только один пакет визуальных изменений на всю перемотку.
-			_refresh_visible(true)
-			_visual_refreshes += 1
-	if not _terrain_dirty.is_empty():
+	# Год может считаться несколько секунд, но камера и UI работают.
+	# WorkerThreadPool трогает только RefCounted-модели, не сцену.
+	if _day_task_id >= 0:
+		if WorkerThreadPool.is_task_completed(_day_task_id):
+			WorkerThreadPool.wait_for_task_completion(_day_task_id)
+			_day_task_id = -1
+			_complete_day(_day_runner.last_result)
+			_days_pending -= 1
+			if _days_pending == 0:
+				_refresh_visible(true)
+				_visual_refreshes += 1
+	elif _days_pending > 0:
+		if is_inside_tree():
+			_ensure_day_runner()
+			_day_task_id = WorkerThreadPool.add_task(
+				_day_runner.run_day, false, "Суточная физика карты")
+		else:
+			# В автономных smoke-тестах нет игрового дерева сцены.
+			_simulate_one_day()
+			_days_pending -= 1
+			if _days_pending == 0:
+				_refresh_visible(true)
+				_visual_refreshes += 1
+	if _day_task_id < 0 and not _terrain_dirty.is_empty():
 		_flush_world_changes()
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	_last_chunk_build_us = 0
-	if _days_pending == 0:
+	if _days_pending == 0 and _day_task_id < 0:
 		var frame_start := Time.get_ticks_usec()
 		var built := 0
 		while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
@@ -322,37 +343,42 @@ func _create_chunk(coord: Vector2i) -> void:
 	_chunk_rebuilds += 1
 
 
-func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
-	# За сутки может измениться несколько склонов: копим чанки,
-	# не пересчитываем весь водосбор на каждый сигнал отдельно.
+func _on_world_changed(chunks: Array[Vector2i], revision: int) -> void:
+	# Событие, уже согласованное фоновым расчётом, не запускаем снова.
+	if revision <= _last_synchronized_world_revision:
+		return
 	for chunk in chunks:
 		_terrain_dirty[chunk] = true
 
 
-func _flush_world_changes() -> void:
-	if _terrain_dirty.is_empty():
+func _ensure_day_runner() -> void:
+	if _day_runner != null:
 		return
-	var chunks: Array[Vector2i] = []
-	for coord in _terrain_dirty.keys():
-		chunks.append(coord)
+	_day_runner = WorldDayRunner.new(_world_model, _hydro, _surface,
+		_climate, _weather_events, _natural_processes, _natural_disasters)
+
+
+func _flush_world_changes() -> void:
+	if _day_task_id >= 0:
+		return
+	_ensure_day_runner()
+	var changed: bool = _day_runner.synchronize_world()
 	_terrain_dirty.clear()
-	# Гидрология имеет глобальные зависимости (priority-flood),
-	# поэтому пока используем безопасный полный пересчёт по необходимости.
-	_hydro.ensure_ready()
-	# Изменённое русло может затронуть чанки за пределами удара.
-	for coord in _hydro.take_changed_water_chunks():
-		if not chunks.has(coord):
-			chunks.append(coord)
-	_climate.rebuild_if_stale(chunks)
-	_surface.rebuild(chunks)
-	_surface.synchronize_climate(_climate, _climate.last_updated_rows)
-	# Глобальный сток уже содержит воду текущего дня.
-	# Во время перемотки не создаём меши на каждом шаге.
-	if _days_pending == 0:
+	_last_synchronized_world_revision = _world_model.revision
+	if changed and _days_pending == 0:
 		_refresh_visible(true)
 
 
+func _exit_tree() -> void:
+	# Не освобождаем карту, пока фоновый поток использует её массивы.
+	if _day_task_id >= 0:
+		WorkerThreadPool.wait_for_task_completion(_day_task_id)
+		_day_task_id = -1
+
+
 func _apply_landscape_event(kind: String) -> void:
+	if _day_task_id >= 0:
+		return
 	var result: Dictionary = _landscape_events.apply(kind, _center, 18.0, 3.0)
 	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
 		if not result.is_empty() else "%s: нет подходящего участка" % kind
@@ -365,10 +391,21 @@ func _queue_days(number: int) -> void:
 
 
 func _simulate_one_day() -> void:
-	_climate.set_day(_climate.day + 1)
-	_surface.advance_climate_day(_climate)
-	_hydro.apply_rainfall_map(_surface.runoff_map())
-	var strikes: Array[Dictionary] = _weather_events.advance_day(_climate.day)
+	# Прямой вызов нужен для тестов и отладки; в настоящем игровом
+	# дереве тот же расчёт выполняется через WorkerThreadPool.
+	_ensure_day_runner()
+	_day_runner.run_day()
+	_complete_day(_day_runner.last_result)
+
+
+func _complete_day(result: Dictionary) -> void:
+	_last_completed_day = int(result["day"])
+	_last_day_step_us = _day_runner.last_duration_us
+	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
+	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
+	_last_synchronized_world_revision = _world_model.revision
+	_terrain_dirty.clear()
+	var strikes: Array[Dictionary] = result["strikes"]
 	if not strikes.is_empty():
 		var first: Dictionary = strikes[0]
 		var hit: Vector2i = first["cell"]
@@ -379,32 +416,36 @@ func _simulate_one_day() -> void:
 		_lightning_life = 0.28
 		_weather_status = "Молний сегодня %d · всего %d · удар %s" % [
 			strikes.size(), _weather_events.total_strikes, hit]
-	var event: Dictionary = _natural_processes.advance_day(_climate.day)
+	var event: Dictionary = result["erosion"]
 	if not event.is_empty():
 		_process_status = "%s, день %d: %s" % [
 			event["process"], event["day"], event["cell"]]
-	var hazards: Array[Dictionary] = _natural_disasters.advance_day(_climate.day)
+	var hazards: Array[Dictionary] = result["hazards"]
 	if not hazards.is_empty():
 		var latest: Dictionary = hazards[hazards.size() - 1]
 		_disaster_status = "%s · день %d · %s · интенсивность %.0f%%" % [
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
-	_flush_world_changes()
 
 
 func _cycle_view() -> void:
 	_view_mode = (_view_mode + 1) % 8
-	_refresh_visible(true)
+	if _day_task_id < 0:
+		_refresh_visible(true)
 	_update_hud()
 
 func _update_hud() -> void:
 	if _summary == null:
 		return
-	_summary.text = "День %d · FPS %d · чанки %d/%d\nОчередь дней %d · пик шага %.1f мс" % [
-		_climate.day, Engine.get_frames_per_second(), _active.size(),
-		_active.size() + _pending.size(), _days_pending,
+	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
+	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс" % [
+		_last_completed_day, Engine.get_frames_per_second(), _active.size(),
+		_active.size() + _pending.size(), phase, _days_pending,
 		float(_peak_day_step_us) / 1000.0]
-	if _debug_details == null or not _debug_details.visible:
+	# Даже диагностическая панель не читает модель одновременно
+	# с фоновым потоком, иначе возникнет гонка массивов.
+	if _day_task_id >= 0 or _debug_details == null \
+			or not _debug_details.visible:
 		return
 	var profile := Relief.profile_at(_world_model, _center)
 	var water: Dictionary = _hydro.water_at(_world_model.config.cell_at(_center))
@@ -462,6 +503,9 @@ func _update_hud() -> void:
 	_status.text += "Шаг физики: последний %.1f мс · максимум %.1f мс\n" % [
 		float(_last_day_step_us) / 1000.0,
 		float(_peak_day_step_us) / 1000.0]
+	for kind in _last_day_profile_us.keys():
+		_status.text += "%s: %.1f мс\n" % [
+			kind, float(_last_day_profile_us[kind]) / 1000.0]
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), _days_pending]
