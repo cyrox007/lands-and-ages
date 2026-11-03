@@ -91,11 +91,16 @@ func _test_real_scene() -> void:
 	get_root().add_child(scene)
 	scene._queue_days(3)
 	var frames_while_busy := 0
+	var worst_frame_us := 0
+	var last_frame := Time.get_ticks_usec()
 	var timeout := Time.get_ticks_msec() + 90000
 	while scene._days_pending > 0 or scene._day_task_id >= 0:
 		await process_frame
+		var current := Time.get_ticks_usec()
 		if scene._day_task_id >= 0:
 			frames_while_busy += 1
+			worst_frame_us = maxi(worst_frame_us, current - last_frame)
+		last_frame = current
 		if Time.get_ticks_msec() > timeout:
 			_check(false, "Фоновый расчёт превысил лимит исполнения")
 			break
@@ -108,7 +113,10 @@ func _test_real_scene() -> void:
 	_check(frames_while_busy > 2,
 		"При тяжёлой физике главный поток продолжал выдавать кадры")
 	print("Этап 7.2: кадров при фоновой физике ", frames_while_busy,
-		", пик шага ", scene._peak_day_step_us, " мкс")
+		", пик шага ", scene._peak_day_step_us, " мкс",
+		", пик между кадрами ", worst_frame_us, " мкс")
+	print("Этап 7.2: время частей большой карты, мкс: ",
+		scene._last_day_profile_us)
 	scene.queue_free()
 	await process_frame
 
