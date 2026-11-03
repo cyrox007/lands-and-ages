@@ -401,6 +401,35 @@ func advance_climate_day(climate: RefCounted) -> bool:
 	surface_changed.emit(revision)
 	return true
 
+func moisture_at_index(i: int) -> float:
+	return _moisture[i] if i >= 0 and i < _moisture.size() else 0.0
+
+
+func snow_at_index(i: int) -> float:
+	return _snow[i] if i >= 0 and i < _snow.size() else 0.0
+
+
+func soil_depth_at_index(i: int) -> float:
+	return maxf(0.0, _depth[i] + _sediment[i]) \
+		if i >= 0 and i < _depth.size() else 0.0
+
+
+func rock_at_index(i: int) -> bool:
+	return i >= 0 and i < _type.size() and _type[i] == ROCK
+
+
+func exposed_at_index(i: int) -> bool:
+	return i >= 0 and i < _type.size() \
+		and (_type[i] == SAND or _type[i] == GRAVEL)
+
+
+func erosion_risk_at_index(i: int) -> float:
+	if i < 0 or i >= _type.size():
+		return 0.0
+	return clampf((1.0 - soil_depth_at_index(i) / 2.5) \
+		* (0.25 + _moisture[i] * 0.5), 0.0, 1.0)
+
+
 func profile_at(cell: Vector2i) -> Dictionary:
 	ensure_ready()
 	var i := _index(cell)
@@ -440,8 +469,7 @@ func profile_at(cell: Vector2i) -> Dictionary:
 		"moisture": wet, "snow": _snow[i], "frost": _frost[i],
 		"muddy": muddy, "cover": cover, "temperature": _air_temperature[i],
 		"growth_potential": growth,
-		"erosion_risk": clampf((1.0 - depth / 2.5)
-			* (0.25 + wet * 0.5), 0.0, 1.0)
+		"erosion_risk": erosion_risk_at_index(i)
 	}
 
 
