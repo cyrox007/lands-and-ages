@@ -6,7 +6,7 @@ signal surface_changed(revision: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Climate = preload("res://scripts/climate.gd")
-const FORMAT_VERSION := 3
+const FORMAT_VERSION := 4
 const SEDIMENT_UNITS := 1000000.0
 const ROCK := 0
 const GRAVEL := 1
@@ -32,6 +32,7 @@ var _frost := PackedFloat32Array()
 var _air_temperature := PackedFloat32Array()
 var _runoff := PackedFloat32Array()
 var _sediment := PackedFloat32Array()
+var _waterlogged := PackedFloat32Array()
 var _sediment_balance := 0.0
 var snow_coverage := 0.0
 
@@ -95,12 +96,14 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	_air_temperature.resize(count)
 	_runoff.resize(count)
 	_sediment.resize(count)
+	_waterlogged.resize(count)
 	if not has_state:
 		_air_temperature.fill(12.0)
 		_runoff.fill(0.0)
 		_snow.fill(0.0)
 		_frost.fill(0.0)
 		_sediment.fill(0.0)
+		_waterlogged.fill(0.0)
 		_sediment_balance = 0.0
 	for y in range(world.config.height):
 		for x in range(world.config.width):
@@ -186,6 +189,15 @@ func _apply_weather(i: int, rain: float, air: float) -> void:
 		- evaporation, 0.0, 1.0)
 	# Снег не поступает сразу в реки: сток увеличивается при оттепели.
 	_runoff[i] = clampf(liquid + melt * 0.65, 0.0, 3.0)
+	# Заболачивание накапливается неделями при насыщении и соседстве
+	# с руслом/озером, но постепенно отступает при засухе.
+	var infiltration_excess := maxf(0.0, _moisture[i] - 0.68)
+	var water_feed := clampf(hydro.wetness_at(i) - 0.52, 0.0, 0.48)
+	var drainage := 0.008 + _porosity[i] * 0.018
+	_waterlogged[i] = 1.0 if hydro.has_water(i) else clampf(
+		_waterlogged[i] + infiltration_excess * 0.085
+		+ water_feed * 0.12 + melt * 0.035 - drainage,
+		0.0, 1.0)
 
 
 func _update_snow_coverage() -> void:
@@ -260,6 +272,25 @@ func sediment_color_at(cell: Vector2i) -> Color:
 		clampf(-amount / 0.05, 0.0, 1.0))
 
 
+func water_state_color_at(cell: Vector2i) -> Color:
+	# Обзорный режим: отличаем обычные воды, временный паводок
+	# и медленное заболачивание суши.
+	ensure_ready()
+	var i := _index(cell)
+	if i < 0:
+		return Color.DARK_GRAY
+	if hydro.ocean_at(i):
+		return Color(0.10, 0.31, 0.55)
+	if hydro.lake_at(i) or hydro.river_at(i):
+		return Color(0.18, 0.49, 0.74)
+	var flood: float = hydro.flood_depth_at(i)
+	if flood > 0.0:
+		return Color(0.24, 0.39, 0.32).lerp(
+			Color(0.17, 0.63, 0.88), clampf(flood * 2.0, 0.35, 1.0))
+	return Color(0.44, 0.45, 0.30).lerp(
+		Color(0.15, 0.33, 0.24), _waterlogged[i])
+
+
 func snow_color_at(cell: Vector2i) -> Color:
 	# Отдельный обзорный слой показывает постепенное наступление зимы.
 	ensure_ready()
@@ -322,6 +353,8 @@ func profile_at(cell: Vector2i) -> Dictionary:
 	var frozen: bool = _frost[i] > 0.55
 	var muddy: bool = (_type[i] == CLAY or _type[i] == LOAM) \
 		and wet > 0.67 and not frozen and not hydro.has_water(i)
+	var is_wetland: bool = _waterlogged[i] > 0.66 \
+		and hydro.wetness_at(i) > 0.36 and not hydro.has_water(i)
 	var cover := "голый грунт"
 	if hydro.has_water(i):
 		cover = "лёд" if frozen else "вода"
@@ -329,6 +362,8 @@ func profile_at(cell: Vector2i) -> Dictionary:
 		cover = "снег"
 	elif _type[i] == ROCK:
 		cover = "скала"
+	elif is_wetland:
+		cover = "болото"
 	elif muddy:
 		cover = "грязь"
 	elif wet < 0.24:
@@ -343,6 +378,7 @@ func profile_at(cell: Vector2i) -> Dictionary:
 	return {
 		"cell": cell, "substrate": NAMES[_type[i]], "depth": depth,
 		"base_depth": _depth[i], "sediment": _sediment[i],
+		"waterlogging": _waterlogged[i], "wetland": is_wetland,
 		"fertility": fertility, "porosity": _porosity[i],
 		"moisture": wet, "snow": _snow[i], "frost": _frost[i],
 		"muddy": muddy, "cover": cover, "temperature": _air_temperature[i],
@@ -382,6 +418,8 @@ func to_data() -> Dictionary:
 	var snow := PackedByteArray()
 	var frozen := PackedByteArray()
 	var air := PackedByteArray()
+	var waterlogging := PackedByteArray()
+	waterlogging.resize(_type.size())
 	air.resize(_type.size())
 	water.resize(_type.size())
 	snow.resize(_type.size())
@@ -391,6 +429,7 @@ func to_data() -> Dictionary:
 		snow[i] = roundi(_snow[i] * 255.0)
 		frozen[i] = roundi(_frost[i] * 255.0)
 		air[i] = clampi(roundi((_air_temperature[i] + 60.0) / 120.0 * 255.0), 0, 255)
+		waterlogging[i] = roundi(clampf(_waterlogged[i], 0.0, 1.0) * 255.0)
 	var sediment_changes := []
 	for i in range(_sediment.size()):
 		var units := roundi(_sediment[i] * SEDIMENT_UNITS)
@@ -399,6 +438,7 @@ func to_data() -> Dictionary:
 	return {
 		"version": FORMAT_VERSION, "world_signature": JSON.stringify(world.to_data()),
 		"sediment_changes": sediment_changes,
+		"waterlogging": Marshalls.raw_to_base64(waterlogging),
 		"day": day, "temperature": temperature, "precipitation": precipitation,
 		"moisture": Marshalls.raw_to_base64(water),
 		"snow": Marshalls.raw_to_base64(snow),
@@ -414,11 +454,11 @@ func load_data(data: Dictionary) -> bool:
 		return false
 	var version := int(raw_version)
 	if float(version) != float(raw_version) \
-			or (version != 2 and version != FORMAT_VERSION) \
+			or (version != 2 and version != 3 and version != FORMAT_VERSION) \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
 	var sediment_changes: Array = []
-	if version == FORMAT_VERSION:
+	if version >= 3:
 		if not (data.get("sediment_changes") is Array):
 			return false
 		sediment_changes = data["sediment_changes"]
@@ -469,6 +509,14 @@ func load_data(data: Dictionary) -> bool:
 	var snow: PackedByteArray = Marshalls.base64_to_raw(data["snow"])
 	var frozen: PackedByteArray = Marshalls.base64_to_raw(data["frost"])
 	var air: PackedByteArray = Marshalls.base64_to_raw(data["air_temperature"])
+	var waterlogging := PackedByteArray()
+	waterlogging.resize(_type.size())
+	if version >= 4:
+		if not (data.get("waterlogging") is String):
+			return false
+		waterlogging = Marshalls.base64_to_raw(data["waterlogging"])
+		if waterlogging.size() != _type.size():
+			return false
 	if water.size() != _type.size() or snow.size() != _type.size() \
 			or frozen.size() != _type.size() or air.size() != _type.size():
 		return false
@@ -477,6 +525,7 @@ func load_data(data: Dictionary) -> bool:
 		_snow[i] = float(snow[i]) / 255.0
 		_frost[i] = float(frozen[i]) / 255.0
 		_air_temperature[i] = float(air[i]) / 255.0 * 120.0 - 60.0
+		_waterlogged[i] = float(waterlogging[i]) / 255.0
 	_sediment = loaded_sediment
 	_sediment_balance = loaded_balance
 	day = int(data["day"])

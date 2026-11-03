@@ -29,6 +29,7 @@ var _marine := PackedFloat32Array()
 var _temperature := PackedFloat32Array()
 var _rain := PackedFloat32Array()
 var _wind := PackedFloat32Array()
+var _storm := PackedFloat32Array()
 
 
 func _init(map: RefCounted, water: RefCounted) -> void:
@@ -91,6 +92,7 @@ func rebuild() -> void:
 	_temperature.resize(count)
 	_rain.resize(count)
 	_wind.resize(count)
+	_storm.resize(count)
 
 	# Морское влияние распространяется от фактического моря по клеткам,
 	# а не выбирается по случайным прямоугольным регионам.
@@ -165,12 +167,21 @@ func _calculate_day() -> void:
 				(float(y) + float(day) * 0.4) / 38.0, world.config.seed + 991)
 			_temperature[i] = _mean[i] + season * amplitude + front * 3.1
 			var threshold := 0.11 - _humidity[i] * 0.20
+			# Тёплый влажный воздух поднимается вдоль погодного фронта:
+			# возникает грозовая нестабильность, а не случайная молния.
+			var convection := clampf((_temperature[i] - 7.0) / 17.0, 0.0, 1.0) \
+				* clampf((_humidity[i] - 0.24) / 0.52, 0.0, 1.0)
+			var frontal_lift := clampf(0.55 + front * 0.60
+				+ local * 0.38, 0.0, 1.0)
+			_storm[i] = clampf(convection * frontal_lift, 0.0, 1.0)
+			# Ливень — усиление обычных осадков грозовым фронтом.
 			_rain[i] = clampf(maxf(0.0, local * 0.9 + front * 0.4 - threshold)
-				* _humidity[i] * 2.5 * rain_factor, 0.0, 3.0)
+				* _humidity[i] * 2.5 * rain_factor
+				+ _storm[i] * 1.35, 0.0, 3.0)
 			# Ветер связан с движущимися фронтами и широтами.
 			# Скорость условная: шкалу м/с откалибруем позже.
 			_wind[i] = clampf(5.0 + absf(front) * 10.0
-				+ maxf(0.0, -local) * 3.0
+				+ _storm[i] * 5.0 + maxf(0.0, -local) * 3.0
 				+ 2.5 * absf(sin(TAU * float(day % YEAR_DAYS) / YEAR_DAYS))
 				+ _marine[i] * 1.5, 0.0, 24.0)
 	revision += 1
@@ -198,6 +209,10 @@ func wind_at_index(i: int) -> float:
 	return _wind[i] if i >= 0 and i < _wind.size() else 0.0
 
 
+func storm_at_index(i: int) -> float:
+	return _storm[i] if i >= 0 and i < _storm.size() else 0.0
+
+
 func rainfall_map() -> PackedFloat32Array:
 	return _rain.duplicate()
 
@@ -215,11 +230,14 @@ func weather_at(cell: Vector2i) -> Dictionary:
 		"annual_temperature": _mean[i],
 		"humidity": _humidity[i],
 		"precipitation": rain, "wind_speed": _wind[i],
+		"storm_intensity": _storm[i], "downpour": rain >= 1.6,
 		"rainfall": rain * (1.0 - snow_share),
 		"snowfall": rain * snow_share,
-		"weather": ("снег" if snow_share >= 0.75 else
-			("мокрый снег" if snow_share > 0.15 else "дождь"))
-			if rain > 0.08 else "без осадков",
+		"weather": "гроза" if _storm[i] > 0.32 and rain > 0.14 else (
+			"ливень" if rain >= 1.6 and temp > 2.0 else (
+				("снег" if snow_share >= 0.75 else
+				("мокрый снег" if snow_share > 0.15 else "дождь"))
+				if rain > 0.08 else "без осадков")),
 		"season": season_name(day),
 		"seasonal_precipitation_factor": _seasonal_rain_factor(day,
 			(float(cell.y) + 0.5) / float(_height)),

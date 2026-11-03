@@ -78,6 +78,16 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 				and hydro.ocean_at(hydro.cell_index(neighbor)):
 			coast_target = neighbor
 			break
+	# Наносы в устье оседают на мелководье и со временем
+	# могут поднять дно до уровня новой суши.
+	var delta_risk := 0.0
+	var delta_target := Vector2i(-1, -1)
+	if hydro.river_mouth_at(i) and depth > 0.05:
+		delta_target = next
+		delta_risk = resistant \
+			* clampf(flow / 280.0, 0.0, 1.0) \
+			* clampf(depth / 1.0, 0.0, 1.0) \
+			* clampf(1.0 + runoff * 0.2, 0.0, 1.0)
 	var coast_risk := 0.0
 	if coast_target.x >= 0 and resistant > 0.0:
 		coast_risk = clampf((wind_speed - 6.0) / 12.0, 0.0, 1.0) \
@@ -85,9 +95,10 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 			* (1.0 - snow * 0.7) * resistant
 	return {
 		"water": water_risk, "wind": wind_risk,
-		"slide": slide_risk, "coast": coast_risk,
+		"slide": slide_risk, "coast": coast_risk, "delta": delta_risk,
 		"downstream": next, "wind_target": east,
-		"coast_target": coast_target, "drop": drop
+		"coast_target": coast_target, "delta_target": delta_target,
+		"drop": drop
 	}
 
 
@@ -108,8 +119,10 @@ func advance_day(day: int) -> Dictionary:
 		var risk: Dictionary = estimate_at(cell)
 		if risk.is_empty():
 			continue
-		for kind in ["water", "wind", "slide", "coast"]:
+		for kind in ["water", "wind", "slide", "coast", "delta"]:
 			var score: float = risk[kind]
+			if kind == "delta" and day % 8 != 0:
+				continue
 			if kind == "coast" and day % 12 != 0:
 				continue
 			if kind == "slide" and day % 24 != 0:
@@ -144,7 +157,8 @@ func _move_sediment(plan: Dictionary) -> Dictionary:
 	var source: Vector2i = plan["cell"]
 	var risk: Dictionary = plan["risk"]
 	var target: Vector2i = risk["downstream"] if kind == "water" else (
-		risk["coast_target"] if kind == "coast" else risk["wind_target"])
+		risk["coast_target"] if kind == "coast" else (
+			risk["delta_target"] if kind == "delta" else risk["wind_target"]))
 	if not world.config.contains_vertex(target) or source == target:
 		return {}
 	var a: float = world.vertex_at(source)
@@ -163,6 +177,8 @@ func _move_sediment(plan: Dictionary) -> Dictionary:
 		description = "ветровой перенос"
 	elif kind == "coast":
 		description = "береговая эрозия"
+	elif kind == "delta":
+		description = "формирование речной дельты"
 	return {
 		"kind": description, "vertices": 2,
 		"volume": amount, "revision": world.revision

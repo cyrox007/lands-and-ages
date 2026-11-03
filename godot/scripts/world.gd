@@ -13,6 +13,7 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const LandscapeEvents = preload("res://scripts/landscape_events.gd")
 const NaturalProcesses = preload("res://scripts/natural_processes.gd")
+const WeatherEvents = preload("res://scripts/weather_events.gd")
 
 const VIEW_RADIUS := 4
 const BUILD_PER_FRAME := 2
@@ -26,6 +27,10 @@ var _surface: RefCounted
 var _climate: RefCounted
 var _landscape_events: RefCounted
 var _natural_processes: RefCounted
+var _weather_events: RefCounted
+var _weather_status := "Молний пока не было"
+var _lightning_light: OmniLight3D
+var _lightning_life := 0.0
 var _process_status := "Естественные процессы ещё не изменяли рельеф"
 var _last_event := "Изменений ландшафта нет"
 var _view_mode := 4
@@ -54,6 +59,8 @@ func _ready() -> void:
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
+	_weather_events = WeatherEvents.new(
+		_world_model, _climate, _surface, _hydro)
 	_climate.set_day(1)
 	_surface.advance_climate_day(_climate)
 	_hydro.apply_rainfall_map(_surface.runoff_map())
@@ -75,6 +82,13 @@ func _ready() -> void:
 
 
 func _setup_environment() -> void:
+	# Короткая вспышка показывается только на месте физического удара.
+	_lightning_light = OmniLight3D.new()
+	_lightning_light.name = "Вспышка молнии"
+	_lightning_light.omni_range = 42.0
+	_lightning_light.light_energy = 5.0
+	_lightning_light.visible = false
+	add_child(_lightning_light)
 	var world_light := DirectionalLight3D.new()
 	world_light.rotation_degrees = Vector3(-48, -40, 0)
 	world_light.light_energy = 1.15
@@ -115,7 +129,7 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	column.add_child(_status)
 	var info := Label.new()
-	info.text = "Этап 6.3: вода, ветер и море переносят грунт и изменяют берега."
+	info.text = "Этап 6.4: ливни, грозы, молнии, паводки, болота и речные дельты."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(info)
 	var day_button := Button.new()
@@ -127,7 +141,7 @@ func _setup_interface() -> void:
 	season_button.pressed.connect(func(): _queue_days(Climate.SEASON_DAYS))
 	column.add_child(season_button)
 	var view_button := Button.new()
-	view_button.text = "Слой: рельеф / почва / влага / температура / биом / снег / наносы"
+	view_button.text = "Слои: рельеф / почва / влага / температура / биом / снег / наносы / паводки"
 	view_button.pressed.connect(_cycle_view)
 	column.add_child(view_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
@@ -148,6 +162,10 @@ func _update_camera() -> void:
 
 
 func _process(delta: float) -> void:
+	if _lightning_life > 0.0:
+		_lightning_life -= delta
+		if _lightning_life <= 0.0:
+			_lightning_light.visible = false
 	var movement := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
 		movement.x -= 1.0
@@ -254,9 +272,9 @@ func _on_world_changed(chunks: Array[Vector2i], _revision: int) -> void:
 	# Система мира обновляется от одного изменения высот, не от GPU.
 	_hydro.rebuild()
 	_climate.rebuild()
-	_hydro.apply_rainfall_map(_surface.runoff_map())
 	_surface.rebuild(chunks)
 	_surface.synchronize_climate(_climate)
+	_hydro.apply_rainfall_map(_surface.runoff_map())
 	_refresh_visible(true)
 
 
@@ -275,6 +293,17 @@ func _simulate_one_day() -> void:
 	_climate.set_day(_climate.day + 1)
 	_surface.advance_climate_day(_climate)
 	_hydro.apply_rainfall_map(_surface.runoff_map())
+	var strikes: Array[Dictionary] = _weather_events.advance_day(_climate.day)
+	if not strikes.is_empty():
+		var first: Dictionary = strikes[0]
+		var hit: Vector2i = first["cell"]
+		var point := Vector2(hit) + Vector2(0.5, 0.5)
+		_lightning_light.position = _world_model.config.to_scene(point,
+			_world_model.height_at(point) + 8.0)
+		_lightning_light.visible = true
+		_lightning_life = 0.28
+		_weather_status = "Молний сегодня %d · всего %d · удар %s" % [
+			strikes.size(), _weather_events.total_strikes, hit]
 	var event: Dictionary = _natural_processes.advance_day(_climate.day)
 	if not event.is_empty():
 		_process_status = "%s, день %d: %s" % [
@@ -282,7 +311,7 @@ func _simulate_one_day() -> void:
 
 
 func _cycle_view() -> void:
-	_view_mode = (_view_mode + 1) % 7
+	_view_mode = (_view_mode + 1) % 8
 	_refresh_visible(true)
 	_update_hud()
 
@@ -304,8 +333,8 @@ func _update_hud() -> void:
 		profile["form"], profile["height"], profile["slope_degrees"]]
 	_status.text += "Водосбор %.0f · вода %.2f · осадки %.2f\n" % [
 		water["catchment"], water["depth"], weather["precipitation"]]
-	_status.text += "Море %d · озёра %d · реки %d\n" % [
-		amounts["ocean"], amounts["lakes"], amounts["rivers"]]
+	_status.text += "Море %d · озёра %d · реки %d · паводок %d\n" % [
+		amounts["ocean"], amounts["lakes"], amounts["rivers"], amounts["flooded"]]
 	var edge := Boundary.geography_at(_center.x, _center.y,
 		_world_model.config.width, _world_model.config.height, _world_model.config.seed)
 	_status.text += "Местность: %s · поверхность: %s\n" % [
@@ -317,6 +346,11 @@ func _update_hud() -> void:
 		_climate.day, weather["season"], weather["temperature"], weather["weather"]]
 	_status.text += "Биом: %s · влажность воздуха %.0f%%\n" % [
 		biome, float(weather["humidity"]) * 100.0]
+	_status.text += "Гроза %.0f%% · заболоченность %.0f%% · риск пожара %.0f%%\n" % [
+		float(weather["storm_intensity"]) * 100.0,
+		float(ground["waterlogging"]) * 100.0,
+		float(_weather_events.last_events[0]["ignition_potential"]) * 100.0
+		if not _weather_events.last_events.is_empty() else 0.0]
 	_status.text += "Снег здесь %.0f%% · покрыто снегом %.1f%% карты\n" % [
 		float(ground["snow"]) * 100.0, _surface.snow_coverage * 100.0]
 	_status.text += "Промерзание %.0f%% · потенциал роста %.0f%%\n" % [
@@ -326,6 +360,7 @@ func _update_hud() -> void:
 		float(ground["sediment"]), _surface.sediment_balance()]
 	_status.text += "Ветер %.1f · изменённых вершин %d\n" % [
 		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
+	_status.text += "%s\n" % _weather_status
 	_status.text += "%s\n" % _process_status
 	_status.text += "%s\n" % _last_event
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
