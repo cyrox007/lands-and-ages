@@ -408,11 +408,16 @@ func to_data() -> Dictionary:
 
 func load_data(data: Dictionary) -> bool:
 	ensure_ready()
-	if data.get("version") not in [2, FORMAT_VERSION] \
+	var raw_version = data.get("version")
+	if not (raw_version is int or raw_version is float):
+		return false
+	var version := int(raw_version)
+	if float(version) != float(raw_version) \
+			or (version != 2 and version != FORMAT_VERSION) \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
 	var sediment_changes: Array = []
-	if data.get("version") == FORMAT_VERSION:
+	if version == FORMAT_VERSION:
 		if not (data.get("sediment_changes") is Array):
 			return false
 		sediment_changes = data["sediment_changes"]
