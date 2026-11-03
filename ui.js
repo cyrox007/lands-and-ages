@@ -52,6 +52,7 @@
   const PaintedMotion=window.StrategyPaintedMotion;
   const Profession=window.StrategyProfessionActions;
   const Frames=window.StrategyProfessionFrames;
+  const Ground=window.StrategyUnitGround;
   // Лесоруб использует реальные растровые кадры, без дорисовки суставов и топора.
   const LOGGER_STATES=['idle','walk','fell_tree','carry_logs'];
   const loggerAtlases={};
@@ -88,8 +89,9 @@
       if(loggerAtlasReady(stateName)){
         const atlas=loggerAtlases[stateName];
         const phase=((Math.floor(frame)%8)+8)%8;
+        const rect=Ground.spriteRect(x,y,size,'logger');
         ctx.drawImage(atlas,phase*96,row*144,96,144,
-          x-size*.5,y-size*1.5,size,size*1.5);
+          rect.x,rect.y,rect.width,rect.height);
         loggerRasterDrawCount++;
         paintedCounters[state]++;
         return true;
@@ -97,8 +99,9 @@
       // Пока WebP загружается, нельзя показывать неполную процедурную фигуру.
       if(!paintedReady())return false;
       const sourceIndex=PAINTED_ROLES.indexOf('logger');
+      const rect=Ground.spriteRect(x,y,size,'logger');
       ctx.drawImage(paintedPeople,sourceIndex*PAINTED_W,0,PAINTED_W,PAINTED_H,
-        x-size*.5,y-size*1.5,size,size*1.5);
+        rect.x,rect.y,rect.width,rect.height);
       return true;
     }
     if(!paintedReady())return false;
@@ -106,9 +109,9 @@
     if(atlas){
       const row=Frames.DIRECTIONS.indexOf(direction);
       if(row>=0){
+        const rect=Ground.spriteRect(x,y,size);
         ctx.drawImage(atlas,(frame%Frames.FRAMES)*Frames.W,row*Frames.H,
-          Frames.W,Frames.H,x-size*.5,y-size*Frames.H/Frames.W,
-          size,size*Frames.H/Frames.W);
+          Frames.W,Frames.H,rect.x,rect.y,rect.width,rect.height);
         paintedCounters[state]++;
         frameCounters[action]=(frameCounters[action]||0)+1;
         return true;
@@ -118,8 +121,9 @@
     // а не старую разрезанную на части анимацию. Груз — отдельный слой.
     if(Frames&&Object.prototype.hasOwnProperty.call(Frames.ROLES,role)){
       const sourceIndex=Frames.ROLES[role];
+      const rect=Ground.spriteRect(x,y,size);
       ctx.drawImage(paintedPeople,sourceIndex*PAINTED_W,0,PAINTED_W,PAINTED_H,
-        x-size*.5,y-size*PAINTED_H/PAINTED_W,size,size*PAINTED_H/PAINTED_W);
+        rect.x,rect.y,rect.width,rect.height);
       paintedCounters[state]++;
       return true;
     }
@@ -315,8 +319,9 @@
     const img=pose.art||(role==='porter'||role==='builder'?workerSheets[pose.sheet]:null);
     if(!img?.naturalWidth)return false;
     // Character feet stay locked to the simulation tile; only drawn limbs change.
+    const rect=Ground.spriteRect(px,py,size,'classic');
     ctx.drawImage(img,pose.frame*WORKER_FRAME_W,pose.row*WORKER_FRAME_H,
-      WORKER_FRAME_W,WORKER_FRAME_H,px-size*.5,py-size*WORKER_FRAME_H/WORKER_FRAME_W,size,size*WORKER_FRAME_H/WORKER_FRAME_W);
+      WORKER_FRAME_W,WORKER_FRAME_H,rect.x,rect.y,rect.width,rect.height);
     return true;
   }
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -390,6 +395,12 @@
     g.fillStyle=shade;g.beginPath();g.arc(0,0,77,0,Math.PI*2);g.fill();
     g.restore();
   })();
+  function castUnitShadow(x,y,t,h,scale=.34,strength=.27){
+    const rect=Ground.shadowRect(x,y,t,h,scale);
+    ctx.save();ctx.globalAlpha=strength;
+    ctx.drawImage(shadowTexture,rect.x,rect.y,rect.width,rect.height);
+    ctx.restore();
+  }
   function castShadow(x,y,t,h,scale=1,strength=.3){
     // Pre-rasterized shadow avoids hundreds of gradients per frame on mobile.
     const w=t*1.1*scale,height=h*.57*scale;
@@ -995,12 +1006,12 @@
       line(p.x+t*(.29+.075*swing),p.y-h*.19,p.x+t*(.36+.075*swing),p.y-h*.21,'#dde1d4',Math.max(2,3.3*zoom));
     }
   }
-  function drawCitizen(x,y,t,active=false,kind='idle'){
+  function drawCitizen(x,y,t,active=false,kind='idle',shadowed=false){
     // Visual representation derived from staffed slots; only porter/builder are autonomous agents.
     const colors={logger:'#678e67',quarry:'#ae9b82',farm:'#b9a365',sawmill:'#927f55',
       mill:'#b2a68b',bakery:'#b98a65',idle:'#9ab3a0'};
     const c=colors[kind]||'#a1b8a5',sway=active?Math.sin(animationClock*6)*t*.023:Math.sin(animationClock*.9)*t*.006;
-    castShadow(x,y+t*.028,t,t/2,.26,.22);
+    if(!shadowed)castUnitShadow(x,y,t,t/2,.35,.22);
     blob(x,y+t*.025,t*.07,t*.022,'#0c251e',.28);
     line(x-t*.018,y-t*.04,x-t*.024+sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
     line(x+t*.018,y-t*.04,x+t*.025-sway,y+t*.017,'#493c33',Math.max(.9,1.35*zoom));
@@ -1027,19 +1038,21 @@
   function drawVillager(person){
     const p=screen(person.x,person.y),t=tileSize(),h=tileHeight();
     const frame=Math.floor(animationClock*1.55+person.id*2.37)%8;
-    if(paintedSprite(person.variant,p.x,p.y+h*.24,t*.49,person.id,
+    castUnitShadow(p.x,p.y,t,h,.35,.26);
+    if(paintedSprite(person.variant,p.x,p.y,t*.49,person.id,
       'idle',frame,person.direction))return;
     const fallback=villagerRoles[person.id%Math.max(1,villagerRoles.length)];
     const image=illustratedSheet(fallback,'idle');
     if(!image?.naturalWidth){
-      drawCitizen(p.x,p.y+h*.24,t,false,'idle');
+      drawCitizen(p.x,p.y,t,false,'idle',true);
       return;
     }
     const row={se:0,sw:1,ne:2,nw:3}[person.direction]??0;
     const size=t*.49;
     // Пятки зафиксированы на поверхности; анимируются только части тела.
+    const rect=Ground.spriteRect(p.x,p.y,size,'classic');
     ctx.drawImage(image,frame*96,row*128,96,128,
-      p.x-size/2,p.y+h*.24-size*128/96,size,size*128/96);
+      rect.x,rect.y,rect.width,rect.height);
   }
   function paintMillSprite(target,name,x,y,size,opacity=1){
     const rect=M?.sprites[name],img=rect&&millAtlases[rect.atlas];
@@ -1169,12 +1182,16 @@
     const active=V.productionActive(b,connected,game.readyToProduce(b));
     if(active&&!['logger','quarry','farm','mill'].includes(b.type))drawProductionEffect(b,p,t,h);
     if(game.scenario==='settlement'&&(game.staff[b.id]||0)>0&&!['logger','quarry','farm','mill'].includes(b.type)){
-      const pos=screen(b.x+.91,b.y+.79);
-      const activity=Profession?.resolve(b.type,{active,staffed:true});
-      const frame=Math.floor(animationClock*8.5+b.id*1.3)%8;
-      if(!activity||!paintedSprite(b.type,pos.x,pos.y+h*.06,t*.36,b.id,
-        activity.state,frame,'se',activity.id))
-        drawCitizen(pos.x,pos.y+h*.06,t,active,b.type);
+      const entry=game.entrance(b);
+      if(entry&&game.walkable(entry.x,entry.y)){
+        const pos=screen(entry.x+.5,entry.y+.5);
+        const activity=Profession?.resolve(b.type,{active,staffed:true});
+        const frame=Math.floor(animationClock*8.5+b.id*1.3)%8;
+        castUnitShadow(pos.x,pos.y,t,h,.29,.20);
+        if(!activity||!paintedSprite(b.type,pos.x,pos.y,t*.36,b.id,
+          activity.state,frame,'se',activity.id))
+          drawCitizen(pos.x,pos.y,t,active,b.type,true);
+      }
     }
     if(!connected){
       ctx.textAlign='center';ctx.font=`bold ${Math.max(14,t*.28)}px sans-serif`;
@@ -1316,8 +1333,8 @@
   }
   function drawBuilder(b){
     const p=screen(b.x+.5,b.y+.5),t=tileSize(),h=tileHeight();
-    const footY=p.y+h*.26;
-    castShadow(p.x,footY,t,h,.34,.25);
+    const footY=p.y;
+    castUnitShadow(p.x,footY,t,h,.34,.25);
     // 100% frame-sheet playback. No static character sprite or global bobbing.
     if(!workerSprite(b,'builder',p.x,footY,t*.48)){
       blob(p.x,footY-h*.24,t*.10,h*.20,'#dda93f');
@@ -1371,12 +1388,12 @@
   function drawWorkAgent(a){
     const b=game.buildings.find(v=>v.id===a.buildingId);if(!b)return;
     const p=screen(a.x,a.y),t=tileSize(),h=tileHeight();
-    castShadow(p.x,p.y+h*.20,t,h,.3,.19);
+    castUnitShadow(p.x,p.y,t,h,.30,.22);
     const role=b.type==='farm'?'farmer':b.type;
-    const animated=workerSprite(a,role,p.x,p.y+h*.19,t*.44);
+    const animated=workerSprite(a,role,p.x,p.y,t*.44);
     if(!animated){
       const moving=['arrive','out','return'].includes(a.phase);
-      drawCitizen(p.x,p.y+h*.19,t,moving||a.phase==='work',b.type);
+      drawCitizen(p.x,p.y,t,moving||a.phase==='work',b.type,true);
     }
     // В кадрах carry_logs связка брёвен уже нарисована.
     const cargoInAtlas=role==='logger'&&a.carrying?.res==='logs'&&
@@ -1393,8 +1410,8 @@
   }
   function drawCarrier(c){
     const p=screen(c.x+.5,c.y+.5),t=tileSize(),h=tileHeight();
-    const footY=p.y+h*.26;
-    castShadow(p.x,footY,t,h,.32,.24);
+    const footY=p.y;
+    castUnitShadow(p.x,footY,t,h,.32,.24);
     if(!workerSprite(c,'porter',p.x,footY,t*.48)){
       blob(p.x,footY-h*.23,t*.10,h*.20,'#aa8255');
     }
@@ -1910,8 +1927,16 @@
           game.interactionAnchor(a.target)):false})),
     loggerContactPixels:(x,y)=> {
       const anchor=game.interactionAnchor({x,y});
-      const projected=screen(anchor.x,anchor.y);
-      return {x:projected.x,y:projected.y+tileHeight()*.19};
+      return screen(anchor.x,anchor.y);
+    },
+    unitGroundAt:(x,y)=>screen(x,y),
+    unitSpriteRect:(x,y,width,kind='painted')=>{
+      const p=screen(x,y);
+      return Ground.spriteRect(p.x,p.y,width,kind);
+    },
+    unitShadowRect:(x,y,scale=.34)=>{
+      const p=screen(x,y);
+      return Ground.shadowRect(p.x,p.y,tileSize(),tileHeight(),scale);
     },
     walkable:(x,y)=>game.walkable(x,y),
     approachCells:(x,y)=>game.approachCells({x,y}),
