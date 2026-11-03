@@ -70,4 +70,4 @@
 - Не выдавать текст спецификации, отрисованную концепцию или зелёный unit-test за реализованную физику.
 - Не дорисовывать части растровых персонажей средствами игрового canvas для имитации художественных кадров.
 
-**Продолжение:** [WORLD-LAWS-V1.md](WORLD-LAWS-V1.md), [WORLD-MIGRATION-PLAN.md](WORLD-MIGRATION-PLAN.md), [ASSET-CATALOG-AUDIT.md](ASSET-CATALOG-AUDIT.md).
+**Продолжение:** [WORLD-LAWS-V1.md](WORLD-LAWS-V1.md), [WORLD-ALGORITHMS-V1.md](WORLD-ALGORITHMS-V1.md), [WORLD-MIGRATION-PLAN.md](WORLD-MIGRATION-PLAN.md), [ASSET-CATALOG-AUDIT.md](ASSET-CATALOG-AUDIT.md).
