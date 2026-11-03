@@ -51,105 +51,56 @@
       tool:radians(work?swing:0),crouch:Math.max(0,torso)*.19};
   }
 
-  function src(g,img,index){
-    g.drawImage(img,index*W,0,W,H,0,0,W,H);
-  }
-  function fragment(g,img,index,rect,pivot,angle,shiftX=0,shiftY=0){
+  // Корпус из оригинальной художественной фигуры сохраняем целиком.
+  // Прямоугольные маски по рукам обрезали плечи и вызывали «разобранных» юнитов.
+  function fragment(g,img,index,rect,pivot,angle){
     g.save();
-    g.translate(pivot[0]+shiftX,pivot[1]+shiftY);
+    g.translate(pivot[0],pivot[1]);
     g.rotate(angle);
     g.translate(-pivot[0],-pivot[1]);
-    g.beginPath();g.rect(...rect);g.clip();
-    src(g,img,index);
+    g.beginPath();
+    g.rect(...rect);
+    g.clip();
+    g.drawImage(img,index*W,0,W,H,0,0,W,H);
     g.restore();
   }
-  function stroke(g,points,width,color,light){
-    g.lineCap='round';g.lineJoin='round';
-    g.strokeStyle='#483727';g.lineWidth=width+2;
-    g.beginPath();g.moveTo(...points[0]);
-    for(const point of points.slice(1))g.lineTo(...point);
-    g.stroke();
-    g.strokeStyle=color;g.lineWidth=width-1;g.stroke();
-    if(light){g.strokeStyle=light;g.lineWidth=Math.max(1,width*.22);g.stroke();}
-  }
-  function metal(g,points,fill){
-    g.beginPath();g.moveTo(...points[0]);
-    for(const p of points.slice(1))g.lineTo(...p);
-    g.closePath();g.fillStyle=fill;g.fill();
-    g.lineWidth=1.5;g.strokeStyle='#565750';g.stroke();
-  }
-  function arm(g,role,side,phase,working,carry){
-    const p=PALETTE[role],right=side==='right';
-    const shoulder=right?[64,49]:[32,49];
-    const sign=right?1:-1;
-    const activity=working?Math.sin(phase*Math.PI/4)*13:0;
-    const walking=working?0:STEP[phase]*7;
-    const elbow=[shoulder[0]+sign*(12+(right?activity*.23:-activity*.22)+walking*.65),
-      69-(right?activity*.65:activity*.25)];
-    const wrist=[elbow[0]-sign*(4+(working?activity*.29:walking*.5)),
-      82-(right?activity*.9:activity*.5)-(carry?8:0)];
-    // У руки собственное плечо, локоть и кисть, не один повёрнутый портрет.
-    const gradient=g.createLinearGradient(shoulder[0],shoulder[1],wrist[0],wrist[1]);
-    gradient.addColorStop(0,p.cloth);gradient.addColorStop(.55,p.light);
-    gradient.addColorStop(1,p.cloth);
-    g.lineJoin='round';g.lineCap='round';
-    g.beginPath();g.moveTo(...shoulder);g.quadraticCurveTo(...elbow,...wrist);
-    g.strokeStyle='#533f30';g.lineWidth=14;g.stroke();
-    g.strokeStyle=gradient;g.lineWidth=10;g.stroke();
-    g.beginPath();g.moveTo(elbow[0]-3,elbow[1]-3);g.lineTo(elbow[0]+3,elbow[1]+2);
-    g.strokeStyle='#dfc4a1';g.lineWidth=1.1;g.stroke();
-    g.fillStyle='#cd9f78';g.beginPath();
-    g.ellipse(wrist[0],wrist[1],3.6,4.3,-.3,0,Math.PI*2);g.fill();
-    g.strokeStyle='#956f53';g.lineWidth=.9;g.stroke();
-    return wrist;
-  }
-  function tool(g,role,action,p,wrist){
-    if(!WORK.has(action)||role==='porter')return;
-    const metalColor=PALETTE[role].metal,angle=p.tool;
-    const dx=Math.sin(angle),dy=-Math.cos(angle);
-    const point=(offset,side=0)=>[wrist[0]+dx*offset+Math.cos(angle)*side,
-      wrist[1]+dy*offset+Math.sin(angle)*side];
-    const top=point(role==='builder'?26:32),bottom=point(-7);
-    stroke(g,[bottom,top],role==='builder'?3.1:3.6,'#8d6040','#c9a073');
-    if(role==='farmer'){
-      g.beginPath();g.arc(top[0]+4,top[1],11,-Math.PI*.84,Math.PI*.18);
-      g.strokeStyle='#5e6261';g.lineWidth=4.6;g.stroke();
-      g.strokeStyle='#d1d8cd';g.lineWidth=2.6;g.stroke();
-    }else if(role==='builder'){
-      metal(g,[point(23,-7),point(29,-7),point(29,7),point(23,7)],metalColor);
-    }else if(role==='quarry'){
-      metal(g,[point(29,-11),point(33,-6),point(33,7),point(29,12)],metalColor);
-    }else if(role==='logger'){
-      metal(g,[point(28,-4),point(34,-7),point(37,6),point(30,10)],metalColor);
-    }
-  }
-  function backOfHead(g,role){
-    const p=PALETTE[role],gradient=g.createLinearGradient(32,9,69,41);
-    gradient.addColorStop(0,p.hood);
-    gradient.addColorStop(.55,p.cloth);
-    gradient.addColorStop(1,'#493e32');
-    g.fillStyle=gradient;g.beginPath();
-    g.ellipse(49,29,19,17,-.08,0,Math.PI*2);g.fill();
-    g.strokeStyle=p.light;g.lineWidth=2;
-    g.beginPath();g.moveTo(33,36);g.quadraticCurveTo(49,42,65,34);g.stroke();
-  }
+
   function drawFrame(g,img,role,action,frame,direction){
     if(!img?.naturalWidth)return false;
     const p=pose(role,action,frame,direction),index=ROLES[role];
+    const working=WORK.has(action),carrying=CARRY.has(action);
+    const stride=working?.24:carrying?.47:.43;
+    const ankleLeft=p.leftLeg*stride,ankleRight=p.rightLeg*stride;
+
     g.save();
     if(p.mirror){g.translate(W,0);g.scale(-1,1);}
-    // Ноги и руки каждого кадра собраны раздельно; пятки остаются на поверхности.
-    fragment(g,img,index,[9,84,45,60],[38,92],p.leftLeg,0,-p.crouch);
-    fragment(g,img,index,[46,84,43,60],[61,92],p.rightLeg,0,-p.crouch);
-    fragment(g,img,index,[30,36,36,71],[49,90],p.torso,0,-p.bob*.4);
-    const active=WORK.has(action),carrying=CARRY.has(action);
-    arm(g,role,'left',p.frame,active,carrying);
-    const right=arm(g,role,'right',p.frame,active,carrying);
-    if(p.back)backOfHead(g,role);
-    else fragment(g,img,index,[23,3,52,43],[48,44],p.torso*.24,0,-p.bob*.35);
-    tool(g,role,action,p,right);
-    g.restore();return true;
+
+    // Ноги берём из оригинального изображения, а не рисуем чужими линиями.
+    // Поворот небольшой: суставы остаются под корпусом, ступни не исчезают.
+    fragment(g,img,index,[0,89,49,55],[38,94],ankleLeft);
+    fragment(g,img,index,[47,89,49,55],[59,94],ankleRight);
+
+    // Полная ширина плеч, рук и головы. Никаких вырезанных «кусков» торса.
+    g.save();
+    g.translate(48,99);
+    g.rotate(p.torso*(working?.72:.35));
+    g.translate(-48,-99-p.bob*.12);
+    g.drawImage(img,index*W,0,W,111,0,0,W,111);
+    g.restore();
+
+    // Пока нет рисованного северного ракурса, не подменяем лицо шаром:
+    // сохраняем узнаваемый силуэт и лишь приглушаем освещение лица.
+    if(p.back){
+      g.save();
+      g.globalCompositeOperation='source-atop';
+      g.fillStyle='rgba(51,43,35,.19)';
+      g.fillRect(24,8,52,35);
+      g.restore();
+    }
+    g.restore();
+    return true;
   }
+
   function create(img,role,action){
     if(!ACTIONS[role]?.includes(action)||!img?.naturalWidth)
       throw new Error('Нет графики или неверный анимационный пакет');
