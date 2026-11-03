@@ -50,8 +50,6 @@ func rebuild() -> void:
 	# После изменения геометрии пересчитываем породы; временные слои сбрасываются.
 	hydro.ensure_ready()
 	var count: int = world.config.width * world.config.height
-	for values in [_type, _depth, _fertility, _porosity, _moisture, _snow, _frost]:
-		values.resize(count)
 	_type.resize(count)
 	_depth.resize(count)
 	_fertility.resize(count)
@@ -185,8 +183,9 @@ func to_data() -> Dictionary:
 	var water := PackedByteArray()
 	var snow := PackedByteArray()
 	var frozen := PackedByteArray()
-	for data in [water, snow, frozen]:
-		data.resize(_type.size())
+	water.resize(_type.size())
+	snow.resize(_type.size())
+	frozen.resize(_type.size())
 	for i in range(_type.size()):
 		water[i] = roundi(_moisture[i] * 255.0)
 		snow[i] = roundi(_snow[i] * 255.0)
