@@ -84,9 +84,9 @@ func _run() -> void:
 		for pos in [Vector2i(7, 13), Vector2i(61, 73), Vector2i(144, 101)]:
 			var first: float = a.vertex_at(pos)
 			# Географический край зависит от размеров; внутренний рельеф сохраняет seed.
-		if pos.x > 44 and pos.y > 44 and pos.x < 212 and pos.y < 148:
-			_check(is_equal_approx(first, b.vertex_at(pos)),
-				"Рельеф вдали от краёв сохраняется при расширении карты")
+			if pos.x > 44 and pos.y > 44 and pos.x < 212 and pos.y < 148:
+				_check(is_equal_approx(first, b.vertex_at(pos)),
+					"Рельеф вдали от краёв сохраняется при расширении карты")
 			_check(is_equal_approx(first, a.vertex_at(pos)),
 				"Повторный запрос не изменяет мир")
 			if not is_equal_approx(first, c.vertex_at(pos)):
