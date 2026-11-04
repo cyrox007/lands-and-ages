@@ -75,6 +75,10 @@ func _check_physical_vertices(scene: Node3D) -> int:
 func _check_scene() -> void:
 	var scene := View.new()
 	get_root().add_child(scene)
+	if scene._world_model == null or scene._camera == null:
+		_check(false, "Игровая сцена не прошла инициализацию")
+		scene.queue_free()
+		return
 	var map: RefCounted = scene._world_model
 	var map_before: Dictionary = map.to_data()
 	var hydro_before: Dictionary = scene._hydro.water_count()
@@ -143,6 +147,12 @@ func _check_scene() -> void:
 
 
 func _initialize() -> void:
+	_run()
+
+
+func _run() -> void:
+	# Дерево сцены должно войти в игровой цикл до добавления World.
+	await process_frame
 	_check_projection()
 	_check_scene()
 	if not failures.is_empty():
