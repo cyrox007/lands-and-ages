@@ -77,7 +77,7 @@ func _run() -> void:
     _check(tree_id > 0, "Для испытания есть настоящее дерево")
 
     if tree_id > 0:
-        var stock := nature.wood_total()
+        var stock: int = nature.wood_total()
         var hit: Dictionary = nature.fell_tree(tree_id)
         _check(not hit.is_empty() and int(hit["wood_units"]) > 0,
             "Физическая валка переводит дерево в пень")
