@@ -61,7 +61,8 @@ jobs:
           assert manifest["hardware_accepted"] is False
           assert manifest["renderer"] != "headless"
           assert manifest["checks_passed"]
-          assert len(manifest["captures"]) == 8\n          assert {shot["name"] for shot in manifest["captures"]} >= {"берег", "берег_вблизи", "берег_издалека", "влажная_земля_без_воды", "влажная_земля_без_PBR"}
+          assert len(manifest["captures"]) == 8
+          assert {shot["name"] for shot in manifest["captures"]} >= {"берег", "берег_вблизи", "берег_издалека", "влажная_земля_без_воды", "влажная_земля_без_PBR"}
           for shot in manifest["captures"]:
               assert (root / shot["file"]).stat().st_size > 10000
               assert shot["quality"]["distinct_color_buckets"] >= (4 if shot.get("diagnostic", False) else 14)
