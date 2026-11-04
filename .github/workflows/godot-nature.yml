@@ -6,6 +6,7 @@ on:
     branches: [develop]
     paths:
       - "godot/scripts/nature_*.gd"
+      - "godot/assets/nature/**"
       - "godot/shaders/nature_*.gdshader"
       - "godot/scripts/world_capacity_audit.gd"
       - "godot/scripts/world_day_runner.gd"
@@ -24,6 +25,7 @@ on:
     branches: [develop]
     paths:
       - "godot/scripts/nature_*.gd"
+      - "godot/assets/nature/**"
       - "godot/shaders/nature_*.gdshader"
       - "godot/scripts/world_capacity_audit.gd"
       - "godot/scripts/world_day_runner.gd"
