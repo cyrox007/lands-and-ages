@@ -88,6 +88,8 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 	return [
 		{"name": SCENE_NAMES[0], "center": Vector2i(middle), "zoom": 96.0},
 		{"name": SCENE_NAMES[1], "center": coastal, "zoom": 28.0},
+		{"name": "берег_вблизи", "center": coastal, "zoom": 16.0},
+		{"name": "берег_издалека", "center": coastal, "zoom": 64.0},
 		{"name": SCENE_NAMES[2], "center": mountain, "zoom": 22.0},
 		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0}
 	]
