@@ -453,7 +453,9 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
         if item["kind"] == "дерево" and item["state"] == "пень":
             # Лежащие брёвна медленно теряют запас независимо от камеры.
             var fallen_day: int = int(item.get("fallen_since_day", day))
-            if day >= fallen_day + LOG_DECAY_INTERVAL_DAYS                     and posmod(day - int(id), LOG_DECAY_INTERVAL_DAYS) == 0                     and int(item["fallen_wood"]) > 0:
+            if day >= fallen_day + LOG_DECAY_INTERVAL_DAYS \
+                    and posmod(day - int(id), LOG_DECAY_INTERVAL_DAYS) == 0 \
+                    and int(item["fallen_wood"]) > 0:
                 item["fallen_wood"] = int(item["fallen_wood"]) - 1
                 _objects[id] = item
                 changed[world.config.chunk_of(Vector2i(
@@ -502,7 +504,8 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
                 var variation := posmod(int(id) * 23 +
                     int(world.config.world_seed), DEADWOOD_VARIATION_DAYS)
                 if day - death_day >= DEADWOOD_FALL_DAYS + variation:
-                    item["fallen_wood"] = int(item["fallen_wood"]) +                         int(item["wood_units"])
+                    item["fallen_wood"] = int(item["fallen_wood"]) + \
+                        int(item["wood_units"])
                     item["wood_units"] = 0
                     item["state"] = "пень"
                     item["cut_progress"] = 0
@@ -544,7 +547,7 @@ func load_data(data: Dictionary) -> bool:
     var version: Variant = data.get("version")
     # JSON reads numbers as floats; Array membership compares their types too.
     if not (version is int or version is float) \
-            or (version != 1 and version != FORMAT_VERSION) \
+            or (version not in [1, 2, FORMAT_VERSION]) \
             or not (data.get("generated") is bool) \
             or not (data.get("objects") is Array):
         return false
@@ -563,7 +566,9 @@ func load_data(data: Dictionary) -> bool:
         if not (raw is Array) or raw.size() != item_size:
             return false
         for number in [0, 3, 4, 5, 6, 7, 8]:
-            if not (raw[number] is int or raw[number] is float)                     or not is_finite(float(raw[number]))                     or float(raw[number]) != float(int(raw[number])):
+            if not (raw[number] is int or raw[number] is float) \
+                        or not is_finite(float(raw[number])) \
+                        or float(raw[number]) != float(int(raw[number])):
                 return false
         var cut_progress := 0
         if version >= 2:
@@ -579,22 +584,30 @@ func load_data(data: Dictionary) -> bool:
         var fallen_since_day := -1
         if version == FORMAT_VERSION:
             for field in [11, 12]:
-                if not (raw[field] is int or raw[field] is float)                         or not is_finite(float(raw[field]))                         or float(raw[field]) != float(int(raw[field])):
+                if not (raw[field] is int or raw[field] is float) \
+                        or not is_finite(float(raw[field])) \
+                        or float(raw[field]) != float(int(raw[field])):
                     return false
             dead_since_day = int(raw[11])
             fallen_since_day = int(raw[12])
-            if dead_since_day < -1 or dead_since_day > int(day)                     or fallen_since_day < -1                     or fallen_since_day > int(day):
+            if dead_since_day < -1 or dead_since_day > int(day) \
+                    or fallen_since_day < -1 \
+                    or fallen_since_day > int(day):
                 return false
         var id := int(raw[0])
         var x := int(raw[3])
         var y := int(raw[4])
         var cell := Vector2i(x, y)
-        if id != y * world.config.width + x + 1                 or not world.config.contains_cell(cell) or restored.has(id):
+        if id != y * world.config.width + x + 1 \
+                or not world.config.contains_cell(cell) or restored.has(id):
             return false
-        if not (raw[1] is String) or not (raw[2] is String)                 or not (raw[9] is String):
+        if not (raw[1] is String) or not (raw[2] is String) \
+                or not (raw[9] is String):
             return false
         var kind: String = raw[1]
-        if kind not in ["дерево", "кустарник", "валун"]                 or (kind == "дерево" and raw[2] not in TREE_SPECIES)                 or raw[9] not in ["целое", "сухостой", "пень"]:
+        if kind not in ["дерево", "кустарник", "валун"] \
+                or (kind == "дерево" and raw[2] not in TREE_SPECIES) \
+                or raw[9] not in ["целое", "сухостой", "пень"]:
             return false
         if cut_progress > 0 and (kind != "дерево" or raw[9] == "пень"):
             return false
@@ -606,11 +619,16 @@ func load_data(data: Dictionary) -> bool:
             elif raw[9] == "пень":
                 fallen_since_day = int(day)
         elif (raw[9] == "целое" and (
-                dead_since_day != -1 or fallen_since_day != -1))                 or (raw[9] == "сухостой" and (
-                dead_since_day < 0 or fallen_since_day != -1))                 or (raw[9] == "пень" and (
+                dead_since_day != -1 or fallen_since_day != -1)) \
+                or (raw[9] == "сухостой" and (
+                dead_since_day < 0 or fallen_since_day != -1)) \
+                or (raw[9] == "пень" and (
                 dead_since_day != -1 or fallen_since_day < 0)):
             return false
-        if int(raw[5]) < 0 or int(raw[5]) > 100000000                 or int(raw[6]) < 0 or int(raw[6]) > 1000                 or int(raw[7]) < 0 or int(raw[7]) > 10000000                 or int(raw[8]) < 0 or int(raw[8]) > 10000000:
+        if int(raw[5]) < 0 or int(raw[5]) > 100000000 \
+                or int(raw[6]) < 0 or int(raw[6]) > 1000 \
+                or int(raw[7]) < 0 or int(raw[7]) > 10000000 \
+                or int(raw[8]) < 0 or int(raw[8]) > 10000000:
             return false
         var item := {
             "id": id, "kind": kind, "species": String(raw[2]),
