@@ -97,6 +97,10 @@ func _run() -> void:
 		"Все кадры распределены по фазам без пропусков")
 	_check(int(summary["chunks_built"]) > 0,
 		"Тест использует реальные GPU-чанки")
+	_check(float(summary["ground_mesh_cpu_ms_total"]) > 0.0,
+		"Замеряется время расчёта материала и геометрии земли на CPU")
+	_check(float(summary["water_mesh_cpu_ms_total"]) >= 0.0,
+		"Время генерации воды не смешивается с расчётом земли")
 	_check(bool(summary["physics_unchanged"]),
 		"Измерения не изменили физическую карту")
 	_check(int(summary["visibility_fast_rejects"]) > 0,
