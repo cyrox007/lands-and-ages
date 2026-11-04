@@ -28,6 +28,7 @@ const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
+const NatureRenderer = preload("res://scripts/nature_renderer.gd")
 
 # Радиус 4 используется только для автономных тестов без камеры.
 const VIEW_RADIUS := 4
@@ -754,6 +755,8 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
 		water_node.material_override = _water_material
 		water_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(water_node)
+	if _view_mode == 0 and _nature != null:
+		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord))
 	_terrain_holder.add_child(node)
 	if old_node != null:
 		old_node.queue_free()
