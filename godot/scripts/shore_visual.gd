@@ -28,5 +28,5 @@ static func is_coastal_cell(world: RefCounted, hydro: RefCounted,
 	var hb: float = world.vertex_at(cell + Vector2i(1, 0))
 	var hc: float = world.vertex_at(cell + Vector2i(0, 1))
 	var hd: float = world.vertex_at(cell + Vector2i(1, 1))
-	return minf(minf(ha, hb), minf(hc, hd)) < level \
+	return minf(minf(ha, hb), minf(hc, hd)) <= level \
 		and maxf(maxf(ha, hb), maxf(hc, hd)) > level
