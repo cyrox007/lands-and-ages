@@ -9,9 +9,10 @@ void vertex() {
     float height_factor = clamp(VERTEX.y / 2.5 + 0.5, 0.0, 1.0);
     float phase = INSTANCE_CUSTOM.r * 6.283185 + float(INSTANCE_ID) * 0.17;
     float wave = sin(TIME * wind_frequency + phase);
-    VERTEX.x += wave * wind_amplitude * height_factor * height_factor;
+    float strength = wind_amplitude * clamp(INSTANCE_CUSTOM.g, 0.0, 1.0);
+    VERTEX.x += wave * strength * height_factor * height_factor;
     VERTEX.z += cos(TIME * wind_frequency * 0.77 + phase)
-        * wind_amplitude * 0.5 * height_factor;
+        * strength * 0.5 * height_factor;
 }
 
 void fragment() {

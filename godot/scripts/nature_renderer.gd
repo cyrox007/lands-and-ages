@@ -68,12 +68,12 @@ static func _color(kind: String, species: String, state: String) -> Color:
 
 
 static func _push(groups: Dictionary, kind: String, transform: Transform3D,
-        color: Color, phase: float) -> void:
+        color: Color, phase: float, wind: float = 0.0) -> void:
     if not groups.has(kind):
         groups[kind] = []
     groups[kind].append({
         "transform": transform, "color": color,
-        "phase": phase
+        "phase": phase, "wind": wind
     })
 
 
@@ -96,6 +96,11 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var age: int = item["age_days"]
         var scale_factor := clampf(float(age) / (20.0 * 96.0), 0.20, 1.25)
         var phase := float(posmod(int(item["id"]), 251)) / 251.0
+        var cell := Vector2i(int(item["x"]), int(item["y"]))
+        var index: int = nature.hydro.cell_index(cell)
+        var wind: float = clampf(nature.climate.wind_at_index(index) / 2.4, 0.0, 1.0)
+        var snow: float = nature.surface.snow_at_index(index)
+        var winter: bool = nature.climate.weather_at(cell).get("season") == "зима"
         if item["kind"] == "дерево":
             if state == "пень":
                 _push(groups, "пень",
@@ -108,17 +113,20 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                 Transform3D(trunk_base, origin +
                     Vector3(0, scale_factor, 0)),
                 _color("ствол", species, state), phase)
-            if state == "целое":
+            if state == "целое" and (not winter or species in ["сосна", "ель"]):
                 var foliage: String = "хвоя" if species in ["сосна", "ель"] else "листва"
+                var tint := _color(foliage, species, state).lerp(
+                    Color(0.78, 0.82, 0.76), snow * 0.55)
                 _push(groups, foliage,
                     Transform3D(trunk_base, origin +
                         Vector3(0, 2.15 * scale_factor, 0)),
-                    _color(foliage, species, state), phase)
+                    tint, phase, wind)
         elif item["kind"] == "кустарник":
             _push(groups, "куст",
                 Transform3D(Basis.IDENTITY,
                     origin + Vector3(0, 0.36, 0)),
-                _color("куст", species, state), phase)
+                _color("куст", species, state).lerp(
+                    Color(0.78, 0.82, 0.76), snow * 0.55), phase, wind)
         elif item["kind"] == "валун":
             _push(groups, "камень",
                 Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.26, 0)),
@@ -137,7 +145,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             multi.set_instance_transform(i, entry["transform"])
             multi.set_instance_color(i, entry["color"])
             multi.set_instance_custom_data(i,
-                Color(float(entry["phase"]), 0, 0, 0))
+                Color(float(entry["phase"]), float(entry["wind"]), 0, 0))
         var node := MultiMeshInstance3D.new()
         node.name = str(kind)
         node.multimesh = multi
