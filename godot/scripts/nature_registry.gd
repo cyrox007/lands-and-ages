@@ -547,7 +547,7 @@ func load_data(data: Dictionary) -> bool:
     var version: Variant = data.get("version")
     # JSON reads numbers as floats; Array membership compares their types too.
     if not (version is int or version is float) \
-            or (version not in [1, 2, FORMAT_VERSION]) \
+            or (version != 1 and version != 2 and version != FORMAT_VERSION) \
             or not (data.get("generated") is bool) \
             or not (data.get("objects") is Array):
         return false
