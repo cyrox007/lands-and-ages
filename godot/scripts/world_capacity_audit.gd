@@ -63,7 +63,7 @@ static func report(world: RefCounted, hydro: RefCounted,
             var current: int = pending[cursor]
             cursor += 1
             var cx := current % width
-            var cy := current / width
+            var cy := int(float(current) / width)
             for offset in DIRECTIONS:
                 var nx: int = cx + offset.x
                 var ny: int = cy + offset.y

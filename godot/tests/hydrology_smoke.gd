@@ -65,16 +65,16 @@ func _run() -> void:
 
 	# При смене seed меняется естественный водосбор.
 	var distinct := 0
-	for seed in range(100, 200):
-		var current_world := WorldMap.new(Config.new(18, 14, seed))
+	for world_seed in range(100, 200):
+		var current_world := WorldMap.new(Config.new(18, 14, world_seed))
 		var current := Hydrology.new(current_world)
 		current.rebuild()
-		var previous := Hydrology.new(WorldMap.new(Config.new(18, 14, seed)))
+		var previous := Hydrology.new(WorldMap.new(Config.new(18, 14, world_seed)))
 		previous.rebuild()
 		var sample := Vector2i(9, 7)
 		var a: Dictionary = current.water_at(sample)
 		var b: Dictionary = previous.water_at(sample)
-		_check(a == b, "Гидрология повторяется для seed %d" % seed)
+		_check(a == b, "Гидрология повторяется для seed %d" % world_seed)
 		if current.water_at(Vector2i(10, 6))["spill"] != hydro.water_at(Vector2i(10, 6))["spill"]:
 			distinct += 1
 	_check(distinct > 90, "Проверены сто разных seed")

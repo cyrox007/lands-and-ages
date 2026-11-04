@@ -9,8 +9,8 @@ const INTERIOR := "внутренняя территория"
 const SEA_LEVEL := 0.0
 
 
-static func _style(side: int, seed: int) -> String:
-	match posmod(side + seed, 4):
+static func _style(side: int, world_seed: int) -> String:
+	match posmod(side + world_seed, 4):
 		0, 3:
 			return COAST
 		1:
@@ -23,7 +23,7 @@ static func _band(width: int, height: int) -> float:
 
 
 static func _side_info(x: float, y: float, width: int, height: int,
-		seed: int, side: int) -> Dictionary:
+		world_seed: int, side: int) -> Dictionary:
 	var distance := x
 	var along := y
 	if side == 1:
@@ -35,25 +35,25 @@ static func _side_info(x: float, y: float, width: int, height: int,
 		distance = float(height) - y
 		along = x
 	var width_value := _band(width, height)
-	var wave := 5.0 * sin(along / 29.0 + float(seed % 991) * 0.037 + float(side) * 1.7)
-	wave += 2.5 * sin(along / 11.0 + float(seed % 947) * 0.052 + float(side) * 2.3)
+	var wave := 5.0 * sin(along / 29.0 + float(world_seed % 991) * 0.037 + float(side) * 1.7)
+	wave += 2.5 * sin(along / 11.0 + float(world_seed % 947) * 0.052 + float(side) * 2.3)
 	var influence := 1.0 - smoothstep(0.0, width_value, maxf(0.0, distance + wave))
-	var style := _style(side, seed)
-	var target := 8.0 + 2.5 * sin(along / 22.0 + float(seed % 311) * 0.11)
+	var style := _style(side, world_seed)
+	var target := 8.0 + 2.5 * sin(along / 22.0 + float(world_seed % 311) * 0.11)
 	if style == COAST:
-		target = -5.8 + 1.1 * sin(along / 27.0 + float(seed % 251) * 0.09)
+		target = -5.8 + 1.1 * sin(along / 27.0 + float(world_seed % 251) * 0.09)
 	elif style == RIDGE:
-		target = 11.0 + 3.0 * sin(along / 19.0 + float(seed % 293) * 0.1)
+		target = 11.0 + 3.0 * sin(along / 19.0 + float(world_seed % 293) * 0.1)
 	return {"style": style, "influence": influence, "target": target}
 
 
-static func geography_at(x: float, y: float, width: int, height: int, seed: int) -> Dictionary:
+static func geography_at(x: float, y: float, width: int, height: int, world_seed: int) -> Dictionary:
 	var strongest := 0.0
 	var sum_weights := 0.0
 	var sum_height := 0.0
 	var dominant := INTERIOR
 	for side in range(4):
-		var info := _side_info(x, y, width, height, seed, side)
+		var info := _side_info(x, y, width, height, world_seed, side)
 		var influence: float = info["influence"]
 		if influence > strongest:
 			strongest = influence
@@ -68,8 +68,8 @@ static func geography_at(x: float, y: float, width: int, height: int, seed: int)
 
 
 static func height_at(x: float, y: float, width: int, height: int,
-		seed: int, base: float) -> float:
-	var edge := geography_at(x, y, width, height, seed)
+		world_seed: int, base: float) -> float:
+	var edge := geography_at(x, y, width, height, world_seed)
 	return lerpf(base, float(edge["target"]), float(edge["influence"]))
 
 

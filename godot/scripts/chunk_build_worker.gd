@@ -3,6 +3,7 @@ extends RefCounted
 ## Во время его выполнения физические модели доступны лишь на чтение.
 
 const Chunk = preload("res://scripts/chunk.gd")
+const Water = preload("res://scripts/water_mesh.gd")
 
 var coord: Vector2i
 var mode: int
@@ -12,6 +13,8 @@ var climate: RefCounted
 var hydro: RefCounted
 var arrays: Array = []
 var prepare_us := 0
+var water_arrays: Array = []
+var water_prepare_us := 0
 
 
 func _init(p_coord: Vector2i, p_mode: int, p_world: RefCounted,
@@ -30,3 +33,6 @@ func run() -> void:
 	arrays = Chunk.prepare_arrays(coord.x, coord.y, 1,
 		world, surface, mode, climate, hydro)
 	prepare_us = Time.get_ticks_usec() - started
+	started = Time.get_ticks_usec()
+	water_arrays = Water.prepare_arrays(world, hydro, coord, surface)
+	water_prepare_us = Time.get_ticks_usec() - started

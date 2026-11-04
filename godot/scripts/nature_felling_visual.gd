@@ -10,8 +10,8 @@ const HIT_DURATION := 0.32
 static var _chips_mesh: Mesh
 
 
-static func angle_for(id: int, seed: int) -> float:
-    return deg_to_rad(float(posmod(id * 73 + seed, 360)))
+static func angle_for(id: int, world_seed: int) -> float:
+    return deg_to_rad(float(posmod(id * 73 + world_seed, 360)))
 
 
 static func _chips() -> Mesh:
@@ -65,7 +65,7 @@ static func make_hit_visual(world: RefCounted,
     var root := Node3D.new()
     root.name = "Щепки дерева"
     root.position = world.config.to_scene(position, elevation)
-    root.rotation.y = angle_for(int(previous["id"]), world.config.seed)
+    root.rotation.y = angle_for(int(previous["id"]), world.config.world_seed)
     var chips := MeshInstance3D.new()
     chips.mesh = _chips()
     chips.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -106,7 +106,7 @@ static func make_visual(world: RefCounted, previous: Dictionary,
     var pivot := Node3D.new()
     pivot.name = "Падение дерева"
     pivot.position = world.config.to_scene(position, elevation)
-    pivot.rotation.y = angle_for(id, world.config.seed)
+    pivot.rotation.y = angle_for(id, world.config.world_seed)
 
     var visual := MeshInstance3D.new()
     visual.name = "Падающий ствол"

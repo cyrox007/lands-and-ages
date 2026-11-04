@@ -61,8 +61,8 @@ static func info(key: String) -> Dictionary:
         var positions: PackedVector3Array = surface[Mesh.ARRAY_VERTEX]
         var indices: PackedInt32Array = surface[Mesh.ARRAY_INDEX]
         model["vertices"] += positions.size()
-        model["triangles"] += (indices.size() if not indices.is_empty()
-            else positions.size()) / 3
+        model["triangles"] += int(float(indices.size() if not indices.is_empty()
+            else positions.size()) / 3.0)
     _models[key] = model
     instance.free()
     return model

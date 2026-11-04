@@ -92,7 +92,7 @@ func run(view: Node3D) -> Dictionary:
 		},
 		"map": {
 			"width": config.width, "height": config.height,
-			"seed": config.seed, "chunk_size": config.chunk_size
+			"seed": config.world_seed, "chunk_size": config.chunk_size
 		},
 		"summary": {
 			"interval_ms_p50": Metrics.percentile(intervals, 0.50),

@@ -48,7 +48,7 @@ func _init(map: RefCounted, water: RefCounted,
 		# Накопление тектонического напряжения не зависит от осадков.
 		_strain[i] = Terrain.hash2(i % region_count.x,
 			floori(float(i) / float(region_count.x)),
-			world.config.seed + 7513) * 0.65
+			world.config.world_seed + 7513) * 0.65
 	# Координаты выборки неизменны для данного размера карты.
 	for ry in range(region_count.y):
 		for rx in range(region_count.x):
@@ -91,7 +91,7 @@ func fault_risk_at(cell: Vector2i) -> float:
 	var field: float = Terrain._noise(
 		(float(cell.x) + 37.0) / 140.0,
 		(float(cell.y) + 19.0) / 140.0,
-		world.config.seed + 4401)
+		world.config.world_seed + 4401)
 	var risk := 1.0 - smoothstep(0.035, 0.28, absf(field))
 	_fault_cache[cell] = risk
 	return risk
@@ -219,7 +219,7 @@ func _earthquake(cell: Vector2i, risk: float) -> Dictionary:
 	# Тектоническое смещение меняет геометрию; сам толчок мог бы
 	# повредить будущие здания через disaster_occurred.
 	var uplift: bool = Terrain.hash2(cell.x, cell.y,
-		world.config.seed + last_day * 19 + 2207) > 0.5
+		world.config.world_seed + last_day * 19 + 2207) > 0.5
 	var kind := "поднятие" if uplift else "просадка"
 	return Landscape.new(world).apply(kind,
 		Vector2(cell) + Vector2(0.5, 0.5), 7.0,

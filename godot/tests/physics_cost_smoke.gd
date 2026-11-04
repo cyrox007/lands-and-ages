@@ -162,7 +162,7 @@ func _test_fault_cache() -> void:
 	for cell in model._region_samples[region]:
 		var expected := 1.0 - smoothstep(0.035, 0.28, absf(
 			Terrain._noise((float(cell.x) + 37.0) / 140.0,
-				(float(cell.y) + 19.0) / 140.0, map.config.seed + 4401)))
+				(float(cell.y) + 19.0) / 140.0, map.config.world_seed + 4401)))
 		_check(is_equal_approx(model.fault_risk_at(cell), expected),
 			"Риск разлома совпадает с геологическим полем")
 	model._candidates(region, false)

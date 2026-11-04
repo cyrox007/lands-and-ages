@@ -9,7 +9,6 @@ const Felling = preload("res://scripts/nature_felling_visual.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
 
 static var _meshes: Dictionary = {}
-static var _materials: Dictionary = {}
 
 
 static func _mesh(kind: String) -> Mesh:
@@ -154,7 +153,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var cut: int = int(item.get("cut_progress", 0))
             if cut > 0:
                 var angle: float = Felling.angle_for(
-                    int(item["id"]), world.config.seed)
+                    int(item["id"]), world.config.world_seed)
                 var radial := Vector3(cos(angle), 0.0, sin(angle))
                 var mark_basis := Basis(Vector3.UP, angle).scaled(Vector3(
                     scale_factor * (0.35 + 0.65 * float(cut) / 1000.0),
@@ -216,12 +215,12 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var cover: float = nature.ground_cover_at(cell)
             if cover < 0.16:
                 continue
-            var seed: int = world.config.seed
-            var amount: float = Terrain.hash2(x, y, seed + 804)
+            var world_seed: int = world.config.world_seed
+            var amount: float = Terrain.hash2(x, y, world_seed + 804)
             if amount > cover:
                 continue
-            var jx: float = Terrain.hash2(x, y, seed + 805) - 0.5
-            var jy: float = Terrain.hash2(x, y, seed + 806) - 0.5
+            var jx: float = Terrain.hash2(x, y, world_seed + 805) - 0.5
+            var jy: float = Terrain.hash2(x, y, world_seed + 806) - 0.5
             var position := Vector2(float(x) + 0.5 + jx,
                 float(y) + 0.5 + jy)
             var terrain_height: float = world.height_at(position)

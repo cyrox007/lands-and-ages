@@ -77,10 +77,10 @@ func _run() -> void:
 
 	# У каждого seed своя карта. Координатная формула не зависит от размеров карты.
 	var different := 0
-	for seed in range(30, 130):
-		var a := WorldMap.new(Config.new(256, 192, seed))
-		var b := WorldMap.new(Config.new(320, 240, seed))
-		var c := WorldMap.new(Config.new(256, 192, seed + 1))
+	for world_seed in range(30, 130):
+		var a := WorldMap.new(Config.new(256, 192, world_seed))
+		var b := WorldMap.new(Config.new(320, 240, world_seed))
+		var c := WorldMap.new(Config.new(256, 192, world_seed + 1))
 		for pos in [Vector2i(7, 13), Vector2i(61, 73), Vector2i(144, 101)]:
 			var first: float = a.vertex_at(pos)
 			# Географический край зависит от размеров; внутренний рельеф сохраняет seed.

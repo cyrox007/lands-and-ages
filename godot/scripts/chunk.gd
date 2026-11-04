@@ -18,7 +18,7 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 		cx, cy, day, world, surface, mode, climate, hydro))
 
 
-static func prepare_arrays(cx: int, cy: int, day: int,
+static func prepare_arrays(cx: int, cy: int, _day: int,
 		world: RefCounted, surface: RefCounted = null,
 		mode: int = 0, climate: RefCounted = null,
 		hydro: RefCounted = null) -> Array:

@@ -67,14 +67,14 @@ func advance_day(day: int) -> Array[Dictionary]:
 			if strength < MIN_STORM:
 				continue
 			var chance := Terrain.hash2(rx, ry,
-				world.config.seed + day * 41 + 39071)
+				world.config.world_seed + day * 41 + 39071)
 			if chance > clampf(strength * 0.72, 0.0, 0.72):
 				continue
 			# Молнии могут ударить и в море, и в сушу. Среди грозовых
 			# участков иногда выбираем сушу, чтобы не брать каждый
 			# раз только наиболее влажную ячейку над морем.
 			var terrestrial := Terrain.hash2(rx, ry,
-				world.config.seed + day * 53 + 10413)
+				world.config.world_seed + day * 53 + 10413)
 			if terrestrial < 0.72 and land_strength >= MIN_STORM:
 				chosen = land_cell
 				strength = land_strength
