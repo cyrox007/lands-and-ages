@@ -1,0 +1,44 @@
+name: Этап 10 — природные объекты и ресурсный баланс
+
+on:
+  push:
+    paths:
+      - "godot/**"
+      - ".github/workflows/godot-nature.yml"
+  pull_request:
+    paths:
+      - "godot/**"
+      - ".github/workflows/godot-nature.yml"
+
+jobs:
+  nature-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Проверить импорт исходников
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/nature-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/nature-import.log; then
+            exit 1
+          fi
+      - name: Тест этапа 10
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          timeout 260s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/nature_stage_10_smoke.gd 2>&1 \
+            | tee /tmp/nature-smoke.log
+          grep -q "Этап 10:.*успешно" /tmp/nature-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-smoke.log; then
+            exit 1
+          fi
