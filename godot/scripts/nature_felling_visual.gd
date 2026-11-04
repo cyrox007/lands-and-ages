@@ -5,6 +5,68 @@ extends RefCounted
 const Models = preload("res://scripts/nature_asset_library.gd")
 
 const DURATION := 0.85
+const HIT_DURATION := 0.32
+const CHIP_COUNT := 4
+
+static var _chip_mesh: Mesh
+
+
+static func _chips() -> Mesh:
+    if _chip_mesh != null:
+        return _chip_mesh
+    var wood := StandardMaterial3D.new()
+    wood.albedo_color = Color(0.56, 0.38, 0.19)
+    wood.roughness = 1.0
+    var chip := BoxMesh.new()
+    chip.size = Vector3(0.045, 0.11, 0.035)
+    chip.material = wood
+    _chip_mesh = chip
+    return chip
+
+
+static func make_hit_effect(world: RefCounted, before: Dictionary,
+        progress: int) -> Node3D:
+    # Щепки существуют только как временный визуал; древесина не меняется.
+    if before.get("kind") != "дерево" or progress <= 0:
+        return null
+    var point := Vector2(float(before["x"]) + 0.5,
+        float(before["y"]) + 0.5)
+    var height: float = world.height_at(point)
+    if not is_finite(height):
+        return null
+    var result := Node3D.new()
+    result.name = "Щепки"
+    result.position = world.config.to_scene(point, height)
+    var phase: float = angle_for(int(before["id"]), world.config.seed)
+    var level := clampf(float(before["age_days"]) / (20.0 * 96.0),
+        0.20, 1.25)
+    for i in range(CHIP_COUNT):
+        var chip := MeshInstance3D.new()
+        chip.mesh = _chips()
+        var angle := phase + TAU * float(i) / float(CHIP_COUNT)
+        chip.position = Vector3(cos(angle) * 0.08, level * 0.45,
+            sin(angle) * 0.08)
+        chip.rotation.y = angle
+        chip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+        result.add_child(chip)
+    return result
+
+
+static func animate_hit(effect: Node3D) -> void:
+    if effect == null or not effect.is_inside_tree():
+        return
+    var tween := effect.create_tween().set_parallel(true)
+    for i in range(effect.get_child_count()):
+        var chip: Node3D = effect.get_child(i)
+        var angle := TAU * float(i) / float(CHIP_COUNT)
+        var flight := Vector3(cos(angle) * 0.35, 0.24,
+            sin(angle) * 0.35)
+        tween.tween_property(chip, "position",
+            chip.position + flight, HIT_DURATION)
+        tween.tween_property(chip, "scale", Vector3.ZERO,
+            HIT_DURATION)
+    tween.chain().tween_callback(effect.queue_free)
+
 
 
 static func angle_for(id: int, seed: int) -> float:
