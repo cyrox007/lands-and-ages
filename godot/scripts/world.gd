@@ -269,7 +269,7 @@ func _setup_interface() -> void:
 	benchmark_button.pressed.connect(_run_device_benchmark)
 	_debug_details.add_child(benchmark_button)
 	var felling_button := Button.new()
-	felling_button.text = "Демонстрация рубки ближайшего дерева"
+	felling_button.text = "Ударить по ближайшему дереву"
 	felling_button.pressed.connect(_debug_fell_nearest_tree)
 	_debug_details.add_child(felling_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
@@ -607,9 +607,9 @@ func _refresh_visible(force: bool) -> void:
 			_rebuild_pending.erase(coord)
 			node.queue_free()
 		elif _terrain_holder != null and node.get_parent() == _terrain_holder:
-			# Физика не должна работать у невидимого кешированного чанка.
+			# В кеше остаётся только итоговое состояние, без анимации.
 			for child in node.get_children():
-				if child.name in ["Падение дерева", NatureCollision.COLLISION_NAME]:
+				if child.name in ["Падение дерева", "Щепки дерева", NatureCollision.COLLISION_NAME]:
 					node.remove_child(child)
 					child.queue_free()
 			_render_cache.put(coord, node)
@@ -792,6 +792,8 @@ func _bind_nature_events() -> void:
 		_nature.objects_changed.connect(_on_nature_changed, CONNECT_DEFERRED)
 	if not _nature.tree_felled.is_connected(_on_tree_felled):
 		_nature.tree_felled.connect(_on_tree_felled, CONNECT_DEFERRED)
+	if not _nature.tree_struck.is_connected(_on_tree_struck):
+		_nature.tree_struck.connect(_on_tree_struck, CONNECT_DEFERRED)
 
 
 func _on_nature_changed(chunks: Array[Vector2i], _revision: int) -> void:
@@ -821,8 +823,7 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 
 
 func _sync_nature_colliders() -> void:
-	# Не создаём отдельные физические тела для всех деревьев на карте.
-	# Коллизию поддерживаем только в зоне активной камеры.
+	# В физическом сервере держим только препятствия возле камеры.
 	if _nature == null or _day_task_id >= 0 or _days_pending > 0:
 		return
 	var created := 0
@@ -857,6 +858,27 @@ func _flush_nature_visuals() -> void:
 			break
 
 
+func _show_hit_effect(previous: Dictionary, chunk: Vector2i) -> void:
+	if _view_mode != 0 or not _active.has(chunk):
+		return
+	var visual: Node3D = NatureFelling.make_hit_visual(
+		_world_model, previous)
+	if visual == null:
+		return
+	_active[chunk].add_child(visual)
+	NatureFelling.animate_hit(visual)
+
+
+func _on_tree_struck(previous: Dictionary, _progress: int) -> void:
+	if _day_task_id >= 0 or _nature == null:
+		return
+	var cell := Vector2i(int(previous["x"]), int(previous["y"]))
+	var chunk: Vector2i = _world_model.config.chunk_of(cell)
+	_nature_dirty.erase(chunk)
+	_refresh_nature_chunk(chunk)
+	_show_hit_effect(previous, chunk)
+
+
 func _on_tree_felled(previous: Dictionary) -> void:
 	# Для невидимых объектов анимация не создаётся.
 	if _day_task_id >= 0 or _nature == null:
@@ -865,6 +887,7 @@ func _on_tree_felled(previous: Dictionary) -> void:
 	var chunk: Vector2i = _world_model.config.chunk_of(cell)
 	_nature_dirty.erase(chunk)
 	_refresh_nature_chunk(chunk)
+	_show_hit_effect(previous, chunk)
 	if _view_mode != 0 or not _active.has(chunk):
 		return
 	var visual: Node3D = NatureFelling.make_visual(
@@ -898,12 +921,16 @@ func _debug_fell_nearest_tree() -> void:
 	if chosen < 0:
 		_storage_status = "В загруженных чанках нет доступных деревьев"
 		return
-	var result: Dictionary = _nature.fell_tree(chosen)
+	var result: Dictionary = _nature.hit_tree(chosen, 250)
 	if result.is_empty():
-		_storage_status = "Дерево уже повалено"
+		_storage_status = "Удар не выполнен"
 		return
-	_storage_status = "Повалено дерево %d · древесина %d ед." % [
-		chosen, int(result["wood_units"])]
+	if bool(result["felled"]):
+		_storage_status = "Повалено дерево %d · древесина %d ед." % [
+			chosen, int(result["wood_units"])]
+	else:
+		_storage_status = "Дерево %d · зарубка %d из %d" % [
+			chosen, int(result["cut_progress"]), Nature.CUT_THRESHOLD]
 	_update_hud()
 
 
@@ -996,6 +1023,8 @@ func _install_loaded_world(models: Dictionary) -> void:
 			_nature.objects_changed.disconnect(_on_nature_changed)
 		if _nature.tree_felled.is_connected(_on_tree_felled):
 			_nature.tree_felled.disconnect(_on_tree_felled)
+		if _nature.tree_struck.is_connected(_on_tree_struck):
+			_nature.tree_struck.disconnect(_on_tree_struck)
 	_nature = models["nature"]
 	_bind_nature_events()
 	_nature_dirty.clear()

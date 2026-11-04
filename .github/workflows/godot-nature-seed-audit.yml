@@ -1,0 +1,88 @@
+name: Этап 10.7 — расширенный аудит природных seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Сколько seed проверить (1–500)"
+        required: true
+        default: "100"
+        type: string
+      width:
+        description: "Ширина карты в клетках"
+        required: true
+        default: "128"
+        type: string
+      height:
+        description: "Высота карты в клетках"
+        required: true
+        default: "96"
+        type: string
+      seed_start:
+        description: "Первый seed"
+        required: true
+        default: "1729"
+        type: string
+
+jobs:
+  ecosystem-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить параметры
+        env:
+          SAMPLES: ${{ inputs.samples }}
+          WIDTH: ${{ inputs.width }}
+          HEIGHT: ${{ inputs.height }}
+          FIRST: ${{ inputs.seed_start }}
+        run: |
+          [[ "$SAMPLES" =~ ^[0-9]+$ ]] && (( SAMPLES >= 1 && SAMPLES <= 500 ))
+          [[ "$WIDTH" =~ ^[0-9]+$ ]] && (( WIDTH >= 32 && WIDTH <= 256 ))
+          [[ "$HEIGHT" =~ ^[0-9]+$ ]] && (( HEIGHT >= 32 && HEIGHT <= 256 ))
+          [[ "$FIRST" =~ ^[0-9]+$ ]]
+      - name: Установить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать ресурсы
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/seed-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/seed-import.log; then
+            exit 1
+          fi
+      - name: Проверить генератор на множестве seed
+        timeout-minutes: 30
+        env:
+          SAMPLES: ${{ inputs.samples }}
+          WIDTH: ${{ inputs.width }}
+          HEIGHT: ${{ inputs.height }}
+          FIRST: ${{ inputs.seed_start }}
+        run: |
+          set -o pipefail
+          timeout 1730s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 1500 \
+            --script res://tests/nature_seed_audit.gd -- \
+            "--samples=$SAMPLES" "--width=$WIDTH" \
+            "--height=$HEIGHT" "--seed_start=$FIRST" 2>&1 \
+            | tee /tmp/seed-audit.log
+          grep -q "seed, ошибок нет" /tmp/seed-audit.log
+          test -s godot/tests/world-ecology-seeds-10.json
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/seed-audit.log; then
+            exit 1
+          fi
+      - name: Архивировать результаты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecology-seed-audit
+          path: |
+            godot/tests/world-ecology-seeds-10.json
+            /tmp/seed-audit.log
+          if-no-files-found: ignore

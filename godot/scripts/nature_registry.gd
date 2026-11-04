@@ -3,10 +3,12 @@ extends RefCounted
 
 signal objects_changed(chunks: Array[Vector2i], revision: int)
 signal tree_felled(previous: Dictionary)
+signal tree_struck(previous: Dictionary, cut_progress: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
+const CUT_THRESHOLD := 1000
 const GRID_STEP := 3
 const MAX_OBJECTS := 200000
 const TREE_SPECIES := ["сосна", "ель", "берёза", "дуб"]
@@ -120,6 +122,7 @@ func generate() -> bool:
                 "id": id, "kind": kind, "species": species,
                 "x": x, "y": y, "age_days": age,
                 "health": 1000, "wood_units": stock, "fallen_wood": 0,
+                "cut_progress": 0,
                 "state": "целое", "radius": 0.35 if kind == "валун" else (
                     0.21 if kind == "дерево" else 0.12)
             }
@@ -281,6 +284,33 @@ func _modify(id: int, item: Dictionary) -> void:
     _mark_changes(changed)
 
 
+func hit_tree(id: int, power: int = 250) -> Dictionary:
+    # Удары влияют только на физическое состояние дерева.
+    if power <= 0 or power > CUT_THRESHOLD:
+        return {}
+    var previous: Dictionary = object_at(id)
+    if previous.is_empty() or previous.get("kind") != "дерево" \
+            or previous.get("state") not in ["целое", "сухостой"]:
+        return {}
+    var progress := mini(CUT_THRESHOLD,
+        int(previous.get("cut_progress", 0)) + power)
+    if progress >= CUT_THRESHOLD:
+        var result: Dictionary = fell_tree(id)
+        if result.is_empty():
+            return {}
+        result["felled"] = true
+        result["cut_progress"] = CUT_THRESHOLD
+        return result
+    var updated := previous.duplicate(true)
+    updated["cut_progress"] = progress
+    _modify(id, updated)
+    tree_struck.emit(previous, progress)
+    return {
+        "id": id, "felled": false,
+        "cut_progress": progress, "wood_units": 0
+    }
+
+
 func fell_tree(id: int) -> Dictionary:
     # Физика меняется сразу; визуальное падение не производит ресурс.
     var before: Dictionary = object_at(id)
@@ -293,6 +323,7 @@ func fell_tree(id: int) -> Dictionary:
     item["wood_units"] = 0
     item["fallen_wood"] = int(item["fallen_wood"]) + wood
     item["state"] = "пень"
+    item["cut_progress"] = 0
     _modify(id, item)
     tree_felled.emit(before)
     return {"id": id, "wood_units": wood, "state": "пень"}
@@ -352,7 +383,8 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
             "id": next_id, "kind": "дерево",
             "species": parent["species"], "x": next.x, "y": next.y,
             "age_days": 0, "health": 800, "wood_units": 0,
-            "fallen_wood": 0, "state": "целое", "radius": 0.08
+            "fallen_wood": 0, "state": "целое", "radius": 0.08,
+            "cut_progress": 0
         }
         _objects[next_id] = child
         _index(child)
@@ -466,7 +498,8 @@ func to_data() -> Dictionary:
             int(entry["id"]), str(entry["kind"]), str(entry["species"]),
             int(entry["x"]), int(entry["y"]), int(entry["age_days"]),
             int(entry["health"]), int(entry["wood_units"]),
-            int(entry["fallen_wood"]), str(entry["state"])
+            int(entry["fallen_wood"]), str(entry["state"]),
+            int(entry.get("cut_progress", 0))
         ])
     return {
         "version": FORMAT_VERSION, "generated": generated,
@@ -475,7 +508,10 @@ func to_data() -> Dictionary:
 
 
 func load_data(data: Dictionary) -> bool:
-    if data.get("version") != FORMAT_VERSION             or not (data.get("generated") is bool)             or not (data.get("objects") is Array):
+    var version: Variant = data.get("version")
+    if version not in [1, FORMAT_VERSION] \
+            or not (data.get("generated") is bool) \
+            or not (data.get("objects") is Array):
         return false
     var day: Variant = data.get("last_day")
     if not (day is int or day is float) or day != climate.day:
@@ -487,10 +523,21 @@ func load_data(data: Dictionary) -> bool:
     var restored := {}
     var by_chunk := {}
     for raw in raw_items:
-        if not (raw is Array) or raw.size() != 10:
+        var item_size := 10 if version == 1 else 11
+        if not (raw is Array) or raw.size() != item_size:
             return false
         for number in [0, 3, 4, 5, 6, 7, 8]:
             if not (raw[number] is int or raw[number] is float)                     or not is_finite(float(raw[number]))                     or float(raw[number]) != float(int(raw[number])):
+                return false
+        var cut_progress := 0
+        if version == FORMAT_VERSION:
+            if not (raw[10] is int or raw[10] is float):
+                return false
+            if not is_finite(float(raw[10])) \
+                    or float(raw[10]) != float(int(raw[10])):
+                return false
+            cut_progress = int(raw[10])
+            if cut_progress < 0 or cut_progress >= CUT_THRESHOLD:
                 return false
         var id := int(raw[0])
         var x := int(raw[3])
@@ -503,6 +550,8 @@ func load_data(data: Dictionary) -> bool:
         var kind: String = raw[1]
         if kind not in ["дерево", "кустарник", "валун"]                 or (kind == "дерево" and raw[2] not in TREE_SPECIES)                 or raw[9] not in ["целое", "сухостой", "пень"]:
             return false
+        if cut_progress > 0 and (kind != "дерево" or raw[9] == "пень"):
+            return false
         if int(raw[5]) < 0 or int(raw[5]) > 100000000                 or int(raw[6]) < 0 or int(raw[6]) > 1000                 or int(raw[7]) < 0 or int(raw[7]) > 10000000                 or int(raw[8]) < 0 or int(raw[8]) > 10000000:
             return false
         var item := {
@@ -510,6 +559,7 @@ func load_data(data: Dictionary) -> bool:
             "x": x, "y": y, "age_days": int(raw[5]),
             "health": int(raw[6]), "wood_units": int(raw[7]),
             "fallen_wood": int(raw[8]), "state": String(raw[9]),
+            "cut_progress": cut_progress,
             "radius": 0.35 if kind == "валун" else (
                 0.21 if kind == "дерево" else 0.12)
         }

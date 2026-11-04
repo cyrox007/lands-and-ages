@@ -20,6 +20,7 @@ on:
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
+      - "godot/tests/nature_seed_audit.gd"
       - "godot/tests/world_capacity_report_10.gd"
       - ".github/workflows/godot-nature.yml"
   pull_request:
@@ -40,6 +41,7 @@ on:
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
+      - "godot/tests/nature_seed_audit.gd"
       - "godot/tests/world_capacity_report_10.gd"
       - ".github/workflows/godot-nature.yml"
 
@@ -105,10 +107,43 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/world-capacity-10.log; then
             exit 1
           fi
+      - name: Быстрый обзор четырёх природных seed
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 210s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 180 \
+            --script res://tests/nature_seed_audit.gd -- \
+            --samples=4 --width=96 --height=80 --seed_start=1729 2>&1 \
+            | tee /tmp/nature-seeds-smoke.log
+          grep -q "Этап 10.7: проверено 4 seed, ошибок нет" /tmp/nature-seeds-smoke.log
+          test -s godot/tests/world-ecology-seeds-10.json
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-seeds-smoke.log; then
+            exit 1
+          fi
       - name: Сохранить отчёт размеров
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: world-capacity-stage-10
           path: godot/tests/world-capacity-10.json
+          if-no-files-found: ignore
+      - name: Сохранить обзор природных seed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecology-seed-smoke
+          path: godot/tests/world-ecology-seeds-10.json
+          if-no-files-found: ignore
+      - name: Сохранить диагностику ошибок Godot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-nature-error-logs
+          path: |
+            /tmp/nature-import.log
+            /tmp/nature-smoke.log
+            /tmp/nature-collision.log
+            /tmp/nature-seeds-smoke.log
+            /tmp/world-capacity-10.log
           if-no-files-found: ignore
