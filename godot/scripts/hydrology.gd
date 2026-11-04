@@ -485,6 +485,12 @@ func level_at(index: int) -> float:
 	return _water_level[index]
 
 
+func flooded_at(index: int) -> bool:
+	# Быстрое чтение уже рассчитанного флага для графического воркера.
+	# Перед построением чанков гидрология должна быть готова.
+	return index >= 0 and index < _flood.size() and _flood[index] != 0
+
+
 func flood_depth_at(index: int) -> float:
 	ensure_ready()
 	if index < 0 or index >= _flood.size() or _flood[index] == 0:

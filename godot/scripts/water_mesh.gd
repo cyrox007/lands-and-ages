@@ -216,110 +216,160 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	return RIVER_SEGMENTS * 2
 
 
-static func _flood_outline(neighbors: Array[bool]) -> PackedVector2Array:
-	# У речного разлива граница проходит внутри клетки, а не по её
-	# прямоугольным краям. Общая сторона двух затопленных клеток
-	# сохраняет одинаковый отрезок [0.25, 0.75].
-	var north := neighbors[0]
-	var east := neighbors[1]
-	var south := neighbors[2]
-	var west := neighbors[3]
-	return PackedVector2Array([
-		Vector2(0.25, 0.0) if north else Vector2(0.40, 0.22),
-		Vector2(0.75, 0.0) if north else Vector2(0.60, 0.22),
-		Vector2(1.0, 0.25) if east else Vector2(0.78, 0.40),
-		Vector2(1.0, 0.75) if east else Vector2(0.78, 0.60),
-		Vector2(0.75, 1.0) if south else Vector2(0.60, 0.78),
-		Vector2(0.25, 1.0) if south else Vector2(0.40, 0.78),
-		Vector2(0.0, 0.75) if west else Vector2(0.22, 0.60),
-		Vector2(0.0, 0.25) if west else Vector2(0.22, 0.40)
-	])
+const FLOOD_COVERAGE_THRESHOLD := 0.45
 
 
-static func _clip_flood_outline(points: PackedVector2Array,
-		heights: PackedFloat32Array, outline: PackedVector2Array) -> Dictionary:
-	# Подрезаем треугольник визуальной земли выпуклым контуром разлива.
-	# Высота пересечения линейно берётся с ТОГО ЖЕ ребра меша земли.
-	var clipped_points := points
-	var clipped_heights := heights
-	for edge_index in range(outline.size()):
-		if clipped_points.is_empty():
-			break
-		var next_points := PackedVector2Array()
-		var next_heights := PackedFloat32Array()
-		var a := outline[edge_index]
-		var b := outline[(edge_index + 1) % outline.size()]
-		var direction := b - a
-		var previous := clipped_points.size() - 1
-		for current in range(clipped_points.size()):
-			var previous_side := direction.cross(clipped_points[previous] - a)
-			var current_side := direction.cross(clipped_points[current] - a)
-			var was_inside := previous_side >= -0.000001
-			var is_inside := current_side >= -0.000001
-			if was_inside != is_inside:
-				var fraction := clampf(previous_side /
-					(previous_side - current_side), 0.0, 1.0)
-				next_points.append(clipped_points[previous].lerp(
-					clipped_points[current], fraction))
-				next_heights.append(lerpf(clipped_heights[previous],
-					clipped_heights[current], fraction))
-			if is_inside:
-				next_points.append(clipped_points[current])
-				next_heights.append(clipped_heights[current])
-			previous = current
-		clipped_points = next_points
-		clipped_heights = next_heights
-	return {"points": clipped_points, "heights": clipped_heights}
+static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
+	# Единое поле для соседних клеток, включая границы чанков.
+	# X — визуальная доля покрытой водой территории, Y — уровень.
+	var center_space := point - Vector2(0.5, 0.5)
+	var cell := Vector2i(floori(center_space.x), floori(center_space.y))
+	var u := center_space.x - floorf(center_space.x)
+	var v := center_space.y - floorf(center_space.y)
+	var coverage := 0.0
+	var level_sum := 0.0
+	var level_weight := 0.0
+	for dy in range(2):
+		for dx in range(2):
+			var index: int = hydro.cell_index(cell + Vector2i(dx, dy))
+			if not hydro.has_water(index):
+				continue
+			# Реки соединяют соседние разливы; озёра/море рисуются отдельно.
+			if not hydro.flooded_at(index) and \
+					not hydro.river_at(index) and not hydro.lake_at(index):
+				continue
+			var weight: float = (u if dx == 1 else 1.0 - u) * \
+				(v if dy == 1 else 1.0 - v)
+			coverage += weight
+			level_sum += hydro.level_at(index) * weight
+			level_weight += weight
+
+	if level_weight > 0.000001:
+		return Vector2(clampf(coverage, 0.0, 1.0), level_sum / level_weight)
+
+	# Даже сухие вершины должны получать гидрологический уровень,
+	# иначе пересечение контура с сухой стороной опустится к нулю.
+	var nearest := INF
+	var nearest_level := 0.0
+	for dy in range(-1, 3):
+		for dx in range(-1, 3):
+			var candidate := cell + Vector2i(dx, dy)
+			var index: int = hydro.cell_index(candidate)
+			if not hydro.has_water(index):
+				continue
+			if not hydro.flooded_at(index) and \
+					not hydro.river_at(index) and not hydro.lake_at(index):
+				continue
+			var distance: float = (point - Vector2(candidate) -
+				Vector2(0.5, 0.5)).length_squared()
+			if distance < nearest:
+				nearest = distance
+				nearest_level = hydro.level_at(index)
+	return Vector2(0.0, nearest_level)
+
+
+static func _clip_flood_coverage(triangle: PackedVector4Array) -> PackedVector4Array:
+	# Вектор: X/Y — мировые координаты, Z — уровень, W — покрытие.
+	# Обрезка по общей изолинии исключает плитки и квадратные отверстия.
+	var polygon := PackedVector4Array()
+	var previous := triangle.size() - 1
+	for current in range(triangle.size()):
+		var a: Vector4 = triangle[previous]
+		var b: Vector4 = triangle[current]
+		var was_wet := a.w >= FLOOD_COVERAGE_THRESHOLD
+		var is_wet := b.w >= FLOOD_COVERAGE_THRESHOLD
+		if was_wet != is_wet:
+			var t := clampf((FLOOD_COVERAGE_THRESHOLD - a.w) /
+				(b.w - a.w), 0.0, 1.0)
+			polygon.append(a.lerp(b, t))
+		if is_wet:
+			polygon.append(b)
+		previous = current
+	return polygon
+
+
+static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
+		cell: Vector2i, polygon: PackedVector4Array, heights: PackedFloat32Array,
+		tint: Color, ice: float) -> int:
+	if polygon.size() < 3:
+		return 0
+	var added := 0
+	tool.set_normal(Vector3.UP)
+	for i in range(1, polygon.size() - 1):
+		var a := Vector2(polygon[0].x, polygon[0].y)
+		var b := Vector2(polygon[i].x, polygon[i].y)
+		var c := Vector2(polygon[i + 1].x, polygon[i + 1].y)
+		if absf((b - a).cross(c - a)) < 0.000001:
+			continue
+		for vertex in [polygon[0], polygon[i], polygon[i + 1]]:
+			var u := clampf(vertex.x - float(cell.x), 0.0, 1.0)
+			var v := clampf(vertex.y - float(cell.y), 0.0, 1.0)
+			var terrain := ShoreVisual.height(
+				heights[0], heights[1], heights[2], heights[3], u, v)
+			# Тонкая паводковая плёнка не проваливается под визуальный грунт.
+			# Это коррекция представления, не изменение физического уровня.
+			var visible_level := maxf(vertex.z, terrain) + WATER_OFFSET
+			var depth := maxf(0.0, vertex.z - terrain)
+			var alpha := smoothstep(FLOOD_COVERAGE_THRESHOLD, 0.80, vertex.w)
+			tool.set_color(Color(tint.r, tint.g, tint.b, tint.a * alpha))
+			tool.set_uv(Vector2(clampf(depth / SHORE_FADE_DEPTH, 0.0, 1.0), ice))
+			tool.add_vertex(world.config.to_scene(
+				Vector2(vertex.x, vertex.y), visible_level))
+		added += 1
+	return added
 
 
 static func _flood_cell(tool: SurfaceTool, world: RefCounted,
-		hydro: RefCounted, cell: Vector2i, level: float,
-		tint: Color, ice: float) -> int:
-	# Гидрология определяет затопление, но не навязывает квадратный меш.
-	var neighbors: Array[bool] = []
-	for delta in [Vector2i(0, -1), Vector2i(1, 0),
-			Vector2i(0, 1), Vector2i(-1, 0)]:
-		neighbors.append(hydro.has_water(hydro.cell_index(cell + delta)))
-	var outline := _flood_outline(neighbors)
-	var ha: float = world.vertex_at(cell)
-	var hb: float = world.vertex_at(cell + Vector2i(1, 0))
-	var hc: float = world.vertex_at(cell + Vector2i(0, 1))
-	var hd: float = world.vertex_at(cell + Vector2i(1, 1))
+		hydro: RefCounted, cell: Vector2i, tint: Color, ice: float,
+		samples: Dictionary) -> int:
+	# У каждой клетки нет своего контура. Вершины берутся из одного
+	# глобального поля, поэтому между чанками нет прямоугольных швов.
+	var heights := PackedFloat32Array([
+		world.vertex_at(cell),
+		world.vertex_at(cell + Vector2i(1, 0)),
+		world.vertex_at(cell + Vector2i(0, 1)),
+		world.vertex_at(cell + Vector2i(1, 1))
+	])
+	var grid := PackedVector4Array()
+	for sy in range(SHORE_SUBDIVISIONS + 1):
+		for sx in range(SHORE_SUBDIVISIONS + 1):
+			var point := Vector2(cell) + Vector2(
+				float(sx) / float(SHORE_SUBDIVISIONS),
+				float(sy) / float(SHORE_SUBDIVISIONS))
+			# Ключ в глобальной сетке одинаков для соседних клеток.
+			var key := Vector2i(cell.x * SHORE_SUBDIVISIONS + sx,
+				cell.y * SHORE_SUBDIVISIONS + sy)
+			var profile: Vector2
+			if samples.has(key):
+				profile = samples[key]
+			else:
+				profile = _flood_profile(hydro, point)
+				samples[key] = profile
+			grid.append(Vector4(point.x, point.y, profile.y, profile.x))
+
 	var added := 0
-	# Точно та же сетка 3×3 и диагональ, что у прибрежного Chunk:
-	# никакие большие треугольники воды не пересекают землю.
-	for j in range(SHORE_SUBDIVISIONS):
-		for i in range(SHORE_SUBDIVISIONS):
-			var u0 := float(i) / float(SHORE_SUBDIVISIONS)
-			var u1 := float(i + 1) / float(SHORE_SUBDIVISIONS)
-			var v0 := float(j) / float(SHORE_SUBDIVISIONS)
-			var v1 := float(j + 1) / float(SHORE_SUBDIVISIONS)
-			var a := Vector2(u0, v0)
-			var b := Vector2(u1, v0)
-			var c := Vector2(u0, v1)
-			var d := Vector2(u1, v1)
-			var h00 := _terrain_height(ha, hb, hc, hd, u0, v0)
-			var h10 := _terrain_height(ha, hb, hc, hd, u1, v0)
-			var h01 := _terrain_height(ha, hb, hc, hd, u0, v1)
-			var h11 := _terrain_height(ha, hb, hc, hd, u1, v1)
-			for tri in [
-				{"points": PackedVector2Array([a, c, b]),
-				 "heights": PackedFloat32Array([h00, h01, h10])},
-				{"points": PackedVector2Array([d, b, c]),
-				 "heights": PackedFloat32Array([h11, h10, h01])}
+	for sy in range(SHORE_SUBDIVISIONS):
+		for sx in range(SHORE_SUBDIVISIONS):
+			var a := sy * (SHORE_SUBDIVISIONS + 1) + sx
+			var b := a + 1
+			var c := a + SHORE_SUBDIVISIONS + 1
+			var d := c + 1
+			for triangle in [
+				PackedVector4Array([grid[a], grid[c], grid[b]]),
+				PackedVector4Array([grid[d], grid[b], grid[c]])
 			]:
-				var clipped: Dictionary = _clip_flood_outline(
-					tri["points"], tri["heights"], outline)
-				var positions: PackedVector2Array = clipped["points"]
-				if positions.size() < 3:
-					continue
-				var absolute := PackedVector2Array()
-				for point in positions:
-					absolute.append(Vector2(cell) + point)
-				var polygon := _clip_submerged_triangle(
-					absolute, clipped["heights"], level)
-				added += _add_polygon(tool, world, polygon, level, tint, ice)
+				var polygon := _clip_flood_coverage(triangle)
+				added += _add_flood_polygon(
+					tool, world, cell, polygon, heights, tint, ice)
 	return added
+
+
+static func _flood_tint(ice: float) -> Color:
+	# У связной поймы общий базовый цвет, независимо от того,
+	# назвала ли гидрология исходную клетку рекой, озером или разливом.
+	return Color(0.17, 0.34, 0.38, 0.90).lerp(
+		Color(0.77, 0.86, 0.89, 0.96), ice)
+
 
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		surface: RefCounted = null) -> ArrayMesh:
@@ -331,17 +381,19 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var added := 0
+	var flood_samples := {}
 	for y in range(bounds.position.y, bounds.end.y):
 		for x in range(bounds.position.x, bounds.end.x):
 			var cell := Vector2i(x, y)
 			var index: int = hydro.cell_index(cell)
 			var physical_water: bool = hydro.has_water(index)
+			var flood_near: bool = ShoreVisual.near_flood(hydro, cell)
 			var context: Dictionary = ShoreVisual.water_context(world, hydro, cell)
-			if not physical_water and context.is_empty():
+			if not physical_water and context.is_empty() and not flood_near:
 				continue
-			var level: float = hydro.level_at(index) if physical_water else float(context["level"])
-			var lake: bool = hydro.lake_at(index) if physical_water else bool(context["lake"])
-			var ocean: bool = hydro.ocean_at(index) if physical_water else bool(context["ocean"])
+			var level: float = hydro.level_at(index) if physical_water else float(context.get("level", 0.0))
+			var lake: bool = hydro.lake_at(index) if physical_water else bool(context.get("lake", false))
+			var ocean: bool = hydro.ocean_at(index) if physical_water else bool(context.get("ocean", false))
 			var river: bool = hydro.river_at(index) if physical_water else false
 			var color := Color(0.16, 0.34, 0.38, 0.92)
 			if ocean:
@@ -356,12 +408,16 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				var frost: float = surface.frost_at_index(frost_index)
 				ice = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
-			if not ocean and not lake and not river:
-				# Паводок — не озеро: целый квадрат воды здесь недопустим.
-				added += _flood_cell(tool, world, hydro, cell, level, color, ice)
+			if flood_near and not ocean:
+				# Озёрные и речные клетки в пойме используют одно поле.
+				# Иначе независимая тёмная лента перекрывает разлив.
+				added += _flood_cell(tool, world, hydro, cell, _flood_tint(ice),
+					ice, flood_samples)
 				continue
 			if ocean or lake:
 				added += _water_cell(tool, world, cell, level, color, ice)
+				continue
+			if not river:
 				continue
 
 			# Геометрия — плавная кривая, физический сток остаётся дискретным.

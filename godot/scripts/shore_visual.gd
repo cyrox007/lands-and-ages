@@ -62,8 +62,26 @@ static func water_context(world: RefCounted, hydro: RefCounted,
 	}
 
 
+
+static func near_flood(hydro: RefCounted, cell: Vector2i) -> bool:
+	# Граница разлива охватывает и прилегающие сухие клетки.
+	# Не включаем всю карту в уточнение: только локальные 3×3.
+	if hydro == null:
+		return false
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var index: int = hydro.cell_index(cell + Vector2i(dx, dy))
+			if hydro.flooded_at(index):
+				return true
+	return false
+
+
 static func is_coastal_cell(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> bool:
+	# Пойма тоже использует визуальную сетку 3×3, иначе вода
+	# пересекала бы крупные треугольники соседней сухой клетки.
+	if near_flood(hydro, cell):
+		return true
 	var context: Dictionary = water_context(world, hydro, cell)
 	if context.is_empty():
 		return false
