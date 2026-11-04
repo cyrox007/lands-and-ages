@@ -68,6 +68,19 @@ func _run() -> void:
             "Модель нормализована по уровню земли: " + key)
         _check(transform.basis.get_scale().y > 0.0,
             "Масштаб GLB положительный: " + key)
+    # Встроенные изображения остаются доступными после переноса проекта.
+    for key in Models.STYLIZED.keys():
+        var styled_mesh: Mesh = Models.info(key)["mesh"]
+        var has_texture := false
+        for surface in range(styled_mesh.get_surface_count()):
+            var material: Material = styled_mesh.surface_get_material(surface)
+            if material is ShaderMaterial:
+                var texture: Variant = material.get_shader_parameter("source_texture")
+                if texture is Texture2D:
+                    has_texture = true
+                    break
+        _check(has_texture or key == "BirchLight",
+            "Внутренние текстуры коры/листвы доступны: " + key)
     var pine_mesh: Mesh = Models.info("PineDetailed")["mesh"]
     _check(pine_mesh.get_surface_count() >= 2,
         "Меш дерева объединяет кору и листву, не теряя поверхности")
