@@ -3,6 +3,7 @@ extends RefCounted
 ## Интервалы кадров в headless — не реальные FPS видеокарты.
 
 const RenderCache = preload("res://scripts/chunk_render_cache.gd")
+const NatureCollision = preload("res://scripts/nature_collision.gd")
 
 var _name := ""
 var _frames: Array[float] = []
@@ -84,6 +85,17 @@ func record(view: Node3D, frame_interval_ms: float) -> void:
 
 
 func finish(view: Node3D) -> Dictionary:
+	# Измеряем число реальных форм только в конце фазы маршрута.
+	# Не перебираем коллизии каждый кадр, чтобы не искажать FPS.
+	var collider_chunks := 0
+	var collider_shapes := 0
+	for terrain_chunk in view._active.values():
+		var body: Node = terrain_chunk.get_node_or_null(
+			NatureCollision.COLLISION_NAME)
+		if body == null:
+			continue
+		collider_chunks += 1
+		collider_shapes += body.get_child_count()
 	return {
 		"name": _name,
 		"frames": _frames.size(),
@@ -116,6 +128,8 @@ func finish(view: Node3D) -> Dictionary:
 		"visibility_precise_checks": view._visibility_precise_checks - _precise_checks_before,
 		"peak_visibility_ms": _peak_visibility_ms,
 		"peak_visible_chunks": _peak_active,
+		"collision_chunks_at_phase_end": collider_chunks,
+		"collision_shapes_at_phase_end": collider_shapes,
 		"peak_pending_chunks": _peak_pending,
 		"peak_cached_geometry_bytes": _peak_cache_bytes,
 		"peak_godot_static_bytes": _peak_static_bytes,
