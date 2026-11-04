@@ -10,16 +10,26 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 		climate: RefCounted = null, hydro: RefCounted = null) -> ArrayMesh:
 	if world == null:
 		world = load("res://scripts/world_map.gd").new()
+	if mode == 0 and surface != null and hydro != null:
+		hydro.ensure_ready()
+		surface.ensure_ready()
+	return mesh_from_arrays(prepare_arrays(
+		cx, cy, day, world, surface, mode, climate, hydro))
+
+
+static func prepare_arrays(cx: int, cy: int, day: int,
+		world: RefCounted, surface: RefCounted = null,
+		mode: int = 0, climate: RefCounted = null,
+		hydro: RefCounted = null) -> Array:
+	# Этот метод только читает физическую модель и собирает локальные
+	# PackedArray. В воркере запрещены изменение модели и вызовы сцены.
+
 	var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
 	assert(bounds.has_area(), "Чанк вне границ мира")
 	var x0 := bounds.position.x
 	var y0 := bounds.position.y
 	var width := bounds.size.x
 	var height := bounds.size.y
-	# Физические массивы готовятся однажды до обхода вершин.
-	if mode == 0 and surface != null and hydro != null:
-		hydro.ensure_ready()
-		surface.ensure_ready()
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -92,6 +102,11 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
 	arrays[Mesh.ARRAY_CUSTOM0] = conditions
 	arrays[Mesh.ARRAY_INDEX] = indices
+	return arrays
+
+
+static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
+	# Только главный поток создаёт ресурсы GPU.
 	var mesh := ArrayMesh.new()
 	var flags := Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
