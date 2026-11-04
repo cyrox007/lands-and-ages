@@ -8,6 +8,7 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Renderer = preload("res://scripts/nature_renderer.gd")
+const Models = preload("res://scripts/nature_asset_library.gd")
 const Capacity = preload("res://scripts/world_capacity_audit.gd")
 const Weather = preload("res://scripts/weather_events.gd")
 const Natural = preload("res://scripts/natural_processes.gd")
@@ -49,6 +50,25 @@ func _state(seed: int = 1729) -> Dictionary:
 
 
 func _run() -> void:
+    var model_names: Array[String] = Models.available_models()
+    _check(model_names.size() == 12,
+        "Все 12 настоящих CC0 GLB загружаются в Godot")
+    for key in model_names:
+        var info: Dictionary = Models.info(key)
+        _check(int(info.get("triangles", 999999)) <= 1000,
+            "Лёгкая модель помещается в бюджет полигонов: " + key)
+        var transform: Transform3D = Models.placement(key, Vector3.ZERO)
+        var bounds: AABB = (info["mesh"] as Mesh).get_aabb()
+        var ground: Vector3 = transform * Vector3(0.0, bounds.position.y, 0.0)
+        _check(absf(ground.y) < 0.025,
+            "Модель нормализована по уровню земли: " + key)
+        _check(transform.basis.get_scale().y > 0.0,
+            "Масштаб GLB положительный: " + key)
+    _check(Models.select_tree(30 * 96, 2, 1.0).begins_with("TreeHigh"),
+        "Взрослое дерево использует полноценную визуальную модель")
+    _check(Models.select_tree(30 * 96, 2, 0.1).begins_with("TreeLow"),
+        "Отдалённая камера выбирает низкий LOD")
+
     var original := _state()
     var repeated := _state()
     var nature: RefCounted = original["nature"]
@@ -149,6 +169,7 @@ func _run() -> void:
 
     var rendered_objects := 0
     var rendered_grass := 0
+    var rendered_glb := 0
     var chunk_count: Vector2i = original["world"].config.chunk_count()
     for cy in range(chunk_count.y):
         for cx in range(chunk_count.x):
@@ -161,11 +182,15 @@ func _run() -> void:
                 _check(instance.multimesh.instance_count > 0,
                     "Пустой MultiMesh не расходует GPU-ресурсы")
                 rendered_objects += instance.multimesh.instance_count
-                if instance.name == "трава":
+                if instance.name.begins_with("glb_"):
+                    rendered_glb += instance.multimesh.instance_count
+                if instance.name == "трава" or instance.name.begins_with("glb_Grass"):
                     rendered_grass += instance.multimesh.instance_count
             visible_chunk.free()
     _check(rendered_objects > 0 and rendered_grass > 0,
         "Трава и природные объекты создаются в видимых чанках")
+    _check(rendered_glb > 0,
+        "На реальных видимых чанках присутствуют GLB, а не только заглушки")
 
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)

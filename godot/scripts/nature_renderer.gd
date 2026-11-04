@@ -1,9 +1,10 @@
 extends RefCounted
-## GPU-инстансы природных объектов. Временные модели заменятся CC0 glTF.
+## GPU-инстансы природных объектов с настоящими CC0 GLB и резервной геометрией.
 ## Вне видимых чанков узлы/анимация не создаются.
 
 const Wind = preload("res://shaders/nature_wind.gdshader")
 const Terrain = preload("res://scripts/terrain.gd")
+const Models = preload("res://scripts/nature_asset_library.gd")
 
 static var _meshes: Dictionary = {}
 static var _materials: Dictionary = {}
@@ -87,8 +88,18 @@ static func _push(groups: Dictionary, kind: String, transform: Transform3D,
     })
 
 
+static func _place_model(groups: Dictionary, key: String, origin: Vector3,
+        scale_factor: float, color: Color, phase: float,
+        wind: float = 0.0) -> bool:
+    if Models.info(key).is_empty():
+        return false
+    _push(groups, "glb_" + key, Models.placement(key, origin, scale_factor),
+        color, phase, wind)
+    return true
+
+
 static func create_chunk(world: RefCounted, nature: RefCounted,
-        coord: Vector2i) -> Node3D:
+        coord: Vector2i, detail: float = 1.0) -> Node3D:
     var result := Node3D.new()
     result.name = "Природные объекты"
     if nature == null or not nature.generated:
@@ -117,6 +128,17 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                     Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.11, 0)),
                     _color("пень", species, state), phase)
                 continue
+            # Взрослые деревья используют настоящую модель. Зимой
+            # у лиственных временно остаётся только голый ствол.
+            var foliage_visible := state == "целое" and (
+                not winter or species in ["сосна", "ель"])
+            if foliage_visible:
+                var selected := Models.select_tree(age, int(item["id"]), detail)
+                var snowy := Color.WHITE.lerp(
+                    Color(0.78, 0.84, 0.78), snow * 0.45)
+                if _place_model(groups, selected, origin, scale_factor,
+                        snowy, phase, wind):
+                    continue
             var trunk_base := Basis.IDENTITY.scaled(
                 Vector3(scale_factor, scale_factor, scale_factor))
             _push(groups, "ствол",
@@ -132,12 +154,20 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                         Vector3(0, 2.15 * scale_factor, 0)),
                     tint, phase, wind)
         elif item["kind"] == "кустарник":
+            var bush := Models.select_prop("кустарник", int(item["id"]))
+            if _place_model(groups, bush, origin, 1.0, Color.WHITE.lerp(
+                    Color(0.8, 0.85, 0.8), snow * 0.45), phase, wind):
+                continue
             _push(groups, "куст",
                 Transform3D(Basis.IDENTITY,
                     origin + Vector3(0, 0.36, 0)),
                 _color("куст", species, state).lerp(
                     Color(0.78, 0.82, 0.76), snow * 0.55), phase, wind)
         elif item["kind"] == "валун":
+            var rock := Models.select_prop("валун", int(item["id"]))
+            if _place_model(groups, rock, origin, 1.0, Color.WHITE,
+                    phase):
+                continue
             _push(groups, "камень",
                 Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.26, 0)),
                 _color("камень", species, state), phase)
@@ -170,6 +200,10 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var wind: float = clampf(
                 nature.climate.wind_at_index(wind_index) / 2.4, 0.0, 1.0)
             var phase: float = amount
+            var grass := Models.select_prop("трава", x + y * world.config.width)
+            if _place_model(groups, grass, origin, height_scale,
+                    Color.WHITE, phase, wind):
+                continue
             _push(groups, "трава",
                 Transform3D(basis, origin +
                     Vector3(0.0, 0.18 * height_scale, 0.0)),
@@ -182,7 +216,13 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         multi.transform_format = MultiMesh.TRANSFORM_3D
         multi.use_colors = true
         multi.use_custom_data = true
-        multi.mesh = _mesh(kind)
+        if str(kind).begins_with("glb_"):
+            var model: Dictionary = Models.info(str(kind).substr(4))
+            if model.is_empty():
+                continue
+            multi.mesh = model["mesh"]
+        else:
+            multi.mesh = _mesh(kind)
         multi.instance_count = instances.size()
         for i in range(instances.size()):
             var entry: Dictionary = instances[i]
@@ -193,6 +233,8 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var node := MultiMeshInstance3D.new()
         node.name = str(kind)
         node.multimesh = multi
+        if str(kind).begins_with("glb_") and not str(kind).contains("Rock"):
+            node.material_override = Models.wind_material(str(kind).substr(4))
         node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
         result.add_child(node)
     return result
