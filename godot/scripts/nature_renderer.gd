@@ -6,6 +6,7 @@ const Wind = preload("res://shaders/nature_wind.gdshader")
 const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
 const Felling = preload("res://scripts/nature_felling_visual.gd")
+const Geometry = preload("res://scripts/nature_geometry.gd")
 
 static var _meshes: Dictionary = {}
 static var _materials: Dictionary = {}
@@ -135,11 +136,10 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                     Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.11, 0)),
                     _color("пень", species, state), phase)
                 if int(item["fallen_wood"]) > 0:
-                    var angle: float = Felling.angle_for(
-                        int(item["id"]), world.config.seed)
-                    var offset := Vector2(cos(angle), sin(angle)) * 0.70
-                    var log_point: Vector2 = world.config.clamp_point(
-                        position + offset)
+                    var footprint: Dictionary = Geometry.log_footprint(
+                        item, world.config)
+                    var angle: float = footprint["angle"]
+                    var log_point: Vector2 = footprint["center"]
                     var log_height: float = world.height_at(log_point)
                     var log_origin: Vector3 = world.config.to_scene(
                         log_point, log_height) + Vector3(0, 0.19, 0)
