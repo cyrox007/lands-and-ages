@@ -165,6 +165,32 @@ func _test_shared_coastal_mesh() -> void:
 				_check(edge_hit, "Кромка воды совпадает с уточнённым рельефом")
 
 
+
+func _test_river_curves() -> void:
+	_check(Water.RIVER_SEGMENTS >= 3,
+		"Речные ленты состоят из последовательных гладких секций")
+	var start := Vector2(0.5, 0.5)
+	var finish := Vector2(1.5, 0.5)
+	var first_control := start + Vector2(0.0, 0.35)
+	var second_control := finish - Vector2(0.35, 0.0)
+	_check(Water._river_curve(start, first_control, second_control,
+		finish, 0.0).is_equal_approx(start) and
+		Water._river_curve(start, first_control, second_control,
+		finish, 1.0).is_equal_approx(finish),
+		"Гладкая река начинается и заканчивается в физических центрах")
+	var center := Water._river_curve(start, first_control, second_control,
+		finish, 0.5)
+	_check(center.y > 0.51,
+		"Геометрия действительно изгибается, а не заменена прямой лентой")
+	var from_direction := Water._river_curve_direction(start, first_control,
+		second_control, finish, 0.0)
+	var to_direction := Water._river_curve_direction(start, first_control,
+		second_control, finish, 1.0)
+	_check(from_direction.is_equal_approx(Vector2(0.0, 1.0)) and
+		to_direction.is_equal_approx(Vector2(1.0, 0.0)),
+		"Сегменты речной ленты согласуют касательные на концах")
+
+
 func _test_wetness() -> void:
 	var world := WorldMap.new(Config.new(64, 48, 1729, 16, 32))
 	var hydro := Hydro.new(world)
@@ -223,6 +249,7 @@ func _test_waves() -> void:
 func _initialize() -> void:
 	_test_coast()
 	_test_shared_coastal_mesh()
+	_test_river_curves()
 	_test_wetness()
 	_test_waves()
 	if not errors.is_empty():
