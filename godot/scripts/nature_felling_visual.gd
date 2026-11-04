@@ -3,12 +3,13 @@ extends RefCounted
 ## Создаётся только для активного чанка, после падения удаляется.
 
 const Models = preload("res://scripts/nature_asset_library.gd")
+const Geometry = preload("res://scripts/nature_geometry.gd")
 
 const DURATION := 0.85
 
 
 static func angle_for(id: int, seed: int) -> float:
-    return deg_to_rad(float(posmod(id * 73 + seed, 360)))
+    return Geometry.angle_for(id, seed)
 
 
 static func make_visual(world: RefCounted, previous: Dictionary,
