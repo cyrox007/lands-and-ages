@@ -343,7 +343,10 @@ func _process(delta: float) -> void:
 	if _days_pending == 0 and _day_task_id < 0:
 		_mesh_build_budget_us = ChunkBuildQueue.budget_us(
 			_frame_percentile(_frame_samples, 0.95), _pan_pending, MESH_BUDGET_US)
-		_start_chunk_jobs()
+		if is_inside_tree():
+			_start_chunk_jobs()
+		else:
+			_build_chunks_synchronously()
 	_pan_pending = false
 	_hud_timer += delta
 	if _hud_timer > 0.3:
@@ -615,6 +618,24 @@ func _refresh_visible(force: bool) -> void:
 	_visibility_refreshes += 1
 
 
+func _build_chunks_synchronously() -> void:
+	# Автономный детерминированный путь тестов без SceneTree.
+	# Игровой рендер всегда отправляет CPU-подготовку в воркеры.
+	var started := Time.get_ticks_usec()
+	var built := 0
+	while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
+		var coord: Vector2i = _pending.pop_front()
+		if not _wanted_chunks.has(coord) or (
+				_active.has(coord) and not _rebuild_pending.has(coord)):
+			_skipped_stale_jobs += 1
+			continue
+		_create_chunk(coord)
+		built += 1
+		if Time.get_ticks_usec() - started >= _mesh_build_budget_us:
+			break
+	_last_chunk_build_us += Time.get_ticks_usec() - started
+
+
 func _start_chunk_jobs() -> void:
 	if _pending.is_empty() or _chunk_jobs.size() >= MAX_CONCURRENT_CHUNK_JOBS:
 		return
@@ -774,6 +795,10 @@ func _storage_models() -> Dictionary:
 func _request_storage(action: String) -> void:
 	if _benchmark_running or action not in ["save", "load"]:
 		return
+	# Для ручной загрузки гарантируем отсутствие ссылок воркера на
+	# заменяемую физическую модель. Выполняется только по запросу.
+	if action == "load" and _day_task_id < 0:
+		_wait_chunk_jobs()
 	if (_day_task_id >= 0 or _days_pending > 0 or
 			not _chunk_jobs.is_empty()):
 		_storage_request = action
