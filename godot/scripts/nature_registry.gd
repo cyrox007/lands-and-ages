@@ -113,7 +113,7 @@ func generate() -> bool:
                 stock = maxi(1, age / 96 * 3)
             elif kind == "кустарник":
                 age = int(_hash(x, y, config.seed + 3004) * 10.0 * 96.0)
-            var id := y * config.width + x + 1
+            var id: int = y * int(config.width) + x + 1
             var item := {
                 "id": id, "kind": kind, "species": species,
                 "x": x, "y": y, "age_days": age,
