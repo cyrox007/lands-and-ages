@@ -142,6 +142,23 @@ static func placement(key: String, position: Vector3,
     return Transform3D(basis, position - basis * pivot)
 
 
+static func shape_for(species: String) -> Vector3:
+    match species:
+        "ель":
+            return Vector3(0.73, 1.13, 0.73)
+        "сосна":
+            return Vector3(0.95, 1.06, 0.95)
+        "берёза":
+            return Vector3(0.86, 1.08, 0.86)
+        "дуб":
+            return Vector3(1.09, 0.97, 1.09)
+    return Vector3.ONE
+
+
+static func rotation_for(id: int) -> float:
+    return deg_to_rad(float(posmod(id * 73, 360)))
+
+
 static func select_tree(age_days: int, id: int, detail: float,
         species: String = "дуб", winter: bool = false,
         state: String = "целое") -> String:
