@@ -99,10 +99,28 @@ func _run() -> void:
     if not tree.is_empty():
         var id: int = tree["id"]
         var standing := Collisions.create_chunk(world, nature, chunk)
+        get_root().add_child(standing)
         _check(_parts_for(standing, id) == ["ствол"],
             "До рубки присутствует ствол")
         _check(Collisions.object_from_shape(standing, -1).is_empty(),
             "Невалидный индекс столкновения отклоняется")
+        # Проверяем не только форму, но и попадание физического луча Godot.
+        await physics_frame
+        var tree_point := Vector2(float(tree["x"]) + 0.5,
+            float(tree["y"]) + 0.5)
+        var ground: float = world.height_at(tree_point)
+        var base: Vector3 = world.config.to_scene(tree_point, ground)
+        var ray := PhysicsRayQueryParameters3D.create(
+            base + Vector3.UP * 4.0, base - Vector3.UP,
+            Collisions.COLLISION_LAYER)
+        var hit: Dictionary = get_root().world_3d.direct_space_state.intersect_ray(ray)
+        _check(hit.get("collider") == standing,
+            "Физический луч распознаёт природный ствол на выделенном слое")
+        if not hit.is_empty():
+            var selected: Dictionary = Collisions.object_from_shape(
+                standing, int(hit["shape"]))
+            _check(selected.get("id") == id and selected.get("part") == "ствол",
+                "Результат физического запроса содержит постоянный ID ствола")
         standing.free()
 
         _check(is_equal_approx(Geometry.angle_for(id, world.config.seed),
