@@ -113,7 +113,7 @@ func advance_day(day: int) -> Dictionary:
 	var best: Dictionary = {}
 	for step in range(mini(SAMPLE_COUNT, count)):
 		var i := posmod(offset + step * SAMPLE_STRIDE, count)
-		var cell := Vector2i(i % world.config.width, i / world.config.width)
+		var cell := Vector2i(i % world.config.width, floori(float(i) / float(world.config.width)))
 		var risk: Dictionary = estimate_at(cell)
 		if risk.is_empty():
 			continue
