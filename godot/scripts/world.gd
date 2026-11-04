@@ -605,6 +605,11 @@ func _refresh_visible(force: bool) -> void:
 			_rebuild_pending.erase(coord)
 			node.queue_free()
 		elif _terrain_holder != null and node.get_parent() == _terrain_holder:
+			# В кеше остаётся только итоговое состояние, без анимации.
+			for child in node.get_children():
+				if child.name == "Падение дерева":
+					node.remove_child(child)
+					child.queue_free()
 			_render_cache.put(coord, node)
 		else:
 			node.queue_free()
