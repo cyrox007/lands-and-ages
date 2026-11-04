@@ -62,6 +62,9 @@ func _test_shared_coastal_mesh() -> void:
 	var world := WorldMap.new(Config.new(64, 48, 1729, 16, 32))
 	var hydro := Hydro.new(world)
 	hydro.rebuild()
+	var surface := Surface.new(world, hydro)
+	surface.rebuild()
+	hydro.apply_rainfall_map(surface.runoff_map())
 	var before := world.to_data()
 	var water_before := hydro.to_snapshot()
 	var total_shores := 0
