@@ -235,7 +235,8 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 			if not hydro.has_water(index):
 				continue
 			# Реки соединяют соседние разливы; озёра/море рисуются отдельно.
-			if hydro.flood_depth_at(index) <= 0.00001 and not hydro.river_at(index):
+			if hydro.flood_depth_at(index) <= 0.00001 and \
+					not hydro.river_at(index) and not hydro.lake_at(index):
 				continue
 			var weight: float = (u if dx == 1 else 1.0 - u) * \
 				(v if dy == 1 else 1.0 - v)
@@ -256,7 +257,8 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 			var index: int = hydro.cell_index(candidate)
 			if not hydro.has_water(index):
 				continue
-			if hydro.flood_depth_at(index) <= 0.00001 and not hydro.river_at(index):
+			if hydro.flood_depth_at(index) <= 0.00001 and \
+					not hydro.river_at(index) and not hydro.lake_at(index):
 				continue
 			var distance: float = (point - Vector2(candidate) -
 				Vector2(0.5, 0.5)).length_squared()
@@ -389,8 +391,9 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				var frost: float = surface.frost_at_index(frost_index)
 				ice = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
-			if flood_near and not ocean and not lake:
-				# Пойма вместе с руслом: одна непрерывная водная область.
+			if flood_near and not ocean:
+				# Озёрные и речные клетки в пойме используют одно поле.
+				# Иначе независимая тёмная лента перекрывает разлив.
 				added += _flood_cell(tool, world, hydro, cell, color, ice)
 				continue
 			if ocean or lake:
