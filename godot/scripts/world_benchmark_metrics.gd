@@ -7,6 +7,8 @@ const RenderCache = preload("res://scripts/chunk_render_cache.gd")
 var _name := ""
 var _frames: Array[float] = []
 var _build_frames: Array[float] = []
+var _prepare_before := 0
+var _upload_before := 0
 var _builds_before := 0
 var _ground_before := 0
 var _water_before := 0
@@ -40,6 +42,8 @@ func begin(name: String, view: Node3D) -> void:
 	_name = name
 	_frames.clear()
 	_build_frames.clear()
+	_prepare_before = view._total_ground_prepare_us
+	_upload_before = view._total_ground_upload_us
 	_builds_before = view._chunk_rebuilds
 	_ground_before = view._total_ground_build_us
 	_water_before = view._total_water_build_us
@@ -69,7 +73,8 @@ func record(view: Node3D, frame_interval_ms: float) -> void:
 			float(view._last_visibility_us) / 1000.0)
 	_last_visibility_count = view._visibility_refreshes
 	_peak_active = maxi(_peak_active, view._active.size())
-	_peak_pending = maxi(_peak_pending, view._pending.size())
+	_peak_pending = maxi(_peak_pending,
+		view._pending.size() + view._chunk_jobs.size())
 	_peak_cache_bytes = maxi(_peak_cache_bytes, view._render_cache.estimated_bytes)
 	_peak_static_bytes = maxi(_peak_static_bytes,
 		int(Performance.get_monitor(Performance.MEMORY_STATIC)))
@@ -95,6 +100,10 @@ func finish(view: Node3D) -> Dictionary:
 			"max": percentile(_build_frames, 1.0)
 		},
 		"chunks_built": view._chunk_rebuilds - _builds_before,
+		"ground_prepare_worker_ms_total": float(
+			view._total_ground_prepare_us - _prepare_before) / 1000.0,
+		"ground_upload_main_ms_total": float(
+			view._total_ground_upload_us - _upload_before) / 1000.0,
 		"ground_mesh_cpu_ms_total": float(view._total_ground_build_us -
 			_ground_before) / 1000.0,
 		"water_mesh_cpu_ms_total": float(view._total_water_build_us -
@@ -111,5 +120,5 @@ func finish(view: Node3D) -> Dictionary:
 		"peak_cached_geometry_bytes": _peak_cache_bytes,
 		"peak_godot_static_bytes": _peak_static_bytes,
 		"cache_limits_valid": _cache_limits_valid,
-		"pending_at_end": view._pending.size()
+		"pending_at_end": view._pending.size() + view._chunk_jobs.size()
 	}

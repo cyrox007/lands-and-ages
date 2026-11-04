@@ -225,13 +225,14 @@ func _test_scene() -> void:
 		"После восстановления нет незавершённой задачи")
 	_check(scene._day_runner.world == scene._world_model,
 		"Фоновая симуляция работает с загруженной картой")
-	var expected_chunks: int = scene._pending.size()
-	for i in range(expected_chunks + 3):
+	var expected_chunks: int = scene._wanted_chunks.size()
+	var mesh_deadline := Time.get_ticks_msec() + 30000
+	while ((not scene._pending.is_empty() or
+			not scene._chunk_jobs.is_empty()) and
+			Time.get_ticks_msec() < mesh_deadline):
 		await process_frame
-		if scene._pending.is_empty():
-			break
-	_check(scene._pending.is_empty(),
-		"После восстановления очередь GPU отрисована до конца")
+	_check(scene._pending.is_empty() and scene._chunk_jobs.is_empty(),
+		"После восстановления фоновая очередь GPU отрисована до конца")
 	_check(scene._active.size() == expected_chunks,
 		"Нет лишних или пропущенных видимых чанков")
 	metrics.append({

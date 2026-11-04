@@ -9,6 +9,7 @@ const Chunk = preload("res://scripts/chunk.gd")
 const ChunkVisibility = preload("res://scripts/chunk_visibility.gd")
 const ChunkRenderCache = preload("res://scripts/chunk_render_cache.gd")
 const ChunkBuildQueue = preload("res://scripts/chunk_build_queue.gd")
+const ChunkBuildWorker = preload("res://scripts/chunk_build_worker.gd")
 const BenchmarkRoute = preload("res://scripts/world_benchmark_route.gd")
 const BenchmarkRunner = preload("res://scripts/world_benchmark_runner.gd")
 const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
@@ -34,7 +35,8 @@ const VIEW_NAMES := [
 	"Температура", "Климатические области", "Снег",
 	"Перенос наносов", "Вода и паводки"
 ]
-const MAX_BUILDS_PER_FRAME := 8
+const MAX_BUILDS_PER_FRAME := 2
+const MAX_CONCURRENT_CHUNK_JOBS := 2
 const MESH_BUDGET_US := 4200
 const HEIGHT_BOUNDS_CACHE_LIMIT := 512
 const FRAME_SAMPLE_LIMIT := 120
@@ -78,6 +80,8 @@ var _ground_material: ShaderMaterial
 var _debug_ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
+var _chunk_jobs := {}
+var _chunk_generation := 0
 var _wanted_chunks := {}
 var _rebuild_pending := {}
 var _pan_delta := Vector2.ZERO
@@ -94,6 +98,8 @@ var _last_chunk_build_us := 0
 var _last_ground_build_us := 0
 var _last_water_build_us := 0
 var _total_ground_build_us := 0
+var _total_ground_prepare_us := 0
+var _total_ground_upload_us := 0
 var _total_water_build_us := 0
 var _chunk_rebuilds := 0
 var _visibility_refreshes := 0
@@ -292,6 +298,13 @@ func _process(delta: float) -> void:
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
 	# Год может считаться несколько секунд, но камера и UI работают.
 	# WorkerThreadPool трогает только RefCounted-модели, не сцену.
+	# Сначала забираем готовую CPU-геометрию на главном потоке.
+	# Работающие воркеры не могут пересекаться с изменением физики дня.
+	_last_chunk_build_us = 0
+	_last_ground_build_us = 0
+	_last_water_build_us = 0
+	if _day_task_id < 0:
+		_collect_chunk_jobs()
 	if _day_task_id >= 0:
 		if WorkerThreadPool.is_task_completed(_day_task_id):
 			WorkerThreadPool.wait_for_task_completion(_day_task_id)
@@ -301,7 +314,7 @@ func _process(delta: float) -> void:
 			if _days_pending == 0 and _storage_request != "load":
 				_refresh_visible(true)
 				_visual_refreshes += 1
-	elif _days_pending > 0:
+	elif _days_pending > 0 and _chunk_jobs.is_empty():
 		if is_inside_tree():
 			_ensure_day_runner()
 			_day_task_id = WorkerThreadPool.add_task(
@@ -315,35 +328,25 @@ func _process(delta: float) -> void:
 				_visual_refreshes += 1
 	# Загрузка отменяет очередь сезонов только после завершения
 	# текущего рабочего дня. Сохранение ждёт конец всей перемотки.
-	if _day_task_id < 0 and not _storage_request.is_empty():
+	if (_day_task_id < 0 and _chunk_jobs.is_empty() and
+			not _storage_request.is_empty()):
 		if _storage_request == "load":
 			_days_pending = 0
 			_perform_storage("load")
 		elif _days_pending == 0:
 			_perform_storage("save")
-	if _day_task_id < 0 and not _terrain_dirty.is_empty():
+	if (_day_task_id < 0 and _chunk_jobs.is_empty() and
+			not _terrain_dirty.is_empty()):
 		_flush_world_changes()
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
-	_last_chunk_build_us = 0
-	_last_ground_build_us = 0
-	_last_water_build_us = 0
 	if _days_pending == 0 and _day_task_id < 0:
 		_mesh_build_budget_us = ChunkBuildQueue.budget_us(
 			_frame_percentile(_frame_samples, 0.95), _pan_pending, MESH_BUDGET_US)
-		var frame_start := Time.get_ticks_usec()
-		var built := 0
-		while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
-			var coord: Vector2i = _pending.pop_front()
-			if not _wanted_chunks.has(coord) or (
-					_active.has(coord) and not _rebuild_pending.has(coord)):
-				_skipped_stale_jobs += 1
-				continue
-			_create_chunk(coord)
-			built += 1
-			if Time.get_ticks_usec() - frame_start >= _mesh_build_budget_us:
-				break
-		_last_chunk_build_us = Time.get_ticks_usec() - frame_start
+		if is_inside_tree():
+			_start_chunk_jobs()
+		else:
+			_build_chunks_synchronously()
 	_pan_pending = false
 	_hud_timer += delta
 	if _hud_timer > 0.3:
@@ -520,6 +523,8 @@ func _synchronize_render_cache(force: bool) -> void:
 
 func _refresh_visible(force: bool) -> void:
 	var refresh_started := Time.get_ticks_usec()
+	if force:
+		_chunk_generation += 1
 	_synchronize_render_cache(force)
 	var center_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
@@ -590,18 +595,19 @@ func _refresh_visible(force: bool) -> void:
 			_rebuild_pending.erase(coord)
 	if not force:
 		for coord in desired.keys():
-			if _active.has(coord):
+			if _active.has(coord) or _chunk_jobs.has(coord):
 				continue
 			var restored: Node3D = _render_cache.take(coord)
 			if restored != null:
 				_active[coord] = restored
 	var scheduled := {}
 	for coord in _pending:
-		if desired.has(coord) and (not _active.has(coord) \
-				or _rebuild_pending.has(coord)):
+		if desired.has(coord) and not _chunk_jobs.has(coord) and (
+				not _active.has(coord) or _rebuild_pending.has(coord)):
 			scheduled[coord] = true
 	for coord in desired.keys():
-		if not _active.has(coord) or _rebuild_pending.has(coord):
+		if not _chunk_jobs.has(coord) and (
+				not _active.has(coord) or _rebuild_pending.has(coord)):
 			scheduled[coord] = true
 	_pending.clear()
 	for coord in scheduled.keys():
@@ -612,23 +618,128 @@ func _refresh_visible(force: bool) -> void:
 	_visibility_refreshes += 1
 
 
+func _build_chunks_synchronously() -> void:
+	# Автономный детерминированный путь тестов без SceneTree.
+	# Игровой рендер всегда отправляет CPU-подготовку в воркеры.
+	var started := Time.get_ticks_usec()
+	var built := 0
+	while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
+		var coord: Vector2i = _pending.pop_front()
+		if not _wanted_chunks.has(coord) or (
+				_active.has(coord) and not _rebuild_pending.has(coord)):
+			_skipped_stale_jobs += 1
+			continue
+		_create_chunk(coord)
+		built += 1
+		if Time.get_ticks_usec() - started >= _mesh_build_budget_us:
+			break
+	_last_chunk_build_us += Time.get_ticks_usec() - started
+
+
+func _start_chunk_jobs() -> void:
+	if _pending.is_empty() or _chunk_jobs.size() >= MAX_CONCURRENT_CHUNK_JOBS:
+		return
+	# Ленивая подготовка физических моделей допускается только в main.
+	if _view_mode == 0:
+		_hydro.ensure_ready()
+		_surface.ensure_ready()
+	while (_chunk_jobs.size() < MAX_CONCURRENT_CHUNK_JOBS and
+			not _pending.is_empty()):
+		var coord: Vector2i = _pending.pop_front()
+		if not _wanted_chunks.has(coord) or (
+				_active.has(coord) and not _rebuild_pending.has(coord)):
+			_skipped_stale_jobs += 1
+			continue
+		var worker := ChunkBuildWorker.new(coord, _view_mode, _world_model,
+			_surface, _climate, _hydro)
+		var task: int = WorkerThreadPool.add_task(worker.run, false,
+			"Подготовка поверхности чанка")
+		_chunk_jobs[coord] = {
+			"task": task, "worker": worker, "generation": _chunk_generation,
+			"world": _world_model.revision, "surface": _surface.revision,
+			"hydro": _hydro.revision, "mode": _view_mode
+		}
+
+
+func _collect_chunk_jobs() -> void:
+	var started := Time.get_ticks_usec()
+	var completed := 0
+	for coord in _chunk_jobs.keys():
+		var item: Dictionary = _chunk_jobs[coord]
+		var task: int = item["task"]
+		if not WorkerThreadPool.is_task_completed(task):
+			continue
+		# Очередь записи потока синхронизирована через wait_for_task.
+		WorkerThreadPool.wait_for_task_completion(task)
+		_chunk_jobs.erase(coord)
+		var valid: bool = (
+			item["generation"] == _chunk_generation and
+			item["world"] == _world_model.revision and
+			item["surface"] == _surface.revision and
+			item["hydro"] == _hydro.revision and
+			item["mode"] == _view_mode and _wanted_chunks.has(coord)
+		)
+		if not valid:
+			_skipped_stale_jobs += 1
+			if _wanted_chunks.has(coord) and not _pending.has(coord):
+				_pending.append(coord)
+			continue
+		var worker: RefCounted = item["worker"]
+		var upload_started := Time.get_ticks_usec()
+		var ground_mesh: ArrayMesh = Chunk.mesh_from_arrays(worker.arrays)
+		var upload_us := Time.get_ticks_usec() - upload_started
+		_last_ground_build_us += worker.prepare_us + upload_us
+		_total_ground_build_us += worker.prepare_us + upload_us
+		_total_ground_prepare_us += worker.prepare_us
+		_total_ground_upload_us += upload_us
+		_attach_chunk(coord, ground_mesh)
+		completed += 1
+		if (completed >= MAX_BUILDS_PER_FRAME or
+				Time.get_ticks_usec() - started >= _mesh_build_budget_us):
+			break
+	_last_chunk_build_us += Time.get_ticks_usec() - started
+
+
+func _wait_chunk_jobs() -> void:
+	# Только при остановке сцены, загрузке сохранения или редком
+	# ручном изменении рельефа. Никакого ожидания в обычном кадре.
+	for item in _chunk_jobs.values():
+		WorkerThreadPool.wait_for_task_completion(int(item["task"]))
+	_chunk_jobs.clear()
+
+
 func _create_chunk(coord: Vector2i) -> void:
+	# Синхронный путь сохраняем для тестов и изолированных вызовов.
+	var started := Time.get_ticks_usec()
+	var arrays: Array = Chunk.prepare_arrays(coord.x, coord.y, 1,
+		_world_model, _surface, _view_mode, _climate, _hydro)
+	var prepared_us := Time.get_ticks_usec() - started
+	started = Time.get_ticks_usec()
+	var mesh := Chunk.mesh_from_arrays(arrays)
+	var upload_us := Time.get_ticks_usec() - started
+	_last_ground_build_us += prepared_us + upload_us
+	_total_ground_build_us += prepared_us + upload_us
+	_total_ground_prepare_us += prepared_us
+	_total_ground_upload_us += upload_us
+	_attach_chunk(coord, mesh)
+
+
+func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
+	# Ни один воркер не трогает Node, ArrayMesh или RenderingServer.
 	var old_node: Node3D = _active.get(coord)
 	var node := Node3D.new()
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
-	var ground_started := Time.get_ticks_usec()
-	ground.mesh = Chunk.create_mesh(coord.x, coord.y, 1, _world_model,
-		_surface, _view_mode, _climate, _hydro)
-	var ground_us := Time.get_ticks_usec() - ground_started
-	_last_ground_build_us += ground_us
-	_total_ground_build_us += ground_us
-	ground.material_override = _ground_material if _view_mode == 0 \
-		else _debug_ground_material
+	ground.mesh = ground_mesh
+	if _view_mode == 0:
+		ground.material_override = _ground_material
+	else:
+		ground.material_override = _debug_ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
 	var water_started := Time.get_ticks_usec()
-	var water_mesh: ArrayMesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface)
+	var water_mesh: ArrayMesh = WaterMesh.create_mesh(
+		_world_model, _hydro, coord, _surface)
 	var water_us := Time.get_ticks_usec() - water_started
 	_last_water_build_us += water_us
 	_total_water_build_us += water_us
@@ -645,7 +756,6 @@ func _create_chunk(coord: Vector2i) -> void:
 	_active[coord] = node
 	_rebuild_pending.erase(coord)
 	_chunk_rebuilds += 1
-
 
 func _on_world_changed(chunks: Array[Vector2i], revision: int) -> void:
 	# Событие, уже согласованное фоновым расчётом, не запускаем снова.
@@ -685,7 +795,12 @@ func _storage_models() -> Dictionary:
 func _request_storage(action: String) -> void:
 	if _benchmark_running or action not in ["save", "load"]:
 		return
-	if _day_task_id >= 0 or _days_pending > 0:
+	# Для ручной загрузки гарантируем отсутствие ссылок воркера на
+	# заменяемую физическую модель. Выполняется только по запросу.
+	if action == "load" and _day_task_id < 0:
+		_wait_chunk_jobs()
+	if (_day_task_id >= 0 or _days_pending > 0 or
+			not _chunk_jobs.is_empty()):
 		_storage_request = action
 		_storage_status = "Сохранение ожидает конец перемотки" if action == "save" \
 			else "Загрузка ожидает завершения текущего дня"
@@ -694,7 +809,7 @@ func _request_storage(action: String) -> void:
 
 
 func _perform_storage(action: String) -> void:
-	if _day_task_id >= 0:
+	if _day_task_id >= 0 or not _chunk_jobs.is_empty():
 		return
 	_storage_request = ""
 	if action == "save":
@@ -767,6 +882,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 
 func _exit_tree() -> void:
 	# Не освобождаем карту, пока фоновый поток использует её массивы.
+	_wait_chunk_jobs()
 	if _day_task_id >= 0:
 		WorkerThreadPool.wait_for_task_completion(_day_task_id)
 		_day_task_id = -1
@@ -775,6 +891,7 @@ func _exit_tree() -> void:
 func _apply_landscape_event(kind: String) -> void:
 	if _day_task_id >= 0 or _benchmark_running:
 		return
+	_wait_chunk_jobs()
 	var result: Dictionary = _landscape_events.apply(kind, _center, 18.0, 3.0)
 	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
 		if not result.is_empty() else "%s: нет подходящего участка" % kind
@@ -838,6 +955,7 @@ func _cycle_view() -> void:
 
 func _prepare_benchmark_start() -> void:
 	# Холодное начало одинаково для CI, ПК и Android.
+	_wait_chunk_jobs()
 	for coord in _active.keys():
 		var node: Node3D = _active[coord]
 		node.visible = false
@@ -965,7 +1083,7 @@ func _update_hud() -> void:
 		float(_last_ground_build_us) / 1000.0,
 		float(_last_water_build_us) / 1000.0, _visual_refreshes]
 	_status.text += "Очередь GPU %d · обновить %d · бюджет %d мкс · отброшено %d\n" % [
-		_pending.size(), _rebuild_pending.size(),
+		_pending.size() + _chunk_jobs.size(), _rebuild_pending.size(),
 		_mesh_build_budget_us, _skipped_stale_jobs]
 	_status.text += "Видимость: %.2f мс · быстрых отсечений %d · точных проверок %d\n" % [
 		float(_last_visibility_us) / 1000.0,
@@ -997,4 +1115,4 @@ func _update_hud() -> void:
 			kind, int(_last_day_statistics[kind])]
 	_status.text += "FPS %d · чанки %d/%d · осталось дней %d" % [
 		Engine.get_frames_per_second(), _active.size(),
-		_active.size() + _pending.size(), _days_pending]
+		_wanted_chunks.size(), _days_pending]
