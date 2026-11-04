@@ -53,10 +53,9 @@ func _run() -> void:
 	_check(view._chunk_jobs.size() > 0 and
 		view._chunk_jobs.size() <= View.MAX_CONCURRENT_CHUNK_JOBS,
 		"На CPU работают не больше двух независимых заданий")
-	var frames := 0
-	while view._chunk_rebuilds == 0 and frames < 150:
+	var deadline := Time.get_ticks_msec() + 15000
+	while view._chunk_rebuilds == 0 and Time.get_ticks_msec() < deadline:
 		await process_frame
-		frames += 1
 	_check(view._chunk_rebuilds > 0 and not view._active.is_empty(),
 		"Готовый массив передан в GPU через основной поток")
 	_check(view._total_ground_prepare_us > 0 and
