@@ -121,3 +121,14 @@ jobs:
           name: ecology-seed-smoke
           path: godot/tests/world-ecology-seeds-10.json
           if-no-files-found: ignore
+      - name: Сохранить диагностику ошибок Godot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-nature-error-logs
+          path: |
+            /tmp/nature-import.log
+            /tmp/nature-smoke.log
+            /tmp/nature-seeds-smoke.log
+            /tmp/world-capacity-10.log
+          if-no-files-found: ignore

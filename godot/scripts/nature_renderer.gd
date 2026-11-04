@@ -15,7 +15,11 @@ static func _mesh(kind: String) -> Mesh:
     if _meshes.has(kind):
         return _meshes[kind]
     var mesh: PrimitiveMesh
-    if kind == "трава":
+    if kind == "зарубка":
+        var mark := BoxMesh.new()
+        mark.size = Vector3(0.28, 0.24, 0.06)
+        mesh = mark
+    elif kind == "трава":
         var blade := CylinderMesh.new()
         blade.top_radius = 0.0
         blade.bottom_radius = 0.035
@@ -63,6 +67,8 @@ static func _color(kind: String, species: String, state: String) -> Color:
         return Color(0.30, 0.22, 0.14) if state != "сухостой" else Color(0.44, 0.40, 0.32)
     if kind == "трава":
         return Color(0.22, 0.38, 0.13)
+    if kind == "зарубка":
+        return Color(0.45, 0.25, 0.12)
     if kind == "камень":
         return Color(0.46, 0.48, 0.43)
     if kind == "куст":
@@ -145,6 +151,18 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                             log_origin),
                         _color("бревно", species, state), phase)
                 continue
+            var cut: int = int(item.get("cut_progress", 0))
+            if cut > 0:
+                var angle: float = Felling.angle_for(
+                    int(item["id"]), world.config.seed)
+                var radial := Vector3(cos(angle), 0.0, sin(angle))
+                var mark_basis := Basis(Vector3.UP, angle).scaled(Vector3(
+                    scale_factor * (0.35 + 0.65 * float(cut) / 1000.0),
+                    scale_factor, scale_factor))
+                _push(groups, "зарубка", Transform3D(mark_basis,
+                    origin + radial * scale_factor * 0.17 +
+                    Vector3(0, scale_factor * 0.45, 0)),
+                    _color("зарубка", species, state), phase)
             # Взрослые деревья используют настоящую модель. Зимой
             # у лиственных временно остаётся только голый ствол.
             var foliage_visible := state == "целое" and (

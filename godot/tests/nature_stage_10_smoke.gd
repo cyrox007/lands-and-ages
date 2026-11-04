@@ -242,6 +242,87 @@ func _run() -> void:
     _check(not cache.has(cached_chunk),
         "Изменение природы удаляет только устаревший чанк из кеша")
 
+    if tree_id > 0:
+        var hit_world := _state()
+        var hit_nature: RefCounted = hit_world["nature"]
+        var initial_tree: Dictionary = hit_nature.object_at(tree_id)
+        var total_before: int = hit_nature.wood_total()
+        _check(hit_nature.hit_tree(tree_id, 0).is_empty(),
+            "Нулевой удар не изменяет состояние")
+        _check(hit_nature.hit_tree(tree_id, 1001).is_empty(),
+            "Недопустимая сила удара отклоняется")
+
+        var strike_events: Array[int] = []
+        hit_nature.tree_struck.connect(
+            func(_before: Dictionary, progress: int) -> void:
+                strike_events.append(progress))
+        var first_hit: Dictionary = hit_nature.hit_tree(tree_id, 250)
+        _check(first_hit.get("cut_progress", -1) == 250,
+            "Первый удар увеличивает физический прогресс рубки")
+        _check(hit_nature.wood_total() == total_before,
+            "Удары не создают и не уменьшают древесный запас")
+        _check(strike_events == [250],
+            "Повреждение передаётся единичным событием")
+
+        var chips := Felling.make_hit_visual(hit_world["world"], initial_tree)
+        _check(chips != null, "Одноразовые щепки создаются только для дерева")
+        if chips != null:
+            _check(chips.get_child_count() == 1,
+                "Щепки используют один меш вместо множества нод")
+            chips.free()
+
+        var struck_cell := Vector2i(int(initial_tree["x"]),
+            int(initial_tree["y"]))
+        var struck_chunk: Vector2i = hit_world["world"].config.chunk_of(
+            struck_cell)
+        var damaged_visual := Renderer.create_chunk(
+            hit_world["world"], hit_nature, struck_chunk)
+        _check(damaged_visual.get_node_or_null("зарубка") != null,
+            "На повреждённом дереве видна сохраняемая зарубка")
+        damaged_visual.free()
+
+        var damaged_snapshot: Dictionary = Save.capture(hit_world)
+        var damaged_restore: Dictionary = Save.restore(damaged_snapshot)
+        _check(not damaged_restore.is_empty(),
+            "Мир с частично срубленным деревом загружается")
+        if not damaged_restore.is_empty():
+            var recovered: RefCounted = damaged_restore["nature"]
+            _check(int(recovered.object_at(tree_id)["cut_progress"]) == 250,
+                "Прогресс рубки сохраняется после перезапуска")
+            var struck_after_restore: Array[int] = []
+            recovered.tree_struck.connect(
+                func(_previous: Dictionary, progress: int) -> void:
+                    struck_after_restore.append(progress))
+            recovered.hit_tree(tree_id, 250)
+            recovered.hit_tree(tree_id, 250)
+            var finishing: Dictionary = recovered.hit_tree(tree_id, 250)
+            _check(struck_after_restore == [500, 750],
+                "После загрузки продолжение ударов детерминировано")
+            _check(finishing.get("felled", false),
+                "Четвёртый удар завершает физическую валку")
+            _check(recovered.wood_total() == total_before,
+                "Все удары вместе не нарушают баланс древесины")
+            _check(recovered.hit_tree(tree_id, 250).is_empty(),
+                "Пень нельзя повторно рубить")
+
+        # Загружаем старый формат растительности без поля cut_progress.
+        var old_snapshot: Dictionary = damaged_snapshot.duplicate(true)
+        old_snapshot["nature"]["version"] = 1
+        for record in old_snapshot["nature"]["objects"]:
+            record.pop_back()
+        var old_restore: Dictionary = Save.restore(old_snapshot)
+        _check(not old_restore.is_empty(),
+            "Старые сохранения версии 1 остаются читаемыми")
+        if not old_restore.is_empty():
+            _check(int(old_restore["nature"].object_at(
+                tree_id)["cut_progress"]) == 0,
+                "У старых сохранений прогресс рубки равен нулю")
+
+        var invalid_snapshot: Dictionary = damaged_snapshot.duplicate(true)
+        invalid_snapshot["nature"]["objects"][0][10] = 1000
+        _check(Save.restore(invalid_snapshot).is_empty(),
+            "Недопустимый прогресс в сохранении отклоняется")
+
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)
     _check(int(capacity["cells"]) == 96 * 80,
