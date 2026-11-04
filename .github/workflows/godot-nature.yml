@@ -19,6 +19,7 @@ on:
       - "godot/scripts/weather_events.gd"
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
+      - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/world_capacity_report_10.gd"
       - ".github/workflows/godot-nature.yml"
   pull_request:
@@ -38,6 +39,7 @@ on:
       - "godot/scripts/weather_events.gd"
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
+      - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/world_capacity_report_10.gd"
       - ".github/workflows/godot-nature.yml"
 
@@ -75,6 +77,18 @@ jobs:
             | tee /tmp/nature-smoke.log
           grep -q "Этап 10:.*успешно" /tmp/nature-smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-smoke.log; then
+            exit 1
+          fi
+      - name: Проверить природные коллизии этапа 10.6
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 120 \
+            --script res://tests/nature_collision_smoke.gd 2>&1 \
+            | tee /tmp/nature-collision.log
+          grep -q "Этап 10.6: природные коллизии проверены успешно" /tmp/nature-collision.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-collision.log; then
             exit 1
           fi
       - name: Измерить вместимость демонстрационной карты
