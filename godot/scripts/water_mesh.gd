@@ -236,11 +236,46 @@ static func _flood_outline(neighbors: Array[bool]) -> PackedVector2Array:
 	])
 
 
+static func _clip_flood_outline(points: PackedVector2Array,
+		heights: PackedFloat32Array, outline: PackedVector2Array) -> Dictionary:
+	# Подрезаем треугольник визуальной земли выпуклым контуром разлива.
+	# Высота пересечения линейно берётся с ТОГО ЖЕ ребра меша земли.
+	var clipped_points := points
+	var clipped_heights := heights
+	for edge_index in range(outline.size()):
+		if clipped_points.is_empty():
+			break
+		var next_points := PackedVector2Array()
+		var next_heights := PackedFloat32Array()
+		var a := outline[edge_index]
+		var b := outline[(edge_index + 1) % outline.size()]
+		var direction := b - a
+		var previous := clipped_points.size() - 1
+		for current in range(clipped_points.size()):
+			var previous_side := direction.cross(clipped_points[previous] - a)
+			var current_side := direction.cross(clipped_points[current] - a)
+			var was_inside := previous_side >= -0.000001
+			var is_inside := current_side >= -0.000001
+			if was_inside != is_inside:
+				var fraction := clampf(previous_side /
+					(previous_side - current_side), 0.0, 1.0)
+				next_points.append(clipped_points[previous].lerp(
+					clipped_points[current], fraction))
+				next_heights.append(lerpf(clipped_heights[previous],
+					clipped_heights[current], fraction))
+			if is_inside:
+				next_points.append(clipped_points[current])
+				next_heights.append(clipped_heights[current])
+			previous = current
+		clipped_points = next_points
+		clipped_heights = next_heights
+	return {"points": clipped_points, "heights": clipped_heights}
+
+
 static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 		hydro: RefCounted, cell: Vector2i, level: float,
 		tint: Color, ice: float) -> int:
-	# Гидрология задаёт реально затопленные клетки и их уровень.
-	# Рендер создаёт плавный, локальный контур без полных плиток.
+	# Гидрология определяет затопление, но не навязывает квадратный меш.
 	var neighbors: Array[bool] = []
 	for delta in [Vector2i(0, -1), Vector2i(1, 0),
 			Vector2i(0, 1), Vector2i(-1, 0)]:
@@ -250,24 +285,41 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 	var hb: float = world.vertex_at(cell + Vector2i(1, 0))
 	var hc: float = world.vertex_at(cell + Vector2i(0, 1))
 	var hd: float = world.vertex_at(cell + Vector2i(1, 1))
-	var center := Vector2(cell) + Vector2(0.5, 0.5)
-	var center_height := _terrain_height(ha, hb, hc, hd, 0.5, 0.5)
 	var added := 0
-	for i in range(outline.size()):
-		var first_uv: Vector2 = outline[i]
-		var second_uv: Vector2 = outline[(i + 1) % outline.size()]
-		var first := Vector2(cell) + first_uv
-		var second := Vector2(cell) + second_uv
-		var polygon := _clip_submerged_triangle(
-			PackedVector2Array([center, first, second]),
-			PackedFloat32Array([
-				center_height,
-				_terrain_height(ha, hb, hc, hd, first_uv.x, first_uv.y),
-				_terrain_height(ha, hb, hc, hd, second_uv.x, second_uv.y)
-			]), level)
-		added += _add_polygon(tool, world, polygon, level, tint, ice)
+	# Точно та же сетка 3×3 и диагональ, что у прибрежного Chunk:
+	# никакие большие треугольники воды не пересекают землю.
+	for j in range(SHORE_SUBDIVISIONS):
+		for i in range(SHORE_SUBDIVISIONS):
+			var u0 := float(i) / float(SHORE_SUBDIVISIONS)
+			var u1 := float(i + 1) / float(SHORE_SUBDIVISIONS)
+			var v0 := float(j) / float(SHORE_SUBDIVISIONS)
+			var v1 := float(j + 1) / float(SHORE_SUBDIVISIONS)
+			var a := Vector2(u0, v0)
+			var b := Vector2(u1, v0)
+			var c := Vector2(u0, v1)
+			var d := Vector2(u1, v1)
+			var h00 := _terrain_height(ha, hb, hc, hd, u0, v0)
+			var h10 := _terrain_height(ha, hb, hc, hd, u1, v0)
+			var h01 := _terrain_height(ha, hb, hc, hd, u0, v1)
+			var h11 := _terrain_height(ha, hb, hc, hd, u1, v1)
+			for tri in [
+				{"points": PackedVector2Array([a, c, b]),
+				 "heights": PackedFloat32Array([h00, h01, h10])},
+				{"points": PackedVector2Array([d, b, c]),
+				 "heights": PackedFloat32Array([h11, h10, h01])}
+			]:
+				var clipped: Dictionary = _clip_flood_outline(
+					tri["points"], tri["heights"], outline)
+				var positions: PackedVector2Array = clipped["points"]
+				if positions.size() < 3:
+					continue
+				var absolute := PackedVector2Array()
+				for point in positions:
+					absolute.append(Vector2(cell) + point)
+				var polygon := _clip_submerged_triangle(
+					absolute, clipped["heights"], level)
+				added += _add_polygon(tool, world, polygon, level, tint, ice)
 	return added
-
 
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		surface: RefCounted = null) -> ArrayMesh:
