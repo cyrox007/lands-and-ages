@@ -3,8 +3,8 @@ extends RefCounted
 ## Не зависит от сцены, камеры, GPU и кадровой частоты.
 
 
-static func angle_for(id: int, seed: int) -> float:
-    return deg_to_rad(float(posmod(id * 73 + seed, 360)))
+static func angle_for(id: int, object_seed: int) -> float:
+    return deg_to_rad(float(posmod(id * 73 + object_seed, 360)))
 
 
 static func log_footprint(item: Dictionary,
