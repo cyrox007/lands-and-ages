@@ -3,7 +3,7 @@ extends RefCounted
 ## Физические препятствия включаются только около активной камеры.
 
 const Registry = preload("res://scripts/nature_registry.gd")
-const Felling = preload("res://scripts/nature_felling_visual.gd")
+const Geometry = preload("res://scripts/nature_geometry.gd")
 
 const ACTIVE_RADIUS_CHUNKS := 1
 const MAX_NEW_CHUNKS_PER_FRAME := 2
@@ -57,10 +57,11 @@ static func _add_log(body: StaticBody3D, world: RefCounted,
         point: Vector2, item: Dictionary) -> void:
     if int(item["fallen_wood"]) <= 0:
         return
-    var angle: float = Felling.angle_for(
-        int(item["id"]), world.config.seed)
-    var offset := Vector2(cos(angle), sin(angle)) * 0.70
-    var log_point: Vector2 = world.config.clamp_point(point + offset)
+    var footprint: Dictionary = Geometry.log_footprint(item, world.config)
+    if footprint.is_empty():
+        return
+    var angle: float = footprint["angle"]
+    var log_point: Vector2 = footprint["center"]
     var height: float = world.height_at(log_point)
     if not is_finite(height):
         return
