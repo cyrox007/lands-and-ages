@@ -373,8 +373,8 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			if not physical_water and context.is_empty() and not flood_near:
 				continue
 			var level: float = hydro.level_at(index) if physical_water else float(context.get("level", 0.0))
-			var lake: bool = hydro.lake_at(index) if physical_water else bool(context["lake"])
-			var ocean: bool = hydro.ocean_at(index) if physical_water else bool(context["ocean"])
+			var lake: bool = hydro.lake_at(index) if physical_water else bool(context.get("lake", false))
+			var ocean: bool = hydro.ocean_at(index) if physical_water else bool(context.get("ocean", false))
 			var river: bool = hydro.river_at(index) if physical_water else false
 			var color := Color(0.16, 0.34, 0.38, 0.92)
 			if ocean:
