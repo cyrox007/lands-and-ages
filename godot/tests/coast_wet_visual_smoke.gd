@@ -166,6 +166,53 @@ func _test_shared_coastal_mesh() -> void:
 
 
 
+
+func _test_flood_outlines() -> void:
+	# Разлив не должен образовывать отдельные квадратные плитки.
+	var isolated := Water._flood_outline([false, false, false, false])
+	_check(isolated.size() == 8, "Контур разлива имеет восемь опорных точек")
+	for point in isolated:
+		_check(point.x > 0.0 and point.x < 1.0 and
+			point.y > 0.0 and point.y < 1.0,
+			"Изолированное подтопление не заполняет прямоугольник клетки")
+	var east := Water._flood_outline([false, true, false, false])
+	var west := Water._flood_outline([false, false, false, true])
+	_check(east[2] == west[7] + Vector2(1.0, 0.0) and
+		east[3] == west[6] + Vector2(1.0, 0.0),
+		"Смежные участки паводка имеют согласованные края")
+
+	var world := WorldMap.new(Config.new(64, 48, 1729, 16, 32))
+	var hydro := Hydro.new(world)
+	hydro.rebuild()
+	var cell := Vector2i(9, 11)
+	var max_height := -INF
+	for corner in [cell, cell + Vector2i(1, 0),
+			cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
+		max_height = maxf(max_height, world.vertex_at(corner))
+	var level := max_height + 0.6
+	var before: Dictionary = world.to_data()
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var triangles := Water._flood_cell(
+		tool, world, hydro, cell, level, Color.BLUE, 0.0)
+	_check(triangles == 8,
+		"Даже в полностью подтопленной клетке остаётся не квадрат, а контур")
+	if triangles > 0:
+		var mesh: ArrayMesh = tool.commit()
+		var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		_check(verts.size() == triangles * 3,
+			"Паводковые треугольники формируют полный меш")
+		for corner in [cell, cell + Vector2i(1, 0),
+				cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
+			var square_corner := world.config.to_scene(
+				Vector2(corner), level + Water.WATER_OFFSET)
+			for vertex in verts:
+				_check(vertex.distance_to(square_corner) > 0.00001,
+					"Паводковый меш не содержит углов квадратной плитки")
+	_check(world.to_data() == before,
+		"Контур паводка не изменяет физические высоты")
+
+
 func _test_river_curves() -> void:
 	_check(Water.RIVER_SEGMENTS >= 3,
 		"Речные ленты состоят из последовательных гладких секций")
@@ -249,6 +296,7 @@ func _test_waves() -> void:
 func _initialize() -> void:
 	_test_coast()
 	_test_shared_coastal_mesh()
+	_test_flood_outlines()
 	_test_river_curves()
 	_test_wetness()
 	_test_waves()
