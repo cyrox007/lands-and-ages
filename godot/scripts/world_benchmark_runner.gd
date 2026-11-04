@@ -47,6 +47,8 @@ func run(view: Node3D) -> Dictionary:
 	var precise_checks := 0
 	var peak_pending := 0
 	var peak_static := 0
+	var peak_nature_chunks := 0
+	var peak_nature_shapes := 0
 	var peak_cache := 0
 	var ground_cpu_ms := 0.0
 	var ground_prepare_ms := 0.0
@@ -60,6 +62,10 @@ func run(view: Node3D) -> Dictionary:
 		precise_checks += int(result["visibility_precise_checks"])
 		peak_pending = maxi(peak_pending, int(result["peak_pending_chunks"]))
 		peak_static = maxi(peak_static, int(result["peak_godot_static_bytes"]))
+		peak_nature_chunks = maxi(peak_nature_chunks,
+			int(result["collision_chunks_at_phase_end"]))
+		peak_nature_shapes = maxi(peak_nature_shapes,
+			int(result["collision_shapes_at_phase_end"]))
 		peak_cache = maxi(peak_cache, int(result["peak_cached_geometry_bytes"]))
 		ground_cpu_ms += float(result["ground_mesh_cpu_ms_total"])
 		ground_prepare_ms += float(result["ground_prepare_worker_ms_total"])
@@ -88,7 +94,8 @@ func run(view: Node3D) -> Dictionary:
 			"water_mesh_cpu_ms_total": "построение геометрии воды на CPU, не GPU",
 			"ground_prepare_worker_ms_total": "CPU-расчёт массивов в WorkerThreadPool",
 			"ground_upload_main_ms_total": "создание ArrayMesh на главном потоке",
-			"peak_godot_static_bytes": "статическая память Godot, не RAM/VRAM"
+			"peak_godot_static_bytes": "статическая память Godot, не RAM/VRAM",
+			"peak_nature_collision_shapes_sampled": "максимум форм в конце фаз; не все кадры"
 		},
 		"map": {
 			"width": config.width, "height": config.height,
@@ -110,6 +117,8 @@ func run(view: Node3D) -> Dictionary:
 			"water_mesh_cpu_ms_total": water_cpu_ms,
 			"peak_cached_geometry_bytes": peak_cache,
 			"peak_godot_static_bytes": peak_static,
+			"peak_nature_collision_chunks_sampled": peak_nature_chunks,
+			"peak_nature_collision_shapes_sampled": peak_nature_shapes,
 			"pending_after_route": view._pending.size() +
 				view._chunk_jobs.size(),
 			"physics_unchanged": view._world_model.to_data() == snapshot
