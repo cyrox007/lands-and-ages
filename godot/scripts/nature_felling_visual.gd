@@ -10,8 +10,8 @@ const HIT_DURATION := 0.32
 static var _chips_mesh: Mesh
 
 
-static func angle_for(id: int, seed: int) -> float:
-    return deg_to_rad(float(posmod(id * 73 + seed, 360)))
+static func angle_for(id: int, object_seed: int) -> float:
+    return deg_to_rad(float(posmod(id * 73 + object_seed, 360)))
 
 
 static func _chips() -> Mesh:
