@@ -137,13 +137,17 @@ func count() -> int:
 
 
 func object_at(id: int) -> Dictionary:
-    return _objects[id].duplicate(true) if _objects.has(id) else {}
+    if not _objects.has(id):
+        return {}
+    var item: Dictionary = _objects[id].duplicate(true)
+    item["radius"] = footprint_radius(item)
+    return item
 
 
 func objects_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
     var result: Array[Dictionary] = []
     for id in _chunks.get(chunk, []):
-        result.append(_objects[id].duplicate(true))
+        result.append(object_at(int(id)))
     return result
 
 

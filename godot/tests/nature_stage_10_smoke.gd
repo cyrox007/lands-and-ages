@@ -77,6 +77,13 @@ func _run() -> void:
     _check(tree_id > 0, "Для испытания есть настоящее дерево")
 
     if tree_id > 0:
+        var tree: Dictionary = nature.object_at(tree_id)
+        var center := Vector2(float(tree["x"]) + 0.5,
+            float(tree["y"]) + 0.5)
+        _check(nature.intersects_solid(center, 0.10),
+            "Ствол занимает физический участок, а не всю клетку")
+        _check(not nature.interaction_points(tree_id).is_empty(),
+            "У дерева есть физические точки подхода")
         var stock: int = nature.wood_total()
         var hit: Dictionary = nature.fell_tree(tree_id)
         _check(not hit.is_empty() and int(hit["wood_units"]) > 0,
