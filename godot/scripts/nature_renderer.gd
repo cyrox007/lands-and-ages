@@ -5,6 +5,7 @@ extends RefCounted
 const Wind = preload("res://shaders/nature_wind.gdshader")
 const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
+const Felling = preload("res://scripts/nature_felling_visual.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
 
 static var _meshes: Dictionary = {}
