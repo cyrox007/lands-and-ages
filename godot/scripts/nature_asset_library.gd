@@ -64,6 +64,30 @@ static func _merge_meshes(root: Node) -> ArrayMesh:
     return result
 
 
+static func _is_foliage(source: BaseMaterial3D) -> bool:
+    # Импортируемые Quaternius GLB называют материалы Leaves/Pine_Leaves.
+    # Для сторонних GLB дополнительно проверяем альфа-канал.
+    var name: String = source.resource_name.to_lower()
+    if source.albedo_texture != null:
+        name += " " + source.albedo_texture.resource_name.to_lower()
+    if "leav" in name or "leaf" in name or "needle" in name:
+        return true
+    if "green" in name:
+        return true
+    return source.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+
+
+static func foliage_stage(season: String, species: String) -> float:
+    if species in ["сосна", "ель"]:
+        return 0.0
+    match season:
+        "весна":
+            return 0.12
+        "осень":
+            return 0.86
+    return 0.0
+
+
 static func _make_wind_material(source: BaseMaterial3D,
         bounds: AABB) -> ShaderMaterial:
     var material := ShaderMaterial.new()
@@ -72,6 +96,7 @@ static func _make_wind_material(source: BaseMaterial3D,
     material.set_shader_parameter("source_base", bounds.position.y)
     material.set_shader_parameter("source_tint", source.albedo_color)
     material.set_shader_parameter("source_roughness", source.roughness)
+    material.set_shader_parameter("foliage_surface", _is_foliage(source))
     if source.albedo_texture != null:
         material.set_shader_parameter("source_texture", source.albedo_texture)
         material.set_shader_parameter("has_texture", true)
