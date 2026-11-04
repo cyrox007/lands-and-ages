@@ -32,6 +32,15 @@ class FloodHydrology:
 			return -1
 		return cell.y * WIDTH + cell.x
 
+	func ensure_ready() -> void:
+		pass
+
+	func lake_at(_index: int) -> bool:
+		return false
+
+	func ocean_at(_index: int) -> bool:
+		return false
+
 	func has_water(index: int) -> bool:
 		return floods.has(index) or rivers.has(index)
 
@@ -271,6 +280,12 @@ func _test_continuous_flood() -> void:
 				"Поверхность паводка не проваливается под визуальный грунт")
 	_check(total_vertices > 0,
 		"Непрерывная водная поверхность создаёт видимые треугольники")
+	# Проверяем и полный публичный путь, где раньше отсутствовал
+	# lake/ocean-контекст у сухой клетки рядом с паводком.
+	for chunk in [Vector2i(0, 0), Vector2i(1, 0)]:
+		var complete: ArrayMesh = Water.create_mesh(world, hydro, chunk)
+		_check(complete != null and complete.get_surface_count() > 0,
+			"Пойма создаётся через Water.create_mesh по обе стороны шва")
 	_check(world.to_data() == before,
 		"Графическое сглаживание не изменяет физические высоты")
 
