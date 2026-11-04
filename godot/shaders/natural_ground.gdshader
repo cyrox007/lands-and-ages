@@ -173,7 +173,9 @@ void fragment() {
 		macro_strength * detail_strength;
 	// Мокрая земля темнее и чуть менее шероховатая: величина
 	// зависит от реальной влажности, заболачивания и береговой воды.
-	float moisture = smoothstep(0.24, 0.84, ground_conditions.x);
+	// Обычная почвенная влажность не должна выглядеть как затопление.
+	// Только насыщенный грунт и реальное заболачивание темнеют заметно.
+	float moisture = smoothstep(0.38, 0.94, ground_conditions.x);
 	float coastal_wet = ground_conditions.y *
 		(0.38 + 0.55 * sand) + ground_conditions.w * 0.38;
 	float thawed = 1.0 - smoothstep(0.22, 0.82, ground_conditions.z);

@@ -22,17 +22,23 @@ void fragment() {
 	// произведение давало отчётливую шахматную сетку на поверхности.
 	if (ripple_strength > 0.01 && liquid > 0.01) {
 		float phase_a = dot(water_position, vec2(1.42, 0.58)) +
-			TIME * 0.41 + sin(water_position.y * 0.20) * 0.30;
+			TIME * 0.83 + sin(water_position.y * 0.20) * 0.30;
 		float phase_b = dot(water_position, vec2(-0.78, 1.72)) -
-			TIME * 0.36 + sin(water_position.x * 0.24) * 0.22;
+			TIME * 0.71 + sin(water_position.x * 0.24) * 0.22;
 		float phase_c = dot(water_position, vec2(2.71, -1.31)) +
-			TIME * 0.62;
-		ripple = sin(phase_a) * 0.55 +
-			sin(phase_b) * 0.28 + sin(phase_c) * 0.10;
+			TIME * 1.12;
+		// На дальнем масштабе фазы мельче пикселя: фильтруем их
+		// производными экрана вместо муара и неподвижной «ткани».
+		float screen_frequency = max(
+			max(fwidth(phase_a), fwidth(phase_b)), fwidth(phase_c));
+		float wave_fade = 1.0 - smoothstep(0.55, 1.75,
+			screen_frequency);
+		ripple = (sin(phase_a) * 0.55 +
+			sin(phase_b) * 0.28 + sin(phase_c) * 0.10) * wave_fade;
 		vec2 slopes = vec2(1.42, 0.58) * cos(phase_a) * 0.55 +
 			vec2(-0.78, 1.72) * cos(phase_b) * 0.28 +
 			vec2(2.71, -1.31) * cos(phase_c) * 0.10;
-		float amplitude = 0.025 * ripple_strength * liquid;
+		float amplitude = 0.025 * ripple_strength * liquid * wave_fade;
 		vec3 water_normal = normalize(vec3(
 			-slopes.x * amplitude, 1.0, -slopes.y * amplitude));
 		NORMAL = normalize(mat3(VIEW_MATRIX) * water_normal);
@@ -53,7 +59,7 @@ void fragment() {
 	vec3 shallow = mix(base, vec3(0.27, 0.42, 0.42), nearshore * 0.22);
 	vec3 liquid_color = mix(shallow, vec3(0.48, 0.60, 0.57),
 		foam * 0.20);
-	liquid_color += vec3(0.016, 0.024, 0.026) * ripple *
+	liquid_color += vec3(0.008, 0.012, 0.013) * ripple *
 		ripple_strength * liquid;
 	vec3 ice_color = vec3(0.78, 0.87, 0.90);
 	ALBEDO = clamp(mix(liquid_color, ice_color, ice),

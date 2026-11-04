@@ -4,6 +4,8 @@ extends RefCounted
 
 const WATER_OFFSET := 0.018
 const SHORE_FADE_DEPTH := 0.7
+# Только пересекающие сушу клетки получают более точную кромку.
+const SHORE_SUBDIVISIONS := 3
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
@@ -78,15 +80,46 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint, ice)
 		return 2
 
-	# Разбиение совпадает с диагональю физического меша Chunk.
-	var first := _clip_submerged_triangle(
-		PackedVector2Array([Vector2(a), Vector2(c), Vector2(b)]),
-		PackedFloat32Array([ha, hc, hb]), level)
-	var second := _clip_submerged_triangle(
-		PackedVector2Array([Vector2(d), Vector2(b), Vector2(c)]),
-		PackedFloat32Array([hd, hb, hc]), level)
-	return _add_polygon(tool, world, first, level, tint, ice) + \
-		_add_polygon(tool, world, second, level, tint, ice)
+	# Для прибрежной клетки используем непрерывную билинейную
+	# интерполяцию высот четырёх физических вершин. Делим только
+	# береговые полигоны: в открытой воде стоимость остаётся прежней.
+	# Соседние клетки получают одинаковые точки на общей границе.
+	return _subdivided_shore(tool, world, cell, level, tint, ice,
+		ha, hb, hc, hd)
+
+
+static func _bilinear_height(ha: float, hb: float, hc: float,
+		hd: float, u: float, v: float) -> float:
+	return lerpf(lerpf(ha, hb, u), lerpf(hc, hd, u), v)
+
+
+static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
+		cell: Vector2i, level: float, tint: Color, ice: float,
+		ha: float, hb: float, hc: float, hd: float) -> int:
+	var added := 0
+	for j in range(SHORE_SUBDIVISIONS):
+		for i in range(SHORE_SUBDIVISIONS):
+			var u0 := float(i) / float(SHORE_SUBDIVISIONS)
+			var u1 := float(i + 1) / float(SHORE_SUBDIVISIONS)
+			var v0 := float(j) / float(SHORE_SUBDIVISIONS)
+			var v1 := float(j + 1) / float(SHORE_SUBDIVISIONS)
+			var a := Vector2(cell) + Vector2(u0, v0)
+			var b := Vector2(cell) + Vector2(u1, v0)
+			var c := Vector2(cell) + Vector2(u0, v1)
+			var d := Vector2(cell) + Vector2(u1, v1)
+			var h00 := _bilinear_height(ha, hb, hc, hd, u0, v0)
+			var h10 := _bilinear_height(ha, hb, hc, hd, u1, v0)
+			var h01 := _bilinear_height(ha, hb, hc, hd, u0, v1)
+			var h11 := _bilinear_height(ha, hb, hc, hd, u1, v1)
+			var first := _clip_submerged_triangle(
+				PackedVector2Array([a, c, b]),
+				PackedFloat32Array([h00, h01, h10]), level)
+			var second := _clip_submerged_triangle(
+				PackedVector2Array([d, b, c]),
+				PackedFloat32Array([h11, h10, h01]), level)
+			added += _add_polygon(tool, world, first, level, tint, ice)
+			added += _add_polygon(tool, world, second, level, tint, ice)
+	return added
 
 
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
