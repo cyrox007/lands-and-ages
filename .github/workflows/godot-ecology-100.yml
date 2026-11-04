@@ -1,0 +1,102 @@
+name: Этап 10.7 — приёмка 100 карт и природных коллизий
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - ".github/workflows/godot-ecology-100.yml"
+      - "godot/tests/nature_collision_profile.gd"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seeds-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подготовить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать ресурсы Godot
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then
+            exit 1
+          fi
+      - name: Проверить 100 seed на карте 128×96
+        timeout-minutes: 29
+        run: |
+          set -o pipefail
+          timeout 1680s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 1580 \
+            --script res://tests/nature_seed_audit.gd -- \
+            --samples=100 --width=128 --height=96 --seed_start=1729 2>&1 \
+            | tee /tmp/seed-audit.log
+          grep -q "Этап 10.7: проверено 100 seed, ошибок нет" /tmp/seed-audit.log
+          test -s godot/tests/world-ecology-seeds-10.json
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/seed-audit.log; then
+            exit 1
+          fi
+      - name: Сохранить отчёт 100 seed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecology-100-seed-report
+          path: |
+            godot/tests/world-ecology-seeds-10.json
+            /tmp/seed-audit.log
+            /tmp/import.log
+          if-no-files-found: ignore
+
+  collision-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подготовить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать ресурсы Godot
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then
+            exit 1
+          fi
+      - name: Профиль создания физических чанков на карте 256×192
+        timeout-minutes: 9
+        run: |
+          set -o pipefail
+          timeout 490s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 450 \
+            --script res://tests/nature_collision_profile.gd 2>&1 \
+            | tee /tmp/collision-profile.log
+          grep -q "Этап 10.7: профиль природных коллизий готов" /tmp/collision-profile.log
+          test -s godot/tests/world-collision-profile-10.json
+          cat godot/tests/world-collision-profile-10.json
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/collision-profile.log; then
+            exit 1
+          fi
+      - name: Сохранить профиль коллизий
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nature-collision-cpu-profile
+          path: |
+            godot/tests/world-collision-profile-10.json
+            /tmp/collision-profile.log
+          if-no-files-found: ignore
