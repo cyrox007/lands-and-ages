@@ -306,7 +306,7 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 				heights[0], heights[1], heights[2], heights[3], u, v)
 			# Тонкая паводковая плёнка не проваливается под визуальный грунт.
 			# Это коррекция представления, не изменение физического уровня.
-			var visible_level := maxf(vertex.z, terrain + WATER_OFFSET)
+			var visible_level := maxf(vertex.z, terrain) + WATER_OFFSET
 			var depth := maxf(0.0, vertex.z - terrain)
 			var alpha := smoothstep(FLOOD_COVERAGE_THRESHOLD, 0.80, vertex.w)
 			tool.set_color(Color(tint.r, tint.g, tint.b, tint.a * alpha))
