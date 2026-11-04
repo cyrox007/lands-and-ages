@@ -106,6 +106,7 @@ static func _resources(nature: RefCounted, labels: PackedInt32Array,
     return {
         "wood": _integral(wood, width, height),
         "stones": _integral(stones, width, height),
+        "wood_cells": wood, "stone_cells": stones,
         "connected_wood": connected_wood,
         "connected_stones": connected_stones
     }
@@ -134,6 +135,60 @@ static func _local_stock(prefix: PackedInt64Array, width: int,
     var step := width + 1
     return int(prefix[y1 * step + x1] - prefix[y0 * step + x1]
         - prefix[y1 * step + x0] + prefix[y0 * step + x0])
+
+
+# Оцениваем доступность природного сырья по реальным шагам по суше.
+# Река, заболоченное препятствие и горный обрыв не считаются проходом.
+# Радиус маршрута — гипотеза аудита, а не будущая навигация работников.
+static func route_stock(walkable: PackedByteArray,
+        wood: PackedInt32Array, stones: PackedInt32Array,
+        width: int, height: int, start: Vector2i,
+        max_steps: int) -> Dictionary:
+    var result := {
+        "walkable_cells": 0, "wood_units": 0,
+        "boulders": 0, "max_steps": maxi(max_steps, 0)
+    }
+    if width <= 0 or height <= 0 or max_steps < 0:
+        return result
+    var size := width * height
+    if walkable.size() != size or wood.size() != size \
+            or stones.size() != size:
+        return result
+    if start.x < 0 or start.y < 0 or start.x >= width \
+            or start.y >= height:
+        return result
+    var first := start.y * width + start.x
+    if walkable[first] == 0:
+        return result
+    var visited := PackedByteArray()
+    visited.resize(size)
+    var queue: Array[int] = [first]
+    var depths: Array[int] = [0]
+    visited[first] = 1
+    var cursor := 0
+    while cursor < queue.size():
+        var index: int = queue[cursor]
+        var depth: int = depths[cursor]
+        cursor += 1
+        result["walkable_cells"] += 1
+        result["wood_units"] += int(wood[index])
+        result["boulders"] += int(stones[index])
+        if depth == max_steps:
+            continue
+        var x := index % width
+        var y := floori(float(index) / float(width))
+        for direction in DIRECTIONS:
+            var nx: int = x + direction.x
+            var ny: int = y + direction.y
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            var neighbor: int = ny * width + nx
+            if visited[neighbor] != 0 or walkable[neighbor] == 0:
+                continue
+            visited[neighbor] = 1
+            queue.append(neighbor)
+            depths.append(depth + 1)
+    return result
 
 
 static func _candidates(buildable: PackedByteArray,
@@ -249,6 +304,7 @@ static func _next_center(candidates: Array[Dictionary],
 
 static func _layout(candidates: Array[Dictionary],
         components: Dictionary, resources: Dictionary,
+        walkable: PackedByteArray, width: int, height: int,
         radius: int) -> Dictionary:
     var counts := {}
     for candidate in candidates:
@@ -256,6 +312,9 @@ static func _layout(candidates: Array[Dictionary],
         counts[component] = int(counts.get(component, 0)) + 1
     var occupied: Array[Dictionary] = []
     var states: Array[Dictionary] = []
+    var starts_with_reachable_wood := 0
+    var starts_with_reachable_boulders := 0
+    var starts_with_both := 0
     for state in range(STATES):
         var anchor: Dictionary = _anchor(
             candidates, occupied, radius, state, counts)
@@ -263,7 +322,7 @@ static func _layout(candidates: Array[Dictionary],
             states.append({"state": state + 1, "centers": [],
                 "connected_component": -1, "component_wood_units": 0,
                 "component_boulders": 0, "nearby_wood_units": 0,
-                "nearby_boulders": 0})
+                "nearby_boulders": 0, "resource_routes": []})
             continue
         var group: Array[Vector2i] = [anchor["cell"]]
         occupied.append({"cell": anchor["cell"], "state": state, "slot": 0})
@@ -276,8 +335,22 @@ static func _layout(candidates: Array[Dictionary],
             occupied.append({"cell": next["cell"], "state": state,
                 "slot": slot})
         var positions: Array = []
+        var resource_routes: Array[Dictionary] = []
         for cell in group:
             positions.append([cell.x, cell.y])
+            # Ближайший запас по квадрату — только предварительная оценка.
+            # Каждый маршрут проверяется отдельно, запасы не суммируем.
+            resource_routes.append(route_stock(
+                walkable, resources["wood_cells"],
+                resources["stone_cells"], width, height,
+                cell, radius * 3))
+        if int(resource_routes[0]["wood_units"]) > 0:
+            starts_with_reachable_wood += 1
+        if int(resource_routes[0]["boulders"]) > 0:
+            starts_with_reachable_boulders += 1
+        if int(resource_routes[0]["wood_units"]) > 0 \
+                and int(resource_routes[0]["boulders"]) > 0:
+            starts_with_both += 1
         var component: int = anchor["component"]
         states.append({
             "state": state + 1, "centers": positions,
@@ -286,7 +359,8 @@ static func _layout(candidates: Array[Dictionary],
             "component_wood_units": resources["connected_wood"][component],
             "component_boulders": resources["connected_stones"][component],
             "nearby_wood_units": anchor["nearby_wood"],
-            "nearby_boulders": anchor["nearby_boulders"]
+            "nearby_boulders": anchor["nearby_boulders"],
+            "resource_routes": resource_routes
         })
     var full_states := 0
     for state in states:
@@ -295,6 +369,10 @@ static func _layout(candidates: Array[Dictionary],
     return {
         "states": states, "assigned_centers": occupied.size(),
         "full_states": full_states,
+        "resource_route_checked": true,
+        "starts_with_reachable_wood": starts_with_reachable_wood,
+        "starts_with_reachable_boulders": starts_with_reachable_boulders,
+        "starts_with_both_resources": starts_with_both,
         "six_starts_found": states.filter(
             func(state: Dictionary) -> bool:
                 return not state["centers"].is_empty()).size() == STATES,
@@ -319,7 +397,8 @@ static func report(world: RefCounted, hydro: RefCounted,
     var candidates: Array[Dictionary] = _candidates(
         terrain["buildable"], connected["labels"], resources,
         width, height, radius)
-    var trial := _layout(candidates, connected, resources, radius)
+    var trial := _layout(candidates, connected, resources,
+        terrain["walkable"], width, height, radius)
     var sorted_sizes := component_sizes.duplicate()
     sorted_sizes.sort()
     sorted_sizes.reverse()
@@ -335,7 +414,9 @@ static func report(world: RefCounted, hydro: RefCounted,
             "land_connectivity": "четырёхсвязная суша без мостов",
             "candidate_spacing": "2 радиуса + 3; между государствами + 9",
             "coverage": "не менее 75% пригодных клеток внутри ромба",
-            "resource_reach": "3 радиуса по координатам, путь не проверен",
+            "resource_reach": "3 радиуса по координатам (предварительный фильтр)",
+            "route_reach": "3 радиуса реального обхода по четырёхсвязной суше",
+            "route_limits": "переходы/порты добычи и будущие мосты не моделируются",
             "no_approved_mature_settlement_radius": true
         }
     }

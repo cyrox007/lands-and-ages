@@ -1,0 +1,146 @@
+extends SceneTree
+## Проверка 6 территорий и 30 условных мест на серии географий.
+## Результат измерительный: реальные размеры зрелого поселения ещё не заданы.
+
+const Config = preload("res://scripts/world_config.gd")
+const Map = preload("res://scripts/world_map.gd")
+const Hydro = preload("res://scripts/hydrology.gd")
+const Surface = preload("res://scripts/surface.gd")
+const Climate = preload("res://scripts/climate.gd")
+const Nature = preload("res://scripts/nature_registry.gd")
+const Scenario = preload("res://scripts/world_spatial_scenario.gd")
+
+const OUTPUT := "res://tests/world-spatial-seeds-10.json"
+
+
+static func _options() -> Dictionary:
+    var options := {
+        "samples": 2, "width": 96, "height": 80,
+        "seed_start": 1729, "radius": 12
+    }
+    for argument in OS.get_cmdline_user_args():
+        if not argument.begins_with("--") or not argument.contains("="):
+            continue
+        var parts := argument.substr(2).split("=", false, 1)
+        if parts.size() == 2 and options.has(parts[0]) \
+                and parts[1].is_valid_int():
+            options[parts[0]] = int(parts[1])
+    return options
+
+
+static func _valid(options: Dictionary) -> bool:
+    return int(options["samples"]) >= 1 \
+        and int(options["samples"]) <= 500 \
+        and int(options["width"]) >= 64 \
+        and int(options["width"]) <= 1024 \
+        and int(options["height"]) >= 64 \
+        and int(options["height"]) <= 768 \
+        and int(options["radius"]) >= 6 \
+        and int(options["radius"]) <= 40
+
+
+static func _sample(world_seed: int, width: int,
+        height: int, radius: int) -> Dictionary:
+    var started := Time.get_ticks_usec()
+    var world := Map.new(Config.new(width, height, world_seed))
+    var hydro := Hydro.new(world)
+    hydro.rebuild()
+    var surface := Surface.new(world, hydro)
+    surface.rebuild()
+    var climate := Climate.new(world, hydro)
+    climate.rebuild()
+    climate.set_day(1)
+    surface.advance_climate_day(climate)
+    hydro.apply_rainfall_map(surface.runoff_map())
+    var nature := Nature.new(world, hydro, surface, climate)
+    nature.generate()
+
+    var scenario: Dictionary = Scenario.report(
+        world, hydro, surface, nature, radius)
+    var trial: Dictionary = scenario["trial"]
+    var centers := 0
+    var complete_groups := 0
+    var valid: bool = trial["states"].size() == 6
+    for state in trial["states"]:
+        var sites: Array = state["centers"]
+        var routes: Array = state["resource_routes"]
+        centers += sites.size()
+        complete_groups += int(sites.size() == 5)
+        if routes.size() != sites.size() or sites.size() > 5:
+            valid = false
+    valid = valid and centers == int(trial["assigned_centers"])
+    valid = valid and complete_groups == int(trial["full_states"])
+    valid = valid and bool(trial["resource_route_checked"])
+    valid = valid and (complete_groups == 6) \
+        == bool(trial["trial_30_centers_found"])
+    return {
+        "seed": world_seed, "radius": radius,
+        "dry": scenario["land"]["dry"],
+        "walkable": scenario["land"]["walkable"],
+        "buildable": scenario["land"]["buildable"],
+        "candidates": scenario["candidate_count"],
+        "centers": centers,
+        "complete_groups": complete_groups,
+        "six_starts": bool(trial["six_starts_found"]),
+        "thirty_sites": bool(trial["trial_30_centers_found"]),
+        "starts_with_wood_route": int(trial["starts_with_reachable_wood"]),
+        "starts_with_boulder_route": int(trial["starts_with_reachable_boulders"]),
+        "starts_with_both_routes": int(trial["starts_with_both_resources"]),
+        "invariants_valid": valid,
+        "duration_ms": snappedf(
+            float(Time.get_ticks_usec() - started) / 1000.0, 0.001)
+    }
+
+
+func _run() -> void:
+    var options: Dictionary = _options()
+    if not _valid(options):
+        push_error("Неверные параметры аудита пространственной ёмкости")
+        quit(1)
+        return
+    var count: int = options["samples"]
+    var rows: Array[Dictionary] = []
+    var failures: Array[int] = []
+    var full := 0
+    var starts := 0
+    var supplied := 0
+    for index in range(count):
+        var world_seed: int = int(options["seed_start"]) + index * 73
+        var row: Dictionary = _sample(world_seed, int(options["width"]),
+            int(options["height"]), int(options["radius"]))
+        rows.append(row)
+        full += int(row["thirty_sites"])
+        starts += int(row["six_starts"])
+        supplied += int(int(row["starts_with_both_routes"]) == 6)
+        if not bool(row["invariants_valid"]):
+            failures.append(world_seed)
+        if index % 10 == 0:
+            print("Пространственный аудит: ", index + 1, " / ", count)
+
+    var result := {
+        "stage": "10.0", "options": options,
+        "samples": count, "seed_step": 73,
+        "thirty_geometric_sites_found": full,
+        "six_initial_sites_found": starts,
+        "six_starts_with_both_resources": supplied,
+        "mature_settlement_capacity_proven": false,
+        "geographic_archetypes_verified": false,
+        "failures": failures, "rows": rows
+    }
+    var file := FileAccess.open(OUTPUT, FileAccess.WRITE)
+    if file == null:
+        push_error("Не удалось сохранить отчёт о 100+ seed")
+        quit(1)
+        return
+    file.store_string(JSON.stringify(result, "  ") + "\n")
+    file.close()
+    if not failures.is_empty():
+        push_error("В многосидовом аудите найдены нарушения инвариантов")
+        quit(1)
+        return
+    print("Этап 10.0: проверено ", count, " seed, отчёт готов")
+    quit(0)
+
+
+func _initialize() -> void:
+    call_deferred("_run")
