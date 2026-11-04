@@ -99,7 +99,7 @@ func _run() -> void:
         var standing := Collisions.create_chunk(world, nature, chunk)
         _check(_parts_for(standing, id) == ["ствол"],
             "До рубки присутствует ствол")
-        _check(not Collisions.object_from_shape(standing, -1).size() > 0,
+        _check(Collisions.object_from_shape(standing, -1).is_empty(),
             "Невалидный индекс столкновения отклоняется")
         standing.free()
 
