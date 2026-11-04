@@ -12,6 +12,7 @@ const DEFAULT_HEIGHT_SCALE := 0.9
 
 var width: int
 var height: int
+@warning_ignore("shadowed_global_identifier")
 var seed: int
 var chunk_size: int
 var region_size: int
@@ -82,13 +83,15 @@ func region_count() -> Vector2i:
 func chunk_of(cell: Vector2i) -> Vector2i:
 	if not contains_cell(cell):
 		return Vector2i(-1, -1)
-	return Vector2i(cell.x / chunk_size, cell.y / chunk_size)
+	return Vector2i(floori(float(cell.x) / float(chunk_size)),
+		floori(float(cell.y) / float(chunk_size)))
 
 
 func region_of(cell: Vector2i) -> Vector2i:
 	if not contains_cell(cell):
 		return Vector2i(-1, -1)
-	return Vector2i(cell.x / region_size, cell.y / region_size)
+	return Vector2i(floori(float(cell.x) / float(region_size)),
+		floori(float(cell.y) / float(region_size)))
 
 
 func chunk_rect(coord: Vector2i) -> Rect2i:
