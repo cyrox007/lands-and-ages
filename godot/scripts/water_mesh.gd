@@ -364,6 +364,13 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 	return added
 
 
+static func _flood_tint(ice: float) -> Color:
+	# У связной поймы общий базовый цвет, независимо от того,
+	# назвала ли гидрология исходную клетку рекой, озером или разливом.
+	return Color(0.17, 0.34, 0.38, 0.90).lerp(
+		Color(0.77, 0.86, 0.89, 0.96), ice)
+
+
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		surface: RefCounted = null) -> ArrayMesh:
 	hydro.ensure_ready()
@@ -404,8 +411,8 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			if flood_near and not ocean:
 				# Озёрные и речные клетки в пойме используют одно поле.
 				# Иначе независимая тёмная лента перекрывает разлив.
-				added += _flood_cell(tool, world, hydro, cell, color, ice,
-					flood_samples)
+				added += _flood_cell(tool, world, hydro, cell, _flood_tint(ice),
+					ice, flood_samples)
 				continue
 			if ocean or lake:
 				added += _water_cell(tool, world, cell, level, color, ice)
