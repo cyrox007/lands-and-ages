@@ -61,8 +61,8 @@ func _check_visual(state: Dictionary) -> void:
 	var b: Array = right.surface_get_arrays(0)
 	var colors_a: PackedColorArray = a[Mesh.ARRAY_COLOR]
 	var colors_b: PackedColorArray = b[Mesh.ARRAY_COLOR]
-	_check(colors_a.size() == 289 and colors_b.size() == 289,
-		"Новый материал не меняет топологию 17×17")
+	_check(colors_a.size() >= 289 and colors_b.size() >= 289,
+		"Первая сетка 17×17 сохранена; только берег получает уточнение")
 	for y in range(17):
 		var i := y * 17
 		_check(colors_a[i + 16].is_equal_approx(colors_b[i]),
