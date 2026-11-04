@@ -16,8 +16,8 @@ func _check(value: bool, reason: String) -> void:
 		failures.append(reason)
 
 
-func _make_world(seed: int = 1729) -> Dictionary:
-	var world := WorldMap.new(Config.new(64, 48, seed, 16, 32))
+func _make_world(world_seed: int = 1729) -> Dictionary:
+	var world := WorldMap.new(Config.new(64, 48, world_seed, 16, 32))
 	var hydro := Hydrology.new(world)
 	hydro.rebuild()
 	var surface := Surface.new(world, hydro)

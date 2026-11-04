@@ -34,8 +34,8 @@ func _init(map: RefCounted, water: RefCounted,
     last_day = weather.day
 
 
-static func _hash(x: int, y: int, seed: int) -> float:
-    return Terrain.hash2(x, y, seed)
+static func _hash(x: int, y: int, world_seed: int) -> float:
+    return Terrain.hash2(x, y, world_seed)
 
 
 func _index(object: Dictionary) -> void:
@@ -81,7 +81,6 @@ func generate() -> bool:
             var index: int = hydro.cell_index(cell)
             if hydro.has_water(index):
                 continue
-            var point := Vector2(float(x) + 0.5, float(y) + 0.5)
             var normal: Vector3 = world.normal_at(cell)
             var slope := 1.0 - normal.y
             if slope > 0.42:
@@ -90,8 +89,8 @@ func generate() -> bool:
             var moisture: float = float(soil.get("moisture", 0.0))
             var growth: float = float(soil.get("growth_potential", 0.0))
             var temperature: float = climate.temperature_at_index(index)
-            var cluster := _hash(x / 21, y / 21, config.seed + 3001)
-            var chance := _hash(x, y, config.seed + 3002)
+            var cluster := _hash(int(float(x) / 21.0), int(float(y) / 21.0), config.world_seed + 3001)
+            var chance := _hash(x, y, config.world_seed + 3002)
             var kind := ""
             var species := ""
             var density := clampf(growth * 0.48 + moisture * 0.19 +
@@ -101,7 +100,7 @@ func generate() -> bool:
             if chance < density:
                 kind = "дерево"
                 species = _species(temperature, moisture,
-                    _hash(x, y, config.seed + 3003))
+                    _hash(x, y, config.world_seed + 3003))
             elif chance < density + 0.12 * moisture:
                 kind = "кустарник"
                 species = "кустарник"
@@ -113,10 +112,10 @@ func generate() -> bool:
             var age := 0
             var stock := 0
             if kind == "дерево":
-                age = 2 * 96 + int(_hash(x, y, config.seed + 3004) * 38.0 * 96.0)
-                stock = maxi(1, age / 96 * 3)
+                age = 2 * 96 + int(_hash(x, y, config.world_seed + 3004) * 38.0 * 96.0)
+                stock = maxi(1, int(float(age) / 96.0) * 3)
             elif kind == "кустарник":
-                age = int(_hash(x, y, config.seed + 3004) * 10.0 * 96.0)
+                age = int(_hash(x, y, config.world_seed + 3004) * 10.0 * 96.0)
             var id: int = y * int(config.width) + x + 1
             var item := {
                 "id": id, "kind": kind, "species": species,
@@ -357,10 +356,10 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
             continue
         var x: int = parent["x"]
         var y: int = parent["y"]
-        var seed: int = world.config.seed + day * 17
-        if _hash(x, y, seed) > 0.16:
+        var world_seed: int = world.config.world_seed + day * 17
+        if _hash(x, y, world_seed) > 0.16:
             continue
-        var direction_index := mini(3, int(_hash(x, y, seed + 1) * 4.0))
+        var direction_index := mini(3, int(_hash(x, y, world_seed + 1) * 4.0))
         var next: Vector2i = Vector2i(x, y) + directions[direction_index]
         if not world.config.contains_cell(next):
             continue
@@ -509,7 +508,9 @@ func to_data() -> Dictionary:
 
 func load_data(data: Dictionary) -> bool:
     var version: Variant = data.get("version")
-    if version not in [1, FORMAT_VERSION] \
+    # JSON reads numbers as floats; Array membership compares their types too.
+    if not (version is int or version is float) \
+            or (version != 1 and version != FORMAT_VERSION) \
             or not (data.get("generated") is bool) \
             or not (data.get("objects") is Array):
         return false

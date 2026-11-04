@@ -72,7 +72,7 @@ func _run() -> void:
 			3:
 				point.y = cfg.height - 0.01
 		var geo := Boundary.geography_at(point.x, point.y,
-			cfg.width, cfg.height, cfg.seed)
+			cfg.width, cfg.height, cfg.world_seed)
 		styles[str(geo["zone"])] = true
 		_check(float(geo["influence"]) >= 0.75, "Периферия географически выражена")
 	_check(styles.has(Boundary.COAST), "Побережье присутствует")
@@ -80,14 +80,14 @@ func _run() -> void:
 		"Горы или скалы образуют альтернативный рубеж")
 
 	# Центральный рельеф не зависит от краёв, при расширении меняется лишь обрамление.
-	var expanded := WorldMap.new(Config.new(320, 240, cfg.seed))
+	var expanded := WorldMap.new(Config.new(320, 240, cfg.world_seed))
 	for point in [Vector2i(80, 70), Vector2i(130, 95), Vector2i(150, 125)]:
 		_check(is_equal_approx(world.vertex_at(point), expanded.vertex_at(point)),
 			"Внутренние формы не меняются при расширении мира")
 	_check(is_finite(world.vertex_at(Vector2i(0, 0))),
 		"Высоты внешних вершин определены")
 	_check(not is_equal_approx(world.vertex_at(Vector2i(1, 1)),
-		Terrain.height_at(1.0, 1.0, cfg.seed)),
+		Terrain.height_at(1.0, 1.0, cfg.world_seed)),
 		"Природное обрамление действительно участвует в высотах")
 
 	if wet_location.x >= 0:
@@ -113,11 +113,11 @@ func _run() -> void:
 		"Ненужный выбор генератора удалён из формата")
 
 	# Связь воды с границей должна быть воспроизводимой и у других seed.
-	for seed in [43, 127, 833, 2001]:
-		var item := WorldMap.new(Config.new(64, 48, seed))
+	for world_seed in [43, 127, 833, 2001]:
+		var item := WorldMap.new(Config.new(64, 48, world_seed))
 		var first := Hydrology.new(item)
 		first.rebuild()
-		var second := Hydrology.new(WorldMap.new(Config.new(64, 48, seed)))
+		var second := Hydrology.new(WorldMap.new(Config.new(64, 48, world_seed)))
 		second.rebuild()
 		_check(first.water_count() == second.water_count(), "Вода воспроизводится при seed")
 

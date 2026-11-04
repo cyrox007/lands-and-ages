@@ -130,7 +130,7 @@ func _run_case(spec: Dictionary) -> void:
 		if (i + 1) % spec["step"] != 0:
 			continue
 		var label := "%d×%d, seed %d, день %d" % [
-			config.width, config.height, config.seed, i + 2]
+			config.width, config.height, config.world_seed, i + 2]
 		_same(reference, restarted, label)
 		_check(Save.write_file(restarted, TEMP_PATH),
 			label + ": сохранение на диск прошло")
@@ -164,7 +164,7 @@ func _run_case(spec: Dictionary) -> void:
 	var elapsed_us := Time.get_ticks_usec() - begin_us
 	var result := {
 		"size": "%d×%d" % [config.width, config.height],
-		"seed": config.seed, "days": spec["days"],
+		"seed": config.world_seed, "days": spec["days"],
 		"restores": restores, "changed_days": changes,
 		"hydrology_rebuilds": rebuilds, "ground_cells_read": height_reads,
 		"elapsed_ms": elapsed_us / 1000.0,

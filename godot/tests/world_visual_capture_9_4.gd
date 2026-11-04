@@ -266,7 +266,7 @@ func _run() -> void:
 		"renderer": DisplayServer.get_name(),
 		"gpu": RenderingServer.get_video_adapter_name(),
 		"image_source": "ПРОГРАММНЫЙ GL на CI, не пользовательское устройство",
-		"map_seed": view._world_model.config.seed,
+		"map_seed": view._world_model.config.world_seed,
 		"season_day": view._climate.day,
 		"captures": captures,
 		"benchmark_file": "benchmark.json",

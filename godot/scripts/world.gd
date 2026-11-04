@@ -805,20 +805,20 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 	_render_cache.discard(chunk)
 	if _view_mode != 0 or not _active.has(chunk):
 		return
-	var owner: Node3D = _active[chunk]
-	var previous: Node = owner.get_node_or_null("Природные объекты")
+	var chunk_node: Node3D = _active[chunk]
+	var previous: Node = chunk_node.get_node_or_null("Природные объекты")
 	if previous != null:
-		owner.remove_child(previous)
+		chunk_node.remove_child(previous)
 		previous.queue_free()
-	owner.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
+	chunk_node.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
 		_detail_for_zoom(_camera.size)))
-	var old_collisions: Node = owner.get_node_or_null(
+	var old_collisions: Node = chunk_node.get_node_or_null(
 		NatureCollision.COLLISION_NAME)
 	if old_collisions != null:
-		owner.remove_child(old_collisions)
+		chunk_node.remove_child(old_collisions)
 		old_collisions.queue_free()
 	if NatureCollision.near_camera(chunk, _chunk_center):
-		owner.add_child(NatureCollision.create_chunk(
+		chunk_node.add_child(NatureCollision.create_chunk(
 			_world_model, _nature, chunk))
 
 
@@ -828,19 +828,19 @@ func _sync_nature_colliders() -> void:
 		return
 	var created := 0
 	for chunk in _active.keys():
-		var owner: Node3D = _active[chunk]
-		var current: Node = owner.get_node_or_null(
+		var chunk_node: Node3D = _active[chunk]
+		var current: Node = chunk_node.get_node_or_null(
 			NatureCollision.COLLISION_NAME)
 		var required: bool = _view_mode == 0 and \
 			NatureCollision.near_camera(chunk, _chunk_center)
 		if not required:
 			if current != null:
-				owner.remove_child(current)
+				chunk_node.remove_child(current)
 				current.queue_free()
 			continue
 		if current != null or created >= NatureCollision.MAX_NEW_CHUNKS_PER_FRAME:
 			continue
-		owner.add_child(NatureCollision.create_chunk(
+		chunk_node.add_child(NatureCollision.create_chunk(
 			_world_model, _nature, chunk))
 		created += 1
 
@@ -894,8 +894,8 @@ func _on_tree_felled(previous: Dictionary) -> void:
 		_world_model, previous, _detail_for_zoom(_camera.size))
 	if visual == null:
 		return
-	var owner: Node3D = _active[chunk]
-	owner.add_child(visual)
+	var chunk_node: Node3D = _active[chunk]
+	chunk_node.add_child(visual)
 	NatureFelling.animate(visual)
 
 
@@ -912,9 +912,9 @@ func _debug_fell_nearest_tree() -> void:
 			if item["kind"] != "дерево" or item["state"] not in [
 					"целое", "сухостой"]:
 				continue
-			var position := Vector2(float(item["x"]) + 0.5,
+			var tree_position := Vector2(float(item["x"]) + 0.5,
 				float(item["y"]) + 0.5)
-			var length: float = position.distance_squared_to(_center)
+			var length: float = tree_position.distance_squared_to(_center)
 			if length < distance:
 				chosen = int(item["id"])
 				distance = length
@@ -1226,7 +1226,7 @@ func _update_hud() -> void:
 	_status.text = "ЗЕМЛИ И ЭПОХИ · КЛИМАТ И БИОМЫ\n"
 	_status.text += "Карта %d×%d · seed %d\n" % [
 		_world_model.config.width, _world_model.config.height,
-		_world_model.config.seed]
+		_world_model.config.world_seed]
 	_status.text += "%s · высота %.2f · уклон %.1f°\n" % [
 		profile["form"], profile["height"], profile["slope_degrees"]]
 	_status.text += "Водосбор %.0f · вода %.2f · осадки %.2f\n" % [
@@ -1234,7 +1234,7 @@ func _update_hud() -> void:
 	_status.text += "Море %d · озёра %d · реки %d · паводок %d\n" % [
 		amounts["ocean"], amounts["lakes"], amounts["rivers"], amounts["flooded"]]
 	var edge := Boundary.geography_at(_center.x, _center.y,
-		_world_model.config.width, _world_model.config.height, _world_model.config.seed)
+		_world_model.config.width, _world_model.config.height, _world_model.config.world_seed)
 	_status.text += "Местность: %s · поверхность: %s\n" % [
 		edge["zone"], ground["cover"]]
 	_status.text += "%s · почва %.2f м · плодородие %.0f%% · влажность %.0f%%\n" % [

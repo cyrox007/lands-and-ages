@@ -33,7 +33,7 @@ static func _near_water(cell: Vector2i, world: RefCounted,
 
 
 static func _cell_color(cell: Vector2i, normal: Vector3,
-		height: float, world: RefCounted, surface: RefCounted,
+		height: float, _world: RefCounted, surface: RefCounted,
 		hydro: RefCounted) -> Color:
 	var index: int = hydro.cell_index(cell)
 	var color := LOAM

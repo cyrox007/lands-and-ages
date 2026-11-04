@@ -43,7 +43,7 @@ func _init(map: RefCounted, water: RefCounted) -> void:
 
 
 static func season_name(index: int) -> String:
-	return SEASONS[posmod(index / SEASON_DAYS, SEASONS.size())]
+	return SEASONS[posmod(int(float(index) / SEASON_DAYS), SEASONS.size())]
 
 
 static func snowfall_fraction(air_temperature: float) -> float:
@@ -61,15 +61,15 @@ static func _seasonal_rain_factor(day_of_year: int, latitude: float) -> float:
 	return lerpf(temperate, southern, smoothstep(0.25, 0.85, latitude))
 
 
-static func _smooth_noise(x: float, y: float, seed: int) -> float:
+static func _smooth_noise(x: float, y: float, world_seed: int) -> float:
 	var x0 := floori(x)
 	var y0 := floori(y)
 	var u := smoothstep(0.0, 1.0, x - float(x0))
 	var v := smoothstep(0.0, 1.0, y - float(y0))
-	var a := lerpf(Terrain.hash2(x0, y0, seed),
-		Terrain.hash2(x0 + 1, y0, seed), u)
-	var b := lerpf(Terrain.hash2(x0, y0 + 1, seed),
-		Terrain.hash2(x0 + 1, y0 + 1, seed), u)
+	var a := lerpf(Terrain.hash2(x0, y0, world_seed),
+		Terrain.hash2(x0 + 1, y0, world_seed), u)
+	var b := lerpf(Terrain.hash2(x0, y0 + 1, world_seed),
+		Terrain.hash2(x0 + 1, y0 + 1, world_seed), u)
 	return lerpf(a, b, v) * 2.0 - 1.0
 
 
@@ -147,7 +147,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 		var current: int = queue[pointer]
 		pointer += 1
 		var x: int = current % _width
-		var y: int = current / _width
+		var y: int = int(float(current) / _width)
 		for direction in DIRECTIONS:
 			var nx: int = x + direction.x
 			var ny: int = y + direction.y
@@ -183,7 +183,7 @@ func _rebuild_row(y: int) -> void:
 		var marine: float = _marine[i]
 		var relief_shadow := clampf((peak - height - 1.0) * 0.065, 0.0, 0.38)
 		var windward := clampf((height - previous) * 0.018, 0.0, 0.12)
-		var broad := _smooth_noise(x / 90.0, y / 90.0, world.config.seed + 314)
+		var broad := _smooth_noise(x / 90.0, y / 90.0, world.config.world_seed + 314)
 		_mean[i] = lerpf(-9.0, 27.0, latitude) \
 			- maxf(0.0, height) * 0.78 + broad * 1.8
 		# В тёплых удалённых от моря районах испаряемость выше,
@@ -211,9 +211,9 @@ func _calculate_day(rows: Dictionary = {}) -> void:
 			var amplitude := lerpf(13.0, 6.0, latitude) * \
 				(1.0 - _marine[i] * 0.28)
 			var front := _smooth_noise((float(x) + float(day) * 1.8) / 55.0,
-				(float(y) - float(day) * 0.65) / 49.0, world.config.seed + 990)
+				(float(y) - float(day) * 0.65) / 49.0, world.config.world_seed + 990)
 			var local := _smooth_noise((float(x) + float(day) * 0.7) / 38.0,
-				(float(y) + float(day) * 0.4) / 38.0, world.config.seed + 991)
+				(float(y) + float(day) * 0.4) / 38.0, world.config.world_seed + 991)
 			_temperature[i] = _mean[i] + season * amplitude + front * 3.1
 			var threshold := 0.11 - _humidity[i] * 0.20
 			# Тёплый влажный воздух поднимается вдоль погодного фронта:

@@ -46,7 +46,7 @@ func _init(map: RefCounted, hydrology: RefCounted) -> void:
 	hydro = hydrology
 
 
-static func _geology_field(x: int, y: int, seed: int) -> float:
+static func _geology_field(x: int, y: int, world_seed: int) -> float:
 	# Осадочные области распределены плавно, без случайной клетки-глины
 	# посреди независимого песчаного региона.
 	var fx := float(x) / 46.0
@@ -55,10 +55,10 @@ static func _geology_field(x: int, y: int, seed: int) -> float:
 	var gy := floori(fy)
 	var u := smoothstep(0.0, 1.0, fx - float(gx))
 	var v := smoothstep(0.0, 1.0, fy - float(gy))
-	var north := lerpf(Terrain.hash2(gx, gy, seed + 7201),
-		Terrain.hash2(gx + 1, gy, seed + 7201), u)
-	var south := lerpf(Terrain.hash2(gx, gy + 1, seed + 7201),
-		Terrain.hash2(gx + 1, gy + 1, seed + 7201), u)
+	var north := lerpf(Terrain.hash2(gx, gy, world_seed + 7201),
+		Terrain.hash2(gx + 1, gy, world_seed + 7201), u)
+	var south := lerpf(Terrain.hash2(gx, gy + 1, world_seed + 7201),
+		Terrain.hash2(gx + 1, gy + 1, world_seed + 7201), u)
 	return lerpf(north, south, v)
 
 
@@ -144,8 +144,8 @@ func _rebuild_cell(x: int, y: int, has_state: bool) -> void:
 	var height: float = (a + b + c + d) * 0.25
 	var slope: float = Vector2((b + d - a - c) * 0.5,
 		(c + d - a - b) * 0.5).length()
-	var area: float = _geology_field(x, y, world.config.seed)
-	var detail: float = Terrain.hash2(x, y, world.config.seed + 7202)
+	var area: float = _geology_field(x, y, world.config.world_seed)
+	var detail: float = Terrain.hash2(x, y, world.config.world_seed + 7202)
 	var kind := LOAM
 	if slope > 1.75 or (height > 7.5 and area > 0.42):
 		kind = ROCK

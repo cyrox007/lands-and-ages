@@ -123,9 +123,9 @@ func _run() -> void:
                 "Результат физического запроса содержит постоянный ID ствола")
         standing.free()
 
-        _check(is_equal_approx(Geometry.angle_for(id, world.config.seed),
+        _check(is_equal_approx(Geometry.angle_for(id, world.config.world_seed),
             Felling.angle_for(
-                id, world.config.seed)),
+                id, world.config.world_seed)),
             "Направление лежащего бревна совпадает с анимацией")
         var result: Dictionary = nature.fell_tree(id)
         _check(not result.is_empty() and int(result["wood_units"]) > 0,

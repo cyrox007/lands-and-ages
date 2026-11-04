@@ -108,13 +108,13 @@ func advance_day(day: int) -> Dictionary:
 	if day % STEP_DAYS != 0:
 		return {}
 	var count: int = world.config.width * world.config.height
-	var offset := posmod(day * 997 + world.config.seed * 31, count)
+	var offset := posmod(day * 997 + world.config.world_seed * 31, count)
 	var best_score := 0.0
 	var best: Dictionary = {}
 	for step in range(mini(SAMPLE_COUNT, count)):
 		var i := posmod(offset + step * SAMPLE_STRIDE, count)
-		var cell := Vector2i(i % world.config.width, i / world.config.width)
-		var risk: Dictionary = estimate_at(cell)
+		var sample_cell := Vector2i(i % world.config.width, i / world.config.width)
+		var risk: Dictionary = estimate_at(sample_cell)
 		if risk.is_empty():
 			continue
 		for kind in ["water", "wind", "slide", "coast", "delta"]:
@@ -127,7 +127,7 @@ func advance_day(day: int) -> Dictionary:
 				continue
 			if score > best_score:
 				best_score = score
-				best = {"kind": kind, "cell": cell, "risk": risk}
+				best = {"kind": kind, "cell": sample_cell, "risk": risk}
 	if best_score < 0.045:
 		return {}
 	var kind: String = best["kind"]

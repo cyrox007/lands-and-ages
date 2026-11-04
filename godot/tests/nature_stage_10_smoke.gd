@@ -26,8 +26,8 @@ func _check(ok: bool, message: String) -> void:
         failures.append(message)
 
 
-func _state(seed: int = 1729) -> Dictionary:
-    var world := Map.new(Config.new(96, 80, seed, 16, 32))
+func _state(world_seed: int = 1729) -> Dictionary:
+    var world := Map.new(Config.new(96, 80, world_seed, 16, 32))
     var hydro := Hydro.new(world)
     hydro.rebuild()
     var surface := Surface.new(world, hydro)
@@ -336,6 +336,13 @@ func _run() -> void:
 
     var snapshot: Dictionary = Save.capture(original)
     _check(snapshot.has("nature"), "Растительность включена в сохранение")
+    var json_snapshot: Dictionary = JSON.parse_string(JSON.stringify(snapshot))
+    var json_restored: Dictionary = Save.restore(json_snapshot)
+    _check(not json_restored.is_empty(),
+        "Мир с растительностью восстанавливается после записи и чтения JSON")
+    if not json_restored.is_empty():
+        _check(json_restored["nature"].to_data() == nature.to_data(),
+            "JSON сохраняет все природные объекты без изменений")
     var restored: Dictionary = Save.restore(snapshot)
     _check(not restored.is_empty(), "Снимок растительности загружается")
     if not restored.is_empty():

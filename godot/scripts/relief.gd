@@ -36,7 +36,7 @@ static func profile_at(world: RefCounted, point: Vector2) -> Dictionary:
 		mean += neighbour
 		samples += 1
 	mean /= float(samples)
-	var feature := Terrain.sample(point.x, point.y, cfg.seed)
+	var feature := Terrain.sample(point.x, point.y, cfg.world_seed)
 	var origin: String = feature["form"]
 	var influence: float = feature["influence"]
 	return {

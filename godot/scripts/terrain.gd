@@ -14,44 +14,44 @@ const FORM_NAMES := [
 	"горы", "долина", "овраг"
 ]
 
-static func hash2(x: int, y: int, seed: int) -> float:
-	var n: int = (x * 374761393 + y * 668265263 + seed * 1442695041) & 0xffffffff
+static func hash2(x: int, y: int, world_seed: int) -> float:
+	var n: int = (x * 374761393 + y * 668265263 + world_seed * 1442695041) & 0xffffffff
 	n = ((n ^ (n >> 13)) * 1274126177) & 0xffffffff
 	n = (n ^ (n >> 16)) & 0xffffffff
 	return float(n) / 4294967295.0
 
 
-static func _noise(x: float, y: float, seed: int) -> float:
+static func _noise(x: float, y: float, world_seed: int) -> float:
 	var i := floori(x)
 	var j := floori(y)
 	var u := smoothstep(0.0, 1.0, x - float(i))
 	var v := smoothstep(0.0, 1.0, y - float(j))
-	var a := lerpf(hash2(i, j, seed), hash2(i + 1, j, seed), u)
-	var b := lerpf(hash2(i, j + 1, seed), hash2(i + 1, j + 1, seed), u)
+	var a := lerpf(hash2(i, j, world_seed), hash2(i + 1, j, world_seed), u)
+	var b := lerpf(hash2(i, j + 1, world_seed), hash2(i + 1, j + 1, world_seed), u)
 	return lerpf(a, b, v) * 2.0 - 1.0
 
 
-static func _form_index(gx: int, gy: int, seed: int) -> int:
+static func _form_index(gx: int, gy: int, world_seed: int) -> int:
 	# Чередование предотвращает исчезновение целого вида форм на большой карте.
 	# Координаты центров, развороты и подробности остаются случайными по seed.
-	return posmod(gx * 3 + gy * 5 + seed, FORM_NAMES.size())
+	return posmod(gx * 3 + gy * 5 + world_seed, FORM_NAMES.size())
 
 
-static func _feature(x: float, y: float, gx: int, gy: int, seed: int) -> Vector3:
-	var jitter_x := (hash2(gx, gy, seed + 11) - 0.5) * 0.32
-	var jitter_y := (hash2(gx, gy, seed + 12) - 0.5) * 0.32
+static func _feature(x: float, y: float, gx: int, gy: int, world_seed: int) -> Vector3:
+	var jitter_x := (hash2(gx, gy, world_seed + 11) - 0.5) * 0.32
+	var jitter_y := (hash2(gx, gy, world_seed + 12) - 0.5) * 0.32
 	var cx := (float(gx) + 0.5 + jitter_x) * FEATURE_STEP
 	var cy := (float(gy) + 0.5 + jitter_y) * FEATURE_STEP
-	var angle := hash2(gx, gy, seed + 13) * TAU
+	var angle := hash2(gx, gy, world_seed + 13) * TAU
 	var offset := Vector2(x - cx, y - cy)
 	var along := (offset.x * cos(angle) + offset.y * sin(angle)) / 34.0
 	var across := (-offset.x * sin(angle) + offset.y * cos(angle)) / 30.0
-	var kind := _form_index(gx, gy, seed)
+	var kind := _form_index(gx, gy, world_seed)
 	var r := Vector2(along, across).length()
 	var envelope := 1.0 - smoothstep(0.64, 1.31, r)
 	if envelope <= 0.0:
 		return Vector3.ZERO
-	var detail := _noise(x / 12.0, y / 12.0, seed + gx * 37 + gy * 41 + 141)
+	var detail := _noise(x / 12.0, y / 12.0, world_seed + gx * 37 + gy * 41 + 141)
 	var height_change := 0.0
 	var flatten := 0.0
 	match kind:
@@ -86,11 +86,11 @@ static func _feature(x: float, y: float, gx: int, gy: int, seed: int) -> Vector3
 	return Vector3(height_change, flatten, envelope)
 
 
-static func sample(x: float, y: float, seed: int) -> Dictionary:
+static func sample(x: float, y: float, world_seed: int) -> Dictionary:
 	# Крупные и мелкие шумы не зависят от размеров карты.
-	var coarse := 0.85 * _noise(x / 92.0, y / 92.0, seed + 1001)
-	var medium := 0.29 * _noise(x / 24.0, y / 24.0, seed + 1002)
-	var fine := 0.09 * _noise(x / 6.0, y / 6.0, seed + 1003)
+	var coarse := 0.85 * _noise(x / 92.0, y / 92.0, world_seed + 1001)
+	var medium := 0.29 * _noise(x / 24.0, y / 24.0, world_seed + 1002)
+	var fine := 0.09 * _noise(x / 6.0, y / 6.0, world_seed + 1003)
 	var flatten := 0.0
 	var sum_features := 0.0
 	var dominant := -1
@@ -99,12 +99,12 @@ static func sample(x: float, y: float, seed: int) -> Dictionary:
 	var home_y := floori(y / FEATURE_STEP)
 	for gy in range(home_y - 1, home_y + 2):
 		for gx in range(home_x - 1, home_x + 2):
-			var effect := _feature(x, y, gx, gy, seed)
+			var effect := _feature(x, y, gx, gy, world_seed)
 			sum_features += effect.x
 			flatten = maxf(flatten, effect.y)
 			if effect.z > strongest:
 				strongest = effect.z
-				dominant = _form_index(gx, gy, seed)
+				dominant = _form_index(gx, gy, world_seed)
 	var elevation := coarse + (medium + fine) * (1.0 - flatten) + sum_features
 	return {
 		"height": elevation,
@@ -113,48 +113,48 @@ static func sample(x: float, y: float, seed: int) -> Dictionary:
 	}
 
 
-static func height_at(x: float, y: float, seed: int) -> float:
-	return float(sample(x, y, seed)["height"])
+static func height_at(x: float, y: float, world_seed: int) -> float:
+	return float(sample(x, y, world_seed)["height"])
 
 
-static func form_at(x: float, y: float, seed: int) -> String:
-	return str(sample(x, y, seed)["form"])
+static func form_at(x: float, y: float, world_seed: int) -> String:
+	return str(sample(x, y, world_seed)["form"])
 
 
-static func vertex_height_on_map(x: int, y: int, width: int, height: int, seed: int) -> float:
-	var base := height_at(float(x), float(y), seed)
-	return Boundary.height_at(float(x), float(y), width, height, seed, base)
+static func vertex_height_on_map(x: int, y: int, width: int, height: int, world_seed: int) -> float:
+	var base := height_at(float(x), float(y), world_seed)
+	return Boundary.height_at(float(x), float(y), width, height, world_seed, base)
 
 
-static func vertex_height(x: int, y: int, seed: int = SEED) -> float:
-	return vertex_height_on_map(x, y, WIDTH, HEIGHT, seed)
+static func vertex_height(x: int, y: int, world_seed: int = SEED) -> float:
+	return vertex_height_on_map(x, y, WIDTH, HEIGHT, world_seed)
 
 
-static func ground_height(x: float, y: float, seed: int = SEED) -> float:
+static func ground_height(x: float, y: float, world_seed: int = SEED) -> float:
 	var ix := clampi(floori(x), 0, WIDTH - 1)
 	var iy := clampi(floori(y), 0, HEIGHT - 1)
 	var u := clampf(x - float(ix), 0.0, 1.0)
 	var v := clampf(y - float(iy), 0.0, 1.0)
-	var h00 := vertex_height(ix, iy, seed)
-	var h10 := vertex_height(ix + 1, iy, seed)
-	var h01 := vertex_height(ix, iy + 1, seed)
-	var h11 := vertex_height(ix + 1, iy + 1, seed)
+	var h00 := vertex_height(ix, iy, world_seed)
+	var h10 := vertex_height(ix + 1, iy, world_seed)
+	var h01 := vertex_height(ix, iy + 1, world_seed)
+	var h11 := vertex_height(ix + 1, iy + 1, world_seed)
 	if u + v <= 1.0:
 		return h00 + (h10 - h00) * u + (h01 - h00) * v
 	return h11 + (h01 - h11) * (1.0 - u) + (h10 - h11) * (1.0 - v)
 
 
-static func normal_at(x: int, y: int, seed: int = SEED) -> Vector3:
-	var west := vertex_height(x - 1, y, seed)
-	var east := vertex_height(x + 1, y, seed)
-	var north := vertex_height(x, y - 1, seed)
-	var south := vertex_height(x, y + 1, seed)
+static func normal_at(x: int, y: int, world_seed: int = SEED) -> Vector3:
+	var west := vertex_height(x - 1, y, world_seed)
+	var east := vertex_height(x + 1, y, world_seed)
+	var north := vertex_height(x, y - 1, world_seed)
+	var south := vertex_height(x, y + 1, world_seed)
 	return Vector3((west - east) * HEIGHT_SCALE, 2.0, (north - south) * HEIGHT_SCALE).normalized()
 
 
-static func slope_at(x: int, y: int, seed: int = SEED) -> float:
-	var west := vertex_height(x - 1, y, seed)
-	var east := vertex_height(x + 1, y, seed)
-	var north := vertex_height(x, y - 1, seed)
-	var south := vertex_height(x, y + 1, seed)
+static func slope_at(x: int, y: int, world_seed: int = SEED) -> float:
+	var west := vertex_height(x - 1, y, world_seed)
+	var east := vertex_height(x + 1, y, world_seed)
+	var north := vertex_height(x, y - 1, world_seed)
+	var south := vertex_height(x, y + 1, world_seed)
 	return Vector2((east - west) * 0.5, (south - north) * 0.5).length()

@@ -12,7 +12,7 @@ const DEFAULT_HEIGHT_SCALE := 0.9
 
 var width: int
 var height: int
-var seed: int
+var world_seed: int
 var chunk_size: int
 var region_size: int
 var height_scale: float
@@ -24,7 +24,7 @@ func _init(p_width: int = DEFAULT_WIDTH, p_height: int = DEFAULT_HEIGHT,
 	assert(valid_dimensions(p_width, p_height, p_chunk, p_region, p_height_scale))
 	width = p_width
 	height = p_height
-	seed = p_seed
+	world_seed = p_seed
 	chunk_size = p_chunk
 	region_size = p_region
 	height_scale = p_height_scale
@@ -82,13 +82,13 @@ func region_count() -> Vector2i:
 func chunk_of(cell: Vector2i) -> Vector2i:
 	if not contains_cell(cell):
 		return Vector2i(-1, -1)
-	return Vector2i(cell.x / chunk_size, cell.y / chunk_size)
+	return Vector2i(int(float(cell.x) / chunk_size), int(float(cell.y) / chunk_size))
 
 
 func region_of(cell: Vector2i) -> Vector2i:
 	if not contains_cell(cell):
 		return Vector2i(-1, -1)
-	return Vector2i(cell.x / region_size, cell.y / region_size)
+	return Vector2i(int(float(cell.x) / region_size), int(float(cell.y) / region_size))
 
 
 func chunk_rect(coord: Vector2i) -> Rect2i:
@@ -110,12 +110,12 @@ func _rect(coord: Vector2i, step: int, count: Vector2i) -> Rect2i:
 func region_seed(coord: Vector2i) -> int:
 	if region_rect(coord).has_area() == false:
 		return -1
-	return ((coord.x * 73856093) ^ (coord.y * 19349663) ^ seed) & 0x7fffffff
+	return ((coord.x * 73856093) ^ (coord.y * 19349663) ^ world_seed) & 0x7fffffff
 
 
 func to_data() -> Dictionary:
 	return {
-		"width": width, "height": height, "seed": seed,
+		"width": width, "height": height, "seed": world_seed,
 		"chunk_size": chunk_size, "region_size": region_size,
 		"height_scale": height_scale
 	}

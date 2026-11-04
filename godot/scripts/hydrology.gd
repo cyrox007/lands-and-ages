@@ -69,7 +69,7 @@ func cell_index(cell: Vector2i) -> int:
 func cell_from_index(index: int) -> Vector2i:
 	if index < 0 or index >= _width * _height:
 		return Vector2i(-1, -1)
-	return Vector2i(index % _width, index / _width)
+	return Vector2i(index % _width, int(float(index) / _width))
 
 
 func _precedes(a: int, b: int) -> bool:
@@ -82,7 +82,7 @@ func _push(index: int) -> void:
 	_heap.append(index)
 	var pos := _heap.size() - 1
 	while pos > 0:
-		var parent := (pos - 1) / 2
+		var parent := int(float(pos - 1) / 2.0)
 		if not _precedes(index, _heap[parent]):
 			break
 		_heap[pos] = _heap[parent]
@@ -178,7 +178,7 @@ func rebuild() -> void:
 		_rank[current] = _order.size()
 		_order.append(current)
 		var cx := current % _width
-		var cy := current / _width
+		var cy := int(float(current) / _width)
 		for offset in DIRECTIONS:
 			var nx: int = cx + offset.x
 			var ny: int = cy + offset.y
@@ -222,7 +222,7 @@ func rebuild() -> void:
 					or previous_lake[i] != _lake[i] \
 					or previous_river[i] != _river[i] \
 					or not is_equal_approx(previous_wetness[i], _wetness[i]):
-				var cell := Vector2i(i % _width, i / _width)
+				var cell := Vector2i(i % _width, int(float(i) / _width))
 				dirty[world.config.chunk_of(cell)] = true
 		for chunk in dirty.keys():
 			last_changed_chunks.append(chunk)
@@ -316,7 +316,7 @@ func _mark_ocean() -> void:
 		var current := queue[cursor]
 		cursor += 1
 		var x := current % _width
-		var y := current / _width
+		var y := int(float(current) / _width)
 		for offset in DIRECTIONS:
 			var nx: int = x + offset.x
 			var ny: int = y + offset.y
@@ -384,7 +384,7 @@ func _recalculate_water() -> void:
 			if distance[current] >= MAX_FLOOD_STEPS:
 				continue
 			var x := current % _width
-			var y := current / _width
+			var y := int(float(current) / _width)
 			for offset in DIRECTIONS:
 				var nx: int = x + offset.x
 				var ny: int = y + offset.y
@@ -421,7 +421,7 @@ func _recalculate_water() -> void:
 		if not is_nan(_water_level[i]):
 			continue
 		var x := i % _width
-		var y := i / _width
+		var y := int(float(i) / _width)
 		for offset in DIRECTIONS:
 			var nx: int = x + offset.x
 			var ny: int = y + offset.y
@@ -438,7 +438,7 @@ func water_at(cell: Vector2i) -> Dictionary:
 	if i < 0:
 		return {}
 	var surface := _water_level[i]
-	return {
+	var result := {
 		"cell": cell,
 		"ground": _ground[i],
 		"spill": _spill[i],
@@ -451,10 +451,13 @@ func water_at(cell: Vector2i) -> Dictionary:
 		"river": _river[i] != 0,
 		"ocean": _ocean[i] != 0,
 		"flooded": _flood[i] != 0,
-		"water_level": surface if not is_nan(surface) else null,
+		"water_level": null,
 		"depth": maxf(0.0, surface - _ground[i]) if not is_nan(surface) else 0.0,
 		"wetness": _wetness[i]
 	}
+	if not is_nan(surface):
+		result["water_level"] = surface
+	return result
 
 
 func has_water(index: int) -> bool:

@@ -28,7 +28,7 @@ func _run() -> void:
     for radius in [9, 12, 16, 20]:
         cases.append(Capacity.report(map, hydro, surface, nature, radius))
     var result := {
-        "stage": "10.0", "seed": map.config.seed,
+        "stage": "10.0", "seed": map.config.world_seed,
         "width": map.config.width, "height": map.config.height,
         "goal": {"players": 6, "mature_settlements": 30},
         "metric_scale_approved": false,

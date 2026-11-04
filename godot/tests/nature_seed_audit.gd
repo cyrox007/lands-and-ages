@@ -32,8 +32,8 @@ func _options() -> Dictionary:
     return result
 
 
-func _prepare(seed: int, width: int, height: int) -> Dictionary:
-    var world := Map.new(Config.new(width, height, seed, 16, 32))
+func _prepare(world_seed: int, width: int, height: int) -> Dictionary:
+    var world := Map.new(Config.new(width, height, world_seed, 16, 32))
     var hydro := Hydro.new(world)
     hydro.rebuild()
     var surface := Surface.new(world, hydro)
@@ -86,7 +86,7 @@ func _check_repeat(models: Dictionary) -> Array[String]:
     var errors: Array[String] = []
     var world: RefCounted = models["world"]
     var nature: RefCounted = models["nature"]
-    var repeat: Dictionary = _prepare(world.config.seed,
+    var repeat: Dictionary = _prepare(world.config.world_seed,
         world.config.width, world.config.height)
     if nature.to_data() != repeat["nature"].to_data():
         errors.append("Повторная генерация отличается при одинаковом seed")
@@ -138,9 +138,9 @@ func _run() -> void:
     var failures: Array[String] = []
 
     for index in range(samples):
-        var seed: int = start_seed + 73 * index
+        var world_seed: int = start_seed + 73 * index
         var started := Time.get_ticks_usec()
-        var models: Dictionary = _prepare(seed, width, height)
+        var models: Dictionary = _prepare(world_seed, width, height)
         var errors: Array[String] = _check_objects(models)
         var capacity: Dictionary = Capacity.report(models["world"],
             models["hydro"], models["surface"], models["nature"], 9)
@@ -148,7 +148,7 @@ func _run() -> void:
         if index % 10 == 0:
             errors.append_array(_check_repeat(models))
         var row := {
-            "seed": seed, "cells": int(capacity["cells"]),
+            "seed": world_seed, "cells": int(capacity["cells"]),
             "sea_cells": int(capacity["ocean"]),
             "dry_cells": int(capacity["dry"]),
             "developable_cells": int(capacity["developable"]),
@@ -160,7 +160,7 @@ func _run() -> void:
         }
         entries.append(row)
         for error in errors:
-            failures.append("seed %d: %s" % [seed, error])
+            failures.append("seed %d: %s" % [world_seed, error])
 
     var report := {
         "stage": "10.7",

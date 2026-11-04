@@ -3,8 +3,8 @@ extends RefCounted
 ## Не зависит от сцены, камеры, GPU и кадровой частоты.
 
 
-static func angle_for(id: int, seed: int) -> float:
-    return deg_to_rad(float(posmod(id * 73 + seed, 360)))
+static func angle_for(id: int, world_seed: int) -> float:
+    return deg_to_rad(float(posmod(id * 73 + world_seed, 360)))
 
 
 static func log_footprint(item: Dictionary,
@@ -14,7 +14,7 @@ static func log_footprint(item: Dictionary,
         return {}
     var tree := Vector2(float(item["x"]) + 0.5,
         float(item["y"]) + 0.5)
-    var angle := angle_for(int(item["id"]), config.seed)
+    var angle := angle_for(int(item["id"]), config.world_seed)
     var center: Vector2 = config.clamp_point(tree +
         Vector2(cos(angle), sin(angle)) * 0.70)
     var scale := clampf(float(item["age_days"]) / (20.0 * 96.0),
