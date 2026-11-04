@@ -93,6 +93,29 @@ func _run() -> void:
         _check(not nature.take_fallen_wood(tree_id, 1000000),
             "Нельзя получить больше древесины, чем осталось")
 
+    if tree_id > 0:
+        var target: Dictionary = repeated["nature"].object_at(tree_id)
+        var target_cell := Vector2i(int(target["x"]), int(target["y"]))
+        repeated["climate"].set_day(2)
+        repeated["nature"].advance_day(2, [{
+            "cell": target_cell, "severity": 1.0
+        }], [])
+        _check(int(repeated["nature"].object_at(tree_id)["health"]) <
+            int(target["health"]),
+            "Стихийное событие повреждает живое дерево вне камеры")
+
+    # Один игровой год без кадрового рендера: рост и расселение
+    # должны быть одинаковыми при повторном расчёте.
+    var saplings_a := _state(9143)
+    var saplings_b := _state(9143)
+    for day in range(2, 98):
+        saplings_a["climate"].set_day(day)
+        saplings_b["climate"].set_day(day)
+        saplings_a["nature"].advance_day(day)
+        saplings_b["nature"].advance_day(day)
+    _check(saplings_a["nature"].to_data() == saplings_b["nature"].to_data(),
+        "Годовой цикл семян и роста воспроизводится без рендера")
+
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)
     _check(int(capacity["cells"]) == 96 * 80,
