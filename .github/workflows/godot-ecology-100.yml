@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ecology-100-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   seeds-100:
     runs-on: ubuntu-latest
