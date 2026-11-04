@@ -46,6 +46,9 @@ class FloodHydrology:
 	func has_water(index: int) -> bool:
 		return floods.has(index) or rivers.has(index) or lakes.has(index)
 
+	func flooded_at(index: int) -> bool:
+		return floods.has(index)
+
 	func flood_depth_at(index: int) -> float:
 		return float(floods.get(index, 0.0))
 
@@ -263,7 +266,7 @@ func _test_continuous_flood() -> void:
 		var tool := SurfaceTool.new()
 		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var added: int = Water._flood_cell(
-			tool, world, hydro, cell, Color.BLUE, 0.0)
+			tool, world, hydro, cell, Color.BLUE, 0.0, {})
 		if added <= 0:
 			continue
 		var mesh: ArrayMesh = tool.commit()
