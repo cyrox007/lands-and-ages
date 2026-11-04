@@ -11,6 +11,7 @@ const Natural = preload("res://scripts/natural_processes.gd")
 const Disasters = preload("res://scripts/natural_disasters.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
 const Runner = preload("res://scripts/world_day_runner.gd")
+const Nature = preload("res://scripts/nature_registry.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -60,7 +61,7 @@ static func capture(state: Dictionary) -> Dictionary:
 			or surface._terrain_revision != world.revision \
 			or climate._terrain_revision != world.revision:
 		return {}
-	return {
+	var snapshot := {
 		"version": FORMAT_VERSION, "day": climate.day,
 		"world": world.to_data(),
 		"hydrology": hydro.to_snapshot(),
@@ -70,6 +71,13 @@ static func capture(state: Dictionary) -> Dictionary:
 		"natural": natural.to_data(),
 		"disasters": disasters.to_data()
 	}
+	# Старые сценарии без леса не меняют формат своего снимка.
+	var nature: RefCounted = state.get("nature")
+	if nature != null and nature.generated:
+		if nature.last_day != climate.day:
+			return {}
+		snapshot["nature"] = nature.to_data()
+	return snapshot
 
 
 static func restore(snapshot: Dictionary) -> Dictionary:
@@ -116,13 +124,18 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	var disasters := Disasters.new(world, hydro, surface, climate)
 	if not disasters.load_data(snapshot["disasters"]):
 		return {}
+	var nature := Nature.new(world, hydro, surface, climate)
+	if snapshot.has("nature"):
+		if not (snapshot["nature"] is Dictionary) \
+				or not nature.load_data(snapshot["nature"]):
+			return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
-		"landscape": Landscape.new(world),
+		"nature": nature, "landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
-			weather, natural, disasters)
+			weather, natural, disasters, nature)
 	}
 
 

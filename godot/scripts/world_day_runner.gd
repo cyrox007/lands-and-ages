@@ -9,6 +9,7 @@ var climate: RefCounted
 var weather_events: RefCounted
 var natural_processes: RefCounted
 var natural_disasters: RefCounted
+var nature: RefCounted
 
 var last_result: Dictionary = {}
 var last_profile_us: Dictionary = {}
@@ -18,7 +19,7 @@ var last_duration_us := 0
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
 		weather: RefCounted, lightning: RefCounted, erosion: RefCounted,
-		disasters: RefCounted) -> void:
+		disasters: RefCounted, vegetation: RefCounted = null) -> void:
 	world = map
 	hydro = water
 	surface = ground
@@ -26,6 +27,7 @@ func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
 	weather_events = lightning
 	natural_processes = erosion
 	natural_disasters = disasters
+	nature = vegetation
 
 
 func synchronize_world() -> bool:
@@ -70,6 +72,11 @@ func run_day() -> void:
 	var disasters_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var changed := synchronize_world()
+	var vegetation_us := 0
+	if nature != null and nature.generated:
+		var plants_started := Time.get_ticks_usec()
+		nature.advance_day(climate.day, hazards, strikes)
+		vegetation_us = Time.get_ticks_usec() - plants_started
 	var synchronization_us := Time.get_ticks_usec() - previous
 	last_duration_us = Time.get_ticks_usec() - start
 	last_statistics = {
@@ -83,6 +90,7 @@ func run_day() -> void:
 		"молнии": lightning_us,
 		"эрозия": erosion_us,
 		"бедствия": disasters_us,
+		"растительность": vegetation_us,
 		"согласование": synchronization_us
 	}
 	last_result = {

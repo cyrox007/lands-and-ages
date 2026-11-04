@@ -27,6 +27,8 @@ const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
+const Nature = preload("res://scripts/nature_registry.gd")
+const NatureRenderer = preload("res://scripts/nature_renderer.gd")
 
 # Радиус 4 используется только для автономных тестов без камеры.
 const VIEW_RADIUS := 4
@@ -48,6 +50,7 @@ var _world_model: RefCounted
 var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
+var _nature: RefCounted
 var _landscape_events: RefCounted
 var _natural_processes: RefCounted
 var _natural_disasters: RefCounted
@@ -141,6 +144,8 @@ func _ready() -> void:
 	_climate.set_day(1)
 	_surface.advance_climate_day(_climate)
 	_hydro.apply_rainfall_map(_surface.runoff_map())
+	_nature = Nature.new(_world_model, _hydro, _surface, _climate)
+	_nature.generate()
 	_ensure_day_runner()
 	_last_completed_day = _climate.day
 	_last_synchronized_world_revision = _world_model.revision
@@ -750,6 +755,8 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
 		water_node.material_override = _water_material
 		water_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(water_node)
+	if _view_mode == 0 and _nature != null:
+		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord))
 	_terrain_holder.add_child(node)
 	if old_node != null:
 		old_node.queue_free()
@@ -769,7 +776,8 @@ func _ensure_day_runner() -> void:
 	if _day_runner != null:
 		return
 	_day_runner = WorldDayRunner.new(_world_model, _hydro, _surface,
-		_climate, _weather_events, _natural_processes, _natural_disasters)
+		_climate, _weather_events, _natural_processes, _natural_disasters,
+		_nature)
 
 
 func _flush_world_changes() -> void:
@@ -788,7 +796,7 @@ func _storage_models() -> Dictionary:
 		"world": _world_model, "hydro": _hydro,
 		"surface": _surface, "climate": _climate,
 		"weather": _weather_events, "natural": _natural_processes,
-		"disasters": _natural_disasters
+		"disasters": _natural_disasters, "nature": _nature
 	}
 
 
@@ -840,6 +848,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_weather_events = models["weather"]
 	_natural_processes = models["natural"]
 	_natural_disasters = models["disasters"]
+	_nature = models["nature"]
 	_landscape_events = models["landscape"]
 	_day_runner = models["runner"]
 	_day_task_id = -1
@@ -1061,6 +1070,9 @@ func _update_hud() -> void:
 		float(ground["waterlogging"]) * 100.0,
 		float(_weather_events.last_events[0]["ignition_potential"]) * 100.0
 		if not _weather_events.last_events.is_empty() else 0.0]
+	if _nature != null and _nature.generated:
+		_status.text += "Природа: %d объектов · запас древесины %d условных ед.\n" % [
+			_nature.count(), _nature.wood_total()]
 	_status.text += "Снег здесь %.0f%% · покрыто снегом %.1f%% карты\n" % [
 		float(ground["snow"]) * 100.0, _surface.snow_coverage * 100.0]
 	_status.text += "Промерзание %.0f%% · потенциал роста %.0f%%\n" % [
