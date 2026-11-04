@@ -169,21 +169,12 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var object_id: int = int(item["id"])
             var selected: String = Models.select_tree(
                 age, object_id, detail, species, winter, state)
-            var shape := Vector3.ONE
-            match species:
-                "ель":
-                    shape = Vector3(0.73, 1.13, 0.73)
-                "сосна":
-                    shape = Vector3(0.95, 1.06, 0.95)
-                "берёза":
-                    shape = Vector3(0.86, 1.08, 0.86)
-                "дуб":
-                    shape = Vector3(1.09, 0.97, 1.09)
+            var shape: Vector3 = Models.shape_for(species)
             var tree_color := Color.WHITE.lerp(
                 Color(0.87, 0.91, 0.88), snow * 0.32)
             if species == "ель":
                 tree_color = tree_color * Color(0.78, 0.89, 0.82)
-            var yaw := deg_to_rad(float(posmod(object_id * 73, 360)))
+            var yaw: float = Models.rotation_for(object_id)
             if _place_model(groups, selected, origin, scale_factor,
                     tree_color, phase, wind, shape, yaw):
                 continue
