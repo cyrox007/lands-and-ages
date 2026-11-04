@@ -219,7 +219,7 @@ func _test_flood_outlines() -> void:
 			"Паводковые треугольники формируют полный меш")
 		for corner in [cell, cell + Vector2i(1, 0),
 				cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
-			var square_corner := world.config.to_scene(
+			var square_corner: Vector3 = world.config.to_scene(
 				Vector2(corner), level + Water.WATER_OFFSET)
 			for vertex in verts:
 				_check(vertex.distance_to(square_corner) > 0.00001,
