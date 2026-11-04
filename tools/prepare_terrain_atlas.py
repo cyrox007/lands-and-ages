@@ -95,7 +95,14 @@ def main() -> None:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             color = read_map(archive, "Color", "RGB")
             normal = read_map(archive, "NormalGL", "RGB")
-            roughness = read_map(archive, "Roughness", "L")
+            # У части старых наборов карта шероховатости не опубликована.
+            # Явно используем матовую поверхность и фиксируем подстановку.
+            try:
+                roughness = read_map(archive, "Roughness", "L")
+                roughness_source = "Roughness"
+            except ValueError:
+                roughness = Image.new("L", (INNER, INNER), 224)
+                roughness_source = "constant_224"
         red, green, _ = normal.split()
         packed = Image.merge("RGB", (red, green, roughness))
         fill_tile(albedo_atlas, color, index)
@@ -106,6 +113,7 @@ def main() -> None:
             "asset": asset_id,
             "url": f"https://ambientcg.com/view?id={asset_id}",
             "archive_sha256": hashlib.sha256(data).hexdigest(),
+            "roughness_source": roughness_source,
         })
         print(f"{name}: {asset_id} — цвет, нормали, шероховатость")
 
