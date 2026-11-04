@@ -327,9 +327,9 @@ func _visible_radius() -> int:
 	if _camera == null:
 		return VIEW_RADIUS
 	var aspect := 16.0 / 9.0
-	var viewport := _camera.get_viewport()
-	if viewport != null:
-		var dimensions: Vector2 = viewport.get_visible_rect().size
+	# В автономных тестах камера может ещё не быть в дереве сцены.
+	if _camera.is_inside_tree():
+		var dimensions: Vector2 = _camera.get_viewport().get_visible_rect().size
 		if dimensions.y > 0.0:
 			aspect = dimensions.x / dimensions.y
 	return _radius_for_zoom(_camera.size, aspect, _world_model.config.chunk_size)
