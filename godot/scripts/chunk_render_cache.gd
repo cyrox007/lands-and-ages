@@ -55,6 +55,12 @@ func put(coord: Vector2i, node: Node3D) -> void:
 		_evict(_order[0])
 
 
+func discard(coord: Vector2i) -> void:
+	# Инвалидация только изменённого природного чанка.
+	if _items.has(coord):
+		_evict(coord)
+
+
 func clear() -> void:
 	for item in _items.values():
 		var node: Node3D = item["node"]

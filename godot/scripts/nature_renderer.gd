@@ -5,6 +5,7 @@ extends RefCounted
 const Wind = preload("res://shaders/nature_wind.gdshader")
 const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
+const Felling = preload("res://scripts/nature_felling_visual.gd")
 
 static var _meshes: Dictionary = {}
 static var _materials: Dictionary = {}
@@ -21,11 +22,11 @@ static func _mesh(kind: String) -> Mesh:
         blade.height = 0.36
         blade.radial_segments = 3
         mesh = blade
-    elif kind in ["ствол", "пень"]:
+    elif kind in ["ствол", "пень", "бревно"]:
         var cylinder := CylinderMesh.new()
         cylinder.top_radius = 0.10 if kind == "ствол" else 0.16
         cylinder.bottom_radius = 0.17 if kind == "ствол" else 0.19
-        cylinder.height = 2.0 if kind == "ствол" else 0.22
+        cylinder.height = 0.22 if kind == "пень" else 2.0
         cylinder.radial_segments = 8
         mesh = cylinder
     elif kind == "хвоя":
@@ -58,7 +59,7 @@ static func _mesh(kind: String) -> Mesh:
 
 
 static func _color(kind: String, species: String, state: String) -> Color:
-    if kind in ["ствол", "пень"]:
+    if kind in ["ствол", "пень", "бревно"]:
         return Color(0.30, 0.22, 0.14) if state != "сухостой" else Color(0.44, 0.40, 0.32)
     if kind == "трава":
         return Color(0.22, 0.38, 0.13)
@@ -127,6 +128,22 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                 _push(groups, "пень",
                     Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.11, 0)),
                     _color("пень", species, state), phase)
+                if int(item["fallen_wood"]) > 0:
+                    var angle: float = Felling.angle_for(
+                        int(item["id"]), world.config.seed)
+                    var offset := Vector2(cos(angle), sin(angle)) * 0.70
+                    var log_point: Vector2 = world.config.clamp_point(
+                        position + offset)
+                    var log_height: float = world.height_at(log_point)
+                    var log_origin: Vector3 = world.config.to_scene(
+                        log_point, log_height) + Vector3(0, 0.19, 0)
+                    var basis := Basis(Vector3.UP, angle) * Basis(
+                        Vector3.FORWARD, -PI * 0.5)
+                    var log_scale := clampf(scale_factor, 0.25, 1.0)
+                    _push(groups, "бревно",
+                        Transform3D(basis.scaled(Vector3.ONE * log_scale),
+                            log_origin),
+                        _color("бревно", species, state), phase)
                 continue
             # Взрослые деревья используют настоящую модель. Зимой
             # у лиственных временно остаётся только голый ствол.

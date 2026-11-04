@@ -8,6 +8,8 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Renderer = preload("res://scripts/nature_renderer.gd")
+const Felling = preload("res://scripts/nature_felling_visual.gd")
+const RenderCache = preload("res://scripts/chunk_render_cache.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
 const Capacity = preload("res://scripts/world_capacity_audit.gd")
 const Weather = preload("res://scripts/weather_events.gd")
@@ -110,7 +112,22 @@ func _run() -> void:
         _check(canopy_before > 0.0,
             "Взрослое дерево создаёт физическое затенение")
         var stock: int = nature.wood_total()
+        var falling := Felling.make_visual(original["world"], tree)
+        _check(falling != null and falling.get_child_count() == 1,
+            "Временная анимация собирается из реальной GLB-модели")
+        if falling != null:
+            _check(falling.get_child(0) is MeshInstance3D,
+                "Валка использует один временный MeshInstance3D")
+            falling.free()
+        var fell_events: Array[Dictionary] = []
+        nature.tree_felled.connect(func(previous: Dictionary) -> void:
+            fell_events.append(previous))
+        var previous_revision: int = nature.revision
         var hit: Dictionary = nature.fell_tree(tree_id)
+        _check(nature.revision == previous_revision + 1,
+            "Валка инвалидирует только затронутые природные чанки")
+        _check(fell_events.size() == 1 and fell_events[0] == tree,
+            "Визуальное событие содержит предыдущее дерево ровно один раз")
         _check(not hit.is_empty() and int(hit["wood_units"]) > 0,
             "Физическая валка переводит дерево в пень")
         _check(nature.wood_total() == stock,
@@ -120,6 +137,18 @@ func _run() -> void:
             "Валка освобождает свет для молодняка")
         _check(nature.fell_tree(tree_id).is_empty(),
             "Повторная рубка не дублирует древесину")
+        _check(fell_events.size() == 1,
+            "Повторная рубка не запускает падение заново")
+        var tree_chunk: Vector2i = original["world"].config.chunk_of(
+            Vector2i(int(tree["x"]), int(tree["y"])))
+        var fallen_chunk := Renderer.create_chunk(
+            original["world"], nature, tree_chunk)
+        var found_log := false
+        for child in fallen_chunk.get_children():
+            if child.name == "бревно":
+                found_log = true
+        _check(found_log, "После физической валки отображается лежащее бревно")
+        fallen_chunk.free()
         var extracted: int = maxi(1, int(hit["wood_units"]) / 2)
         _check(nature.take_fallen_wood(tree_id, extracted),
             "Часть лежащей древесины доступна для будущей перевозки")
@@ -127,6 +156,18 @@ func _run() -> void:
             "Изъятие ресурса сохраняет количественный баланс")
         _check(not nature.take_fallen_wood(tree_id, 1000000),
             "Нельзя получить больше древесины, чем осталось")
+        var physical_remaining: int = nature.object_at(tree_id)["fallen_wood"]
+        _check(nature.take_fallen_wood(tree_id, physical_remaining),
+            "Можно забрать последний остаток древесины без повторной валки")
+        var empty_chunk := Renderer.create_chunk(
+            original["world"], nature, tree_chunk)
+        var lingering_log := false
+        for child in empty_chunk.get_children():
+            if child.name == "бревно":
+                lingering_log = true
+        _check(not lingering_log,
+            "После изъятия ресурса лежащее бревно исчезает, пень остаётся")
+        empty_chunk.free()
 
     if tree_id > 0:
         var target: Dictionary = repeated["nature"].object_at(tree_id)
@@ -191,6 +232,15 @@ func _run() -> void:
         "Трава и природные объекты создаются в видимых чанках")
     _check(rendered_glb > 0,
         "На реальных видимых чанках присутствуют GLB, а не только заглушки")
+
+    var cache := RenderCache.new()
+    var cached_chunk := Vector2i(2, 3)
+    cache.put(cached_chunk, Node3D.new())
+    _check(cache.has(cached_chunk),
+        "Чанк природы может находиться в ограниченном GPU-кеше")
+    cache.discard(cached_chunk)
+    _check(not cache.has(cached_chunk),
+        "Изменение природы удаляет только устаревший чанк из кеша")
 
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)

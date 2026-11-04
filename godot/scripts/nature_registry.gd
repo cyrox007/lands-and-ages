@@ -2,6 +2,7 @@ extends RefCounted
 ## Природные объекты не являются частью грунта и не зависят от камеры.
 
 signal objects_changed(chunks: Array[Vector2i], revision: int)
+signal tree_felled(previous: Dictionary)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const FORMAT_VERSION := 1
@@ -278,15 +279,19 @@ func _modify(id: int, item: Dictionary) -> void:
 
 
 func fell_tree(id: int) -> Dictionary:
-    # Рубка изменяет физический ресурс; анимация не создаёт древесину.
-    var item: Dictionary = object_at(id)
-    if item.is_empty() or item["kind"] != "дерево"             or item["state"] != "целое":
+    # Физика меняется сразу; визуальное падение не производит ресурс.
+    var before: Dictionary = object_at(id)
+    if before.is_empty() or before["kind"] != "дерево":
         return {}
-    var wood := int(item["wood_units"])
+    if before["state"] not in ["целое", "сухостой"]:
+        return {}
+    var wood: int = before["wood_units"]
+    var item: Dictionary = before.duplicate(true)
     item["wood_units"] = 0
-    item["fallen_wood"] = wood
+    item["fallen_wood"] = int(item["fallen_wood"]) + wood
     item["state"] = "пень"
     _modify(id, item)
+    tree_felled.emit(before)
     return {"id": id, "wood_units": wood, "state": "пень"}
 
 
