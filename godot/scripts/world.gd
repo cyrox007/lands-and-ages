@@ -1070,6 +1070,9 @@ func _update_hud() -> void:
 		float(ground["waterlogging"]) * 100.0,
 		float(_weather_events.last_events[0]["ignition_potential"]) * 100.0
 		if not _weather_events.last_events.is_empty() else 0.0]
+	if _nature != null and _nature.generated:
+		_status.text += "Природа: %d объектов · запас древесины %d условных ед.\n" % [
+			_nature.count(), _nature.wood_total()]
 	_status.text += "Снег здесь %.0f%% · покрыто снегом %.1f%% карты\n" % [
 		float(ground["snow"]) * 100.0, _surface.snow_coverage * 100.0]
 	_status.text += "Промерзание %.0f%% · потенциал роста %.0f%%\n" % [
