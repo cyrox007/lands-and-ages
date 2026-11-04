@@ -73,8 +73,8 @@ func _test_physical_weights() -> void:
 	var uv_b: PackedVector2Array = b[Mesh.ARRAY_TEX_UV]
 	var uv2_a: PackedVector2Array = a[Mesh.ARRAY_TEX_UV2]
 	var uv2_b: PackedVector2Array = b[Mesh.ARRAY_TEX_UV2]
-	_check(uv_a.size() == 289 and uv2_a.size() == 289,
-		"Каждая вершина содержит коэффициенты текстурного смешивания")
+	_check(uv_a.size() >= 289 and uv2_a.size() == uv_a.size(),
+		"Каждая исходная и береговая вершина имеет веса материалов")
 	for y in range(17):
 		var i := y * 17
 		_check(colors_a[i + 16].is_equal_approx(colors_b[i]) and
