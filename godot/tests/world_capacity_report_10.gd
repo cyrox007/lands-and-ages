@@ -49,6 +49,36 @@ static func _options() -> Dictionary:
     return result
 
 
+# Узкий пролив или обрыв не должны превращаться в прямую дорогу к ресурсу.
+static func _route_regression() -> bool:
+    var width := 7
+    var height := 5
+    var walkable := PackedByteArray()
+    var wood := PackedInt32Array()
+    var stones := PackedInt32Array()
+    walkable.resize(width * height)
+    wood.resize(width * height)
+    stones.resize(width * height)
+    for y in range(height):
+        for x in range(width):
+            if x != 3:
+                walkable[y * width + x] = 1
+    wood[2 * width + 2] = 8
+    stones[2 * width + 5] = 3
+    var blocked: Dictionary = Scenario.route_stock(
+        walkable, wood, stones, width, height, Vector2i(1, 2), 8)
+    if int(blocked["wood_units"]) != 8 or int(blocked["boulders"]) != 0:
+        return false
+    walkable[2 * width + 3] = 1
+    var near: Dictionary = Scenario.route_stock(
+        walkable, wood, stones, width, height, Vector2i(1, 2), 3)
+    if int(near["boulders"]) != 0:
+        return false
+    var open: Dictionary = Scenario.route_stock(
+        walkable, wood, stones, width, height, Vector2i(1, 2), 8)
+    return int(open["wood_units"]) == 8 and int(open["boulders"]) == 3
+
+
 static func _layout_valid(case: Dictionary, width: int, height: int) -> bool:
     var data: Dictionary = case["connected_six_state_trial"]["trial"]
     var radius: int = case["radius"]
@@ -57,14 +87,34 @@ static func _layout_valid(case: Dictionary, width: int, height: int) -> bool:
     var seen: Array[Dictionary] = []
     var total := 0
     var full := 0
+    var starts_with_wood := 0
+    var starts_with_boulders := 0
+    var starts_with_both := 0
+    if not bool(data["resource_route_checked"]):
+        return false
     for state in data["states"]:
         var points: Array = state["centers"]
+        var routes: Array = state["resource_routes"]
+        if routes.size() != points.size():
+            return false
         if points.size() > 5:
             return false
         if not points.is_empty() and int(state["connected_component"]) < 0:
             return false
         if points.size() == 5:
             full += 1
+        if not routes.is_empty():
+            var start_wood: int = int(routes[0]["wood_units"])
+            var start_stones: int = int(routes[0]["boulders"])
+            starts_with_wood += int(start_wood > 0)
+            starts_with_boulders += int(start_stones > 0)
+            starts_with_both += int(start_wood > 0 and start_stones > 0)
+        for route in routes:
+            if int(route["walkable_cells"]) < 1 \
+                    or int(route["wood_units"]) < 0 \
+                    or int(route["boulders"]) < 0 \
+                    or int(route["max_steps"]) != radius * 3:
+                return false
         for point in points:
             if point.size() != 2:
                 return false
@@ -83,10 +133,17 @@ static func _layout_valid(case: Dictionary, width: int, height: int) -> bool:
             total += 1
     return total == int(data["assigned_centers"]) \
         and full == int(data["full_states"]) \
+        and starts_with_wood == int(data["starts_with_reachable_wood"]) \
+        and starts_with_boulders == int(data["starts_with_reachable_boulders"]) \
+        and starts_with_both == int(data["starts_with_both_resources"]) \
         and bool(data["trial_30_centers_found"]) == (full == 6)
 
 
 func _run() -> void:
+    if not _route_regression():
+        push_error("Ошибка пространственной проверки маршрутов к сырью")
+        quit(1)
+        return
     var options: Dictionary = _options()
     var width: int = options["width"]
     var height: int = options["height"]
