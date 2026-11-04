@@ -6,6 +6,7 @@ const WorldConfig = preload("res://scripts/world_config.gd")
 const WorldMap = preload("res://scripts/world_map.gd")
 const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
+const ChunkVisibility = preload("res://scripts/chunk_visibility.gd")
 const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
 const NaturalWaterShader = preload("res://shaders/natural_water.gdshader")
 const Hydrology = preload("res://scripts/hydrology.gd")
@@ -73,6 +74,10 @@ var _terrain_dirty := {}
 var _last_chunk_build_us := 0
 var _chunk_rebuilds := 0
 var _chunk_center := Vector2i(-1, -1)
+var _visibility_center := Vector2(-1000000.0, -1000000.0)
+var _chunk_height_bounds := {}
+var _height_bounds_revision := -1
+var _water_bounds_revision := -1
 var _status: Label
 var _summary: Label
 var _debug_details: VBoxContainer
@@ -358,21 +363,96 @@ func _move_center(amount: Vector2) -> void:
 	_update_camera()
 	var next_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
-	if next_chunk != _chunk_center:
+	# При точном отсечении новая область может появиться внутри чанка.
+	# Подпуск в расчёте видимости страхует промежутки между обновлениями.
+	if next_chunk != _chunk_center or \
+			_center.distance_squared_to(_visibility_center) >= 1.0:
 		_refresh_visible(false)
+
+
+func _ensure_chunk_bounds_fresh() -> void:
+	var water_revision: int = _hydro.revision if _hydro != null else -1
+	if _height_bounds_revision == _world_model.revision \
+			and _water_bounds_revision == water_revision:
+		return
+	_chunk_height_bounds.clear()
+	_height_bounds_revision = _world_model.revision
+	_water_bounds_revision = water_revision
+
+
+func _chunk_elevation_bounds(coord: Vector2i) -> Vector2:
+	if _chunk_height_bounds.has(coord):
+		return _chunk_height_bounds[coord]
+	var bounds: Rect2i = _world_model.config.chunk_rect(coord)
+	var minimum := INF
+	var maximum := -INF
+	for y in range(bounds.position.y, bounds.end.y + 1):
+		for x in range(bounds.position.x, bounds.end.x + 1):
+			var height: float = _world_model.vertex_at(Vector2i(x, y))
+			minimum = minf(minimum, height)
+			maximum = maxf(maximum, height)
+
+	if _hydro != null:
+		# Русло может перейти в соседнюю клетку, а озеро быть выше дна.
+		# Проверяем и пограничный ряд, чтобы не срезать поверхность воды.
+		for y in range(maxi(0, bounds.position.y - 1),
+				mini(_world_model.config.height, bounds.end.y + 1)):
+			for x in range(maxi(0, bounds.position.x - 1),
+					mini(_world_model.config.width, bounds.end.x + 1)):
+				var index: int = _hydro.cell_index(Vector2i(x, y))
+				if _hydro.has_water(index):
+					var level: float = _hydro.level_at(index)
+					if is_finite(level):
+						minimum = minf(minimum, level)
+						maximum = maxf(maximum, level)
+	var scene_scale: float = _world_model.config.height_scale
+	var elevation := Vector2(minimum * scene_scale - 0.25,
+		maximum * scene_scale + 0.25)
+	_chunk_height_bounds[coord] = elevation
+	return elevation
 
 
 func _refresh_visible(force: bool) -> void:
 	var center_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
 	_chunk_center = center_chunk
+	_visibility_center = _center
+	# Во время фоновой физики высоты читать нельзя: временно используем
+	# консервативный квадрат и уточняем его после синхронизации.
+	var cull := _camera != null and _camera.is_inside_tree() \
+		and _day_task_id < 0
 	var radius := _visible_radius()
+	if cull:
+		_ensure_chunk_bounds_fresh()
+		# Кандидаты покрывают и вершины у предельной высоты физической карты.
+		radius += ceili(2.0 * WorldMap.MAX_HEIGHT * \
+			_world_model.config.height_scale / float(_world_model.config.chunk_size)) + 2
+	var aspect := 16.0 / 9.0
+	var camera_position := Vector3.ZERO
+	var right := Vector3.RIGHT
+	var up := Vector3.UP
+	if cull:
+		var viewport_size: Vector2 = _camera.get_viewport().get_visible_rect().size
+		if viewport_size.y > 0.0:
+			aspect = viewport_size.x / viewport_size.y
+		camera_position = _camera.global_position
+		right = _camera.global_transform.basis.x
+		up = _camera.global_transform.basis.y
+	var chunk_count: Vector2i = _world_model.config.chunk_count()
 	var desired := {}
-	for cy in range(center_chunk.y - radius, center_chunk.y + radius + 1):
-		for cx in range(center_chunk.x - radius, center_chunk.x + radius + 1):
+	for cy in range(maxi(0, center_chunk.y - radius),
+			mini(chunk_count.y, center_chunk.y + radius + 1)):
+		for cx in range(maxi(0, center_chunk.x - radius),
+				mini(chunk_count.x, center_chunk.x + radius + 1)):
 			var coord := Vector2i(cx, cy)
-			if _world_model.config.chunk_rect(coord).has_area():
-				desired[coord] = true
+			var bounds: Rect2i = _world_model.config.chunk_rect(coord)
+			if not bounds.has_area():
+				continue
+			if cull and not ChunkVisibility.intersects(bounds,
+					_chunk_elevation_bounds(coord), camera_position, right, up,
+					_camera.size, aspect):
+				continue
+			desired[coord] = true
 	# Невидимые чанки удаляем, видимые сохраняем до готовности новой сетки.
 	for coord in _active.keys():
 		if not desired.has(coord):
@@ -520,6 +600,9 @@ func _install_loaded_world(models: Dictionary) -> void:
 		_active[chunk].queue_free()
 	_active.clear()
 	_pending.clear()
+	_chunk_height_bounds.clear()
+	_height_bounds_revision = -1
+	_water_bounds_revision = -1
 	_chunk_center = Vector2i(-1, -1)
 	_refresh_visible(true)
 
