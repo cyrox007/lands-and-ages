@@ -665,9 +665,8 @@ func _start_chunk_jobs() -> void:
 	if _pending.is_empty() or _chunk_jobs.size() >= MAX_CONCURRENT_CHUNK_JOBS:
 		return
 	# Ленивая подготовка физических моделей допускается только в main.
-	if _view_mode == 0:
-		_hydro.ensure_ready()
-		_surface.ensure_ready()
+	_hydro.ensure_ready()
+	_surface.ensure_ready()
 	while (_chunk_jobs.size() < MAX_CONCURRENT_CHUNK_JOBS and
 			not _pending.is_empty()):
 		var coord: Vector2i = _pending.pop_front()
@@ -717,7 +716,12 @@ func _collect_chunk_jobs() -> void:
 		_total_ground_build_us += worker.prepare_us + upload_us
 		_total_ground_prepare_us += worker.prepare_us
 		_total_ground_upload_us += upload_us
-		_attach_chunk(coord, ground_mesh)
+		var water_started := Time.get_ticks_usec()
+		var water_mesh := WaterMesh.mesh_from_arrays(worker.water_arrays)
+		var water_us: int = worker.water_prepare_us + Time.get_ticks_usec() - water_started
+		_last_water_build_us += water_us
+		_total_water_build_us += water_us
+		_attach_chunk(coord, ground_mesh, water_mesh)
 		completed += 1
 		if (completed >= MAX_BUILDS_PER_FRAME or
 				Time.get_ticks_usec() - started >= _mesh_build_budget_us):
@@ -749,7 +753,8 @@ func _create_chunk(coord: Vector2i) -> void:
 	_attach_chunk(coord, mesh)
 
 
-func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
+func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
+		prepared_water: ArrayMesh = null) -> void:
 	# Ни один воркер не трогает Node, ArrayMesh или RenderingServer.
 	var old_node: Node3D = _active.get(coord)
 	var node := Node3D.new()
@@ -763,8 +768,9 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
 	var water_started := Time.get_ticks_usec()
-	var water_mesh: ArrayMesh = WaterMesh.create_mesh(
-		_world_model, _hydro, coord, _surface)
+	var water_mesh: ArrayMesh = prepared_water
+	if water_mesh == null:
+		water_mesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface)
 	var water_us := Time.get_ticks_usec() - water_started
 	_last_water_build_us += water_us
 	_total_water_build_us += water_us

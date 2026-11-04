@@ -374,10 +374,22 @@ static func _flood_tint(ice: float) -> Color:
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		surface: RefCounted = null) -> ArrayMesh:
 	hydro.ensure_ready()
-	var bounds: Rect2i = world.config.chunk_rect(chunk)
+	return mesh_from_arrays(prepare_arrays(world, hydro, chunk, surface))
+
+
+static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	var result := ArrayMesh.new()
+	if not arrays.is_empty():
+		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return result
+
+
+static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
+		surface: RefCounted = null) -> Array:
+	# Models must already be ready; this isolated SurfaceTool only builds CPU arrays.
+	var bounds: Rect2i = world.config.chunk_rect(chunk)
 	if not bounds.has_area():
-		return result
+		return []
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var added := 0
@@ -425,5 +437,5 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			added += _render_river(tool, world, hydro, cell, index,
 				level, color, ice)
 	if added > 0:
-		tool.commit(result)
-	return result
+		return tool.commit_to_arrays()
+	return []

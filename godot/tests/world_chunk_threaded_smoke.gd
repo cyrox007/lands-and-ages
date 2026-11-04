@@ -4,6 +4,7 @@ extends SceneTree
 const View = preload("res://scripts/world.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 const Worker = preload("res://scripts/chunk_build_worker.gd")
+const Water = preload("res://scripts/water_mesh.gd")
 
 var errors: Array[String] = []
 
@@ -39,6 +40,10 @@ func _run() -> void:
 	var synchronous := Chunk.create_mesh(coord.x, coord.y, 1,
 		view._world_model, view._surface, 0, view._climate, view._hydro)
 	var prepared := Chunk.mesh_from_arrays(job.arrays)
+	var water_sync := Water.prepare_arrays(view._world_model, view._hydro,
+		coord, view._surface)
+	_check(job.water_arrays == water_sync,
+		"Фоновая геометрия воды совпадает с синхронной во всех каналах")
 	var normal: Array = synchronous.surface_get_arrays(0)
 	var background: Array = prepared.surface_get_arrays(0)
 	for channel in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_COLOR,
