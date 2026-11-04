@@ -137,12 +137,14 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		for x in range(bounds.position.x, bounds.end.x):
 			var cell := Vector2i(x, y)
 			var index: int = hydro.cell_index(cell)
-			if not hydro.has_water(index):
+			var physical_water: bool = hydro.has_water(index)
+			var context: Dictionary = ShoreVisual.water_context(world, hydro, cell)
+			if not physical_water and context.is_empty():
 				continue
-			var level: float = hydro.level_at(index)
-			var lake: bool = hydro.lake_at(index)
-			var ocean: bool = hydro.ocean_at(index)
-			var river: bool = hydro.river_at(index)
+			var level: float = hydro.level_at(index) if physical_water else float(context["level"])
+			var lake: bool = hydro.lake_at(index) if physical_water else bool(context["lake"])
+			var ocean: bool = hydro.ocean_at(index) if physical_water else bool(context["ocean"])
+			var river: bool = hydro.river_at(index) if physical_water else false
 			var color := Color(0.16, 0.34, 0.38, 0.92)
 			if ocean:
 				color = Color(0.12, 0.27, 0.35, 0.93)
@@ -152,7 +154,8 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				color = Color(0.22, 0.37, 0.38, 0.83)
 			var ice := 0.0
 			if surface != null:
-				var frost: float = surface.frost_at_index(index)
+				var frost_index: int = int(context["index"]) if not context.is_empty() else index
+				var frost: float = surface.frost_at_index(frost_index)
 				ice = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
 			if ocean or lake or not river:
