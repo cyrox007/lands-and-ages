@@ -52,6 +52,7 @@ jobs:
             | tee /tmp/world-capacity-10.log
           grep -q "Этап 10.0: отчёт готов" /tmp/world-capacity-10.log
           test -s godot/tests/world-capacity-10.json
+          cat godot/tests/world-capacity-10.json
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/world-capacity-10.log; then
             exit 1
           fi
