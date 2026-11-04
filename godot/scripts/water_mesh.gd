@@ -216,6 +216,52 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	return RIVER_SEGMENTS * 2
 
 
+static func _flood_outline(neighbors: Array[bool]) -> PackedVector2Array:
+	# У речного разлива граница проходит внутри клетки, а не по её
+	# прямоугольным краям. Общая сторона двух затопленных клеток
+	# сохраняет одинаковый отрезок [0.25, 0.75].
+	var north := neighbors[0]
+	var east := neighbors[1]
+	var south := neighbors[2]
+	var west := neighbors[3]
+	return PackedVector2Array([
+		Vector2(0.25, 0.0) if north else Vector2(0.40, 0.22),
+		Vector2(0.75, 0.0) if north else Vector2(0.60, 0.22),
+		Vector2(1.0, 0.25) if east else Vector2(0.78, 0.40),
+		Vector2(1.0, 0.75) if east else Vector2(0.78, 0.60),
+		Vector2(0.75, 1.0) if south else Vector2(0.60, 0.78),
+		Vector2(0.25, 1.0) if south else Vector2(0.40, 0.78),
+		Vector2(0.0, 0.75) if west else Vector2(0.22, 0.60),
+		Vector2(0.0, 0.25) if west else Vector2(0.22, 0.40)
+	])
+
+
+static func _flood_cell(tool: SurfaceTool, world: RefCounted,
+		hydro: RefCounted, cell: Vector2i, level: float,
+		tint: Color, ice: float) -> int:
+	# Гидрология задаёт реально затопленные клетки и их уровень.
+	# Рендер создаёт плавный, локальный контур без полных плиток.
+	var neighbors: Array[bool] = []
+	for delta in [Vector2i(0, -1), Vector2i(1, 0),
+			Vector2i(0, 1), Vector2i(-1, 0)]:
+		neighbors.append(hydro.has_water(hydro.cell_index(cell + delta)))
+	var outline := _flood_outline(neighbors)
+	var center := Vector2(cell) + Vector2(0.5, 0.5)
+	var center_height: float = world.height_at(center)
+	var added := 0
+	for i in range(outline.size()):
+		var first := Vector2(cell) + outline[i]
+		var second := Vector2(cell) + outline[(i + 1) % outline.size()]
+		var polygon := _clip_submerged_triangle(
+			PackedVector2Array([center, first, second]),
+			PackedFloat32Array([
+				center_height, world.height_at(first),
+				world.height_at(second)
+			]), level)
+		added += _add_polygon(tool, world, polygon, level, tint, ice)
+	return added
+
+
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		surface: RefCounted = null) -> ArrayMesh:
 	hydro.ensure_ready()
@@ -251,7 +297,11 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				var frost: float = surface.frost_at_index(frost_index)
 				ice = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
-			if ocean or lake or not river:
+			if not ocean and not lake and not river:
+				# Паводок — не озеро: целый квадрат воды здесь недопустим.
+				added += _flood_cell(tool, world, hydro, cell, level, color, ice)
+				continue
+			if ocean or lake:
 				added += _water_cell(tool, world, cell, level, color, ice)
 				continue
 
