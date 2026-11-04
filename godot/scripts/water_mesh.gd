@@ -7,10 +7,10 @@ const SHORE_FADE_DEPTH := 0.7
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
-		c: Vector3, d: Vector3, tint: Color) -> void:
+		c: Vector3, d: Vector3, tint: Color, ice: float = 0.0) -> void:
 	tool.set_color(tint)
 	tool.set_normal(Vector3.UP)
-	tool.set_uv(Vector2(1.0, 0.0))
+	tool.set_uv(Vector2(1.0, ice))
 	for vertex in [a, b, c, a, c, d]:
 		tool.add_vertex(vertex)
 
@@ -38,7 +38,8 @@ static func _clip_submerged_triangle(points: PackedVector2Array,
 
 
 static func _add_polygon(tool: SurfaceTool, world: RefCounted,
-		polygon: PackedVector3Array, level: float, tint: Color) -> int:
+		polygon: PackedVector3Array, level: float, tint: Color,
+		ice: float = 0.0) -> int:
 	if polygon.size() < 3:
 		return 0
 	var added := 0
@@ -51,7 +52,7 @@ static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 		if absf((b - a).cross(c - a)) < 0.000001:
 			continue
 		for vertex in [polygon[0], polygon[i], polygon[i + 1]]:
-			tool.set_uv(Vector2(vertex.z, 0.0))
+			tool.set_uv(Vector2(vertex.z, ice))
 			tool.add_vertex(world.config.to_scene(
 				Vector2(vertex.x, vertex.y), level + WATER_OFFSET))
 		added += 1
@@ -59,7 +60,7 @@ static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 
 
 static func _water_cell(tool: SurfaceTool, world: RefCounted,
-		cell: Vector2i, level: float, tint: Color) -> int:
+		cell: Vector2i, level: float, tint: Color, ice: float = 0.0) -> int:
 	var x := cell.x
 	var y := cell.y
 	var a := Vector2i(x, y)
@@ -74,7 +75,7 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 		_quad(tool, world.config.to_scene(Vector2(a), level + WATER_OFFSET),
 			world.config.to_scene(Vector2(b), level + WATER_OFFSET),
 			world.config.to_scene(Vector2(d), level + WATER_OFFSET),
-			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint)
+			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint, ice)
 		return 2
 
 	# Разбиение совпадает с диагональю физического меша Chunk.
@@ -84,8 +85,8 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 	var second := _clip_submerged_triangle(
 		PackedVector2Array([Vector2(d), Vector2(b), Vector2(c)]),
 		PackedFloat32Array([hd, hb, hc]), level)
-	return _add_polygon(tool, world, first, level, tint) + \
-		_add_polygon(tool, world, second, level, tint)
+	return _add_polygon(tool, world, first, level, tint, ice) + \
+		_add_polygon(tool, world, second, level, tint, ice)
 
 
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
@@ -115,12 +116,13 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				color = Color(0.14, 0.31, 0.37, 0.91)
 			elif not river:
 				color = Color(0.22, 0.37, 0.38, 0.83)
+			var ice := 0.0
 			if surface != null:
 				var frost: float = surface.frost_at_index(index)
-				var ice: float = smoothstep(0.20, 0.90, frost)
+				ice = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
 			if ocean or lake or not river:
-				added += _water_cell(tool, world, cell, level, color)
+				added += _water_cell(tool, world, cell, level, color, ice)
 				continue
 
 			# Русло сохраняет прежнюю физически связанную ленту.
@@ -142,7 +144,7 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			_quad(tool, world.config.to_scene(start - side, level + WATER_OFFSET),
 				world.config.to_scene(start + side, level + WATER_OFFSET),
 				world.config.to_scene(finish + side, end_level),
-				world.config.to_scene(finish - side, end_level), color)
+				world.config.to_scene(finish - side, end_level), color, ice)
 			added += 2
 	if added > 0:
 		tool.commit(result)

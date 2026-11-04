@@ -11,12 +11,15 @@ uniform float texture_density : hint_range(0.05, 2.0) = 0.35;
 varying vec3 ground_position;
 varying vec3 ground_world_normal;
 varying float ground_steepness;
+varying vec4 ground_conditions;
 
 
 void vertex() {
 	ground_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	ground_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 	ground_steepness = 1.0 - clamp(abs(NORMAL.y), 0.0, 1.0);
+	// CUSTOM0 из меша: вода в почве, морской берег, мороз и речной берег.
+	ground_conditions = CUSTOM0;
 }
 
 
@@ -135,6 +138,12 @@ void fragment() {
 		gravel *= 1.0 - variation * 0.4;
 		snow *= 1.0 + variation * 0.2;
 	}
+	// Снежная кромка слегка размывается макрофактурой;
+	// снег никогда не появляется на полностью бесснежном грунте.
+	float snow_border = smoothstep(0.015, 0.35, snow) *
+		(1.0 - smoothstep(0.65, 0.99, snow));
+	snow = clamp(snow + (macro - 0.5) * snow_border *
+		0.35 * detail_strength, 0.0, 1.0);
 	float sum = max(grass + soil + sand + rock + gravel + snow, 0.0001);
 
 	vec3 albedo_sum = vec3(0.0);
@@ -162,10 +171,23 @@ void fragment() {
 	vec3 tint = clamp(COLOR.rgb / vec3(0.55), vec3(0.74), vec3(1.19));
 	float macro_tint = 1.0 + (macro - 0.5) * 0.12 *
 		macro_strength * detail_strength;
-	ALBEDO = clamp(albedo_sum * mix(vec3(1.0), tint, 0.17) *
-		(1.0 + strata * cliff * 0.016 * detail_strength) * macro_tint,
+	// Мокрая земля темнее и чуть менее шероховатая: величина
+	// зависит от реальной влажности, заболачивания и береговой воды.
+	float moisture = smoothstep(0.24, 0.84, ground_conditions.x);
+	float coastal_wet = ground_conditions.y *
+		(0.38 + 0.55 * sand) + ground_conditions.w * 0.38;
+	float thawed = 1.0 - smoothstep(0.22, 0.82, ground_conditions.z);
+	float wet = clamp(max(moisture, coastal_wet) *
+		thawed * (1.0 - snow * 0.94), 0.0, 1.0);
+	float absorbency = clamp(soil + sand + grass * 0.65 +
+		gravel * 0.40, 0.0, 1.0);
+	float wet_material = wet * (0.35 + 0.65 * absorbency);
+	vec3 base_albedo = albedo_sum * mix(vec3(1.0), tint, 0.17) *
+		(1.0 + strata * cliff * 0.016 * detail_strength) * macro_tint;
+	ALBEDO = clamp(base_albedo * mix(1.0, 0.67, wet_material),
 		vec3(0.0), vec3(1.0));
-	ROUGHNESS = clamp(roughness_sum, 0.25, 1.0);
+	ROUGHNESS = clamp(mix(roughness_sum, 0.34, wet_material * 0.72),
+		0.25, 1.0);
 	METALLIC = 0.0;
 
 	// Переносим касательную микрофактуру из мировых осей в видовую систему.

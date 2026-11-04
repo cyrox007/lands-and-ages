@@ -410,6 +410,11 @@ func moisture_at_index(i: int) -> float:
 	return _moisture[i] if i >= 0 and i < _moisture.size() else 0.0
 
 
+func waterlogging_at_index(i: int) -> float:
+	# Только чтение уже сохранённого состояния затопления почвы.
+	return _waterlogged[i] if i >= 0 and i < _waterlogged.size() else 0.0
+
+
 func frost_at_index(i: int) -> float:
 	return _frost[i] if i >= 0 and i < _frost.size() else 0.0
 
