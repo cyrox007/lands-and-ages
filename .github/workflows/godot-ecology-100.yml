@@ -46,6 +46,26 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/seed-audit.log; then
             exit 1
           fi
+      - name: Вывести статистику 100 карт
+        if: success()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("godot/tests/world-ecology-seeds-10.json")
+          report = json.loads(path.read_text(encoding="utf-8"))
+          print("Проверено seed:", report["samples"])
+          print("Ошибок:", len(report["hard_errors"]))
+          for key, label in [
+              ("sea_cells", "Морские клетки"),
+              ("developable_cells", "Пригодная суша"),
+              ("settlements_r9", "Центры r9"),
+              ("natural_objects", "Природные объекты"),
+              ("wood_units", "Древесный запас"),
+              ("generation_ms", "Генерация, мс"),
+          ]:
+              print(label, report["statistics"][key])
+          PY
       - name: Сохранить отчёт 100 seed
         if: always()
         uses: actions/upload-artifact@v4
