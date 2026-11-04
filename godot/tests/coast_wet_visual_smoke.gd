@@ -175,6 +175,21 @@ func _test_flood_outlines() -> void:
 		_check(point.x > 0.0 and point.x < 1.0 and
 			point.y > 0.0 and point.y < 1.0,
 			"Изолированное подтопление не заполняет прямоугольник клетки")
+	# После обрезки очертанием высота каждой вершины остаётся на
+	# физически согласованной плоскости исходного субтреугольника.
+	var clipped: Dictionary = Water._clip_flood_outline(
+		PackedVector2Array([Vector2.ZERO, Vector2(1.0, 0.0),
+			Vector2(0.0, 1.0)]),
+		PackedFloat32Array([0.0, 1.0, 2.0]), isolated)
+	var positions: PackedVector2Array = clipped["points"]
+	var heights: PackedFloat32Array = clipped["heights"]
+	_check(positions.size() == heights.size() and positions.size() >= 3,
+		"Согласованная береговая обрезка сохраняет высоты")
+	for i in range(positions.size()):
+		_check(absf(heights[i] - positions[i].x -
+			2.0 * positions[i].y) < 0.00001,
+			"Контур паводка не пересекает визуальный грунт")
+
 	var east := Water._flood_outline([false, true, false, false])
 	var west := Water._flood_outline([false, false, false, true])
 	_check(east[2] == west[7] + Vector2(1.0, 0.0) and
@@ -195,8 +210,8 @@ func _test_flood_outlines() -> void:
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var triangles := Water._flood_cell(
 		tool, world, hydro, cell, level, Color.BLUE, 0.0)
-	_check(triangles == 8,
-		"Даже в полностью подтопленной клетке остаётся не квадрат, а контур")
+	_check(triangles >= 8,
+		"Паводок разбит по береговой сетке, а не на целую квадратную плитку")
 	if triangles > 0:
 		var mesh: ArrayMesh = tool.commit()
 		var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
