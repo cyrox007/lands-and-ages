@@ -75,7 +75,7 @@ func run_day() -> void:
 	var vegetation_us := 0
 	if nature != null and nature.generated:
 		var plants_started := Time.get_ticks_usec()
-		nature.advance_day(climate.day)
+		nature.advance_day(climate.day, hazards, strikes)
 		vegetation_us = Time.get_ticks_usec() - plants_started
 	var synchronization_us := Time.get_ticks_usec() - previous
 	last_duration_us = Time.get_ticks_usec() - start
