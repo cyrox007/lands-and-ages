@@ -71,7 +71,7 @@ static func near_flood(hydro: RefCounted, cell: Vector2i) -> bool:
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
 			var index: int = hydro.cell_index(cell + Vector2i(dx, dy))
-			if hydro.flood_depth_at(index) > 0.00001:
+			if hydro.flooded_at(index):
 				return true
 	return false
 
