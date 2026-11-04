@@ -1,14 +1,7 @@
 name: Приёмка мира Godot — этап 7.5
 
 on:
-  push:
-    paths:
-      - "godot/**"
-      - ".github/workflows/godot-world-stress.yml"
-  pull_request:
-    paths:
-      - "godot/**"
-      - ".github/workflows/godot-world-stress.yml"
+  workflow_dispatch:
 
 concurrency:
   group: world-stress-${{ github.ref }}
