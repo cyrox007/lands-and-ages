@@ -7,7 +7,10 @@ signal tree_struck(previous: Dictionary, cut_progress: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
-const FORMAT_VERSION := 2
+const FORMAT_VERSION := 3
+const DEADWOOD_FALL_DAYS := 2 * 96
+const DEADWOOD_VARIATION_DAYS := 96
+const LOG_DECAY_INTERVAL_DAYS := 96
 const CUT_THRESHOLD := 1000
 const GRID_STEP := 3
 const MAX_OBJECTS := 200000
@@ -122,6 +125,7 @@ func generate() -> bool:
                 "x": x, "y": y, "age_days": age,
                 "health": 1000, "wood_units": stock, "fallen_wood": 0,
                 "cut_progress": 0,
+                "dead_since_day": -1, "fallen_since_day": -1,
                 "state": "целое", "radius": 0.35 if kind == "валун" else (
                     0.21 if kind == "дерево" else 0.12)
             }
@@ -323,6 +327,8 @@ func fell_tree(id: int) -> Dictionary:
     item["fallen_wood"] = int(item["fallen_wood"]) + wood
     item["state"] = "пень"
     item["cut_progress"] = 0
+    item["dead_since_day"] = -1
+    item["fallen_since_day"] = climate.day
     _modify(id, item)
     tree_felled.emit(before)
     return {"id": id, "wood_units": wood, "state": "пень"}
@@ -383,7 +389,8 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
             "species": parent["species"], "x": next.x, "y": next.y,
             "age_days": 0, "health": 800, "wood_units": 0,
             "fallen_wood": 0, "state": "целое", "radius": 0.08,
-            "cut_progress": 0
+            "cut_progress": 0, "dead_since_day": -1,
+            "fallen_since_day": -1
         }
         _objects[next_id] = child
         _index(child)
@@ -425,6 +432,7 @@ func _damage_from_events(hazards: Array[Dictionary],
             item["health"] = maxi(0, int(item["health"]) - int(event["damage"]))
             if int(item["health"]) == 0:
                 item["state"] = "сухостой"
+                item["dead_since_day"] = climate.day
                 changed[world.config.chunk_of(cell)] = true
             _objects[id] = item
 
@@ -440,7 +448,19 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
         if posmod(day - int(id), 8) != 0:
             continue
         var item: Dictionary = _objects[id]
-        if item["kind"] == "валун" or item["state"] == "пень":
+        if item["kind"] == "валун":
+            continue
+        if item["kind"] == "дерево" and item["state"] == "пень":
+            # Лежащие брёвна медленно теряют запас независимо от камеры.
+            var fallen_day: int = int(item.get("fallen_since_day", day))
+            if day >= fallen_day + LOG_DECAY_INTERVAL_DAYS \
+                    and posmod(day - int(id), LOG_DECAY_INTERVAL_DAYS) == 0 \
+                    and int(item["fallen_wood"]) > 0:
+                item["fallen_wood"] = int(item["fallen_wood"]) - 1
+                _objects[id] = item
+                changed[world.config.chunk_of(Vector2i(
+                    int(item["x"]), int(item["y"])))] = true
+                updates += 1
             continue
         var cell := Vector2i(int(item["x"]), int(item["y"]))
         var index: int = hydro.cell_index(cell)
@@ -468,14 +488,29 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
             item["health"] = mini(1000, int(item["health"]) + 3)
         if int(item["health"]) == 0 and old_state == "целое":
             item["state"] = "сухостой"
+            item["dead_since_day"] = day
         if item["kind"] == "дерево":
             if item["state"] == "целое" and item["age_days"] % 96 < 8:
                 var annual_increment := 3 if int(item["age_days"]) < 60 * 96 else 1
                 if competition > 0.75:
                     annual_increment = maxi(0, annual_increment - 2)
                 item["wood_units"] = int(item["wood_units"]) + annual_increment
-            elif item["state"] == "сухостой" and day % 96 < 8:
-                item["wood_units"] = maxi(0, int(item["wood_units"]) - 1)
+            elif item["state"] == "сухостой":
+                if day % 96 < 8:
+                    item["wood_units"] = maxi(0, int(item["wood_units"]) - 1)
+                # Сухостой через несколько лет естественно падает.
+                # Переносим оставшийся запас, не создавая новый ресурс.
+                var death_day: int = int(item.get("dead_since_day", day))
+                var variation := posmod(int(id) * 23 +
+                    int(world.config.world_seed), DEADWOOD_VARIATION_DAYS)
+                if day - death_day >= DEADWOOD_FALL_DAYS + variation:
+                    item["fallen_wood"] = int(item["fallen_wood"]) + \
+                        int(item["wood_units"])
+                    item["wood_units"] = 0
+                    item["state"] = "пень"
+                    item["cut_progress"] = 0
+                    item["dead_since_day"] = -1
+                    item["fallen_since_day"] = day
         _objects[id] = item
         updates += 1
         if old_state != str(item["state"]):
@@ -498,7 +533,9 @@ func to_data() -> Dictionary:
             int(entry["x"]), int(entry["y"]), int(entry["age_days"]),
             int(entry["health"]), int(entry["wood_units"]),
             int(entry["fallen_wood"]), str(entry["state"]),
-            int(entry.get("cut_progress", 0))
+            int(entry.get("cut_progress", 0)),
+            int(entry.get("dead_since_day", -1)),
+            int(entry.get("fallen_since_day", -1))
         ])
     return {
         "version": FORMAT_VERSION, "generated": generated,
@@ -510,7 +547,7 @@ func load_data(data: Dictionary) -> bool:
     var version: Variant = data.get("version")
     # JSON reads numbers as floats; Array membership compares their types too.
     if not (version is int or version is float) \
-            or (version != 1 and version != FORMAT_VERSION) \
+            or (version != 1 and version != 2 and version != FORMAT_VERSION) \
             or not (data.get("generated") is bool) \
             or not (data.get("objects") is Array):
         return false
@@ -524,14 +561,17 @@ func load_data(data: Dictionary) -> bool:
     var restored := {}
     var by_chunk := {}
     for raw in raw_items:
-        var item_size := 10 if version == 1 else 11
+        var item_size := 10 if version == 1 else (
+            11 if version == 2 else 13)
         if not (raw is Array) or raw.size() != item_size:
             return false
         for number in [0, 3, 4, 5, 6, 7, 8]:
-            if not (raw[number] is int or raw[number] is float)                     or not is_finite(float(raw[number]))                     or float(raw[number]) != float(int(raw[number])):
+            if not (raw[number] is int or raw[number] is float) \
+                        or not is_finite(float(raw[number])) \
+                        or float(raw[number]) != float(int(raw[number])):
                 return false
         var cut_progress := 0
-        if version == FORMAT_VERSION:
+        if version >= 2:
             if not (raw[10] is int or raw[10] is float):
                 return false
             if not is_finite(float(raw[10])) \
@@ -540,20 +580,55 @@ func load_data(data: Dictionary) -> bool:
             cut_progress = int(raw[10])
             if cut_progress < 0 or cut_progress >= CUT_THRESHOLD:
                 return false
+        var dead_since_day := -1
+        var fallen_since_day := -1
+        if version == FORMAT_VERSION:
+            for field in [11, 12]:
+                if not (raw[field] is int or raw[field] is float) \
+                        or not is_finite(float(raw[field])) \
+                        or float(raw[field]) != float(int(raw[field])):
+                    return false
+            dead_since_day = int(raw[11])
+            fallen_since_day = int(raw[12])
+            if dead_since_day < -1 or dead_since_day > int(day) \
+                    or fallen_since_day < -1 \
+                    or fallen_since_day > int(day):
+                return false
         var id := int(raw[0])
         var x := int(raw[3])
         var y := int(raw[4])
         var cell := Vector2i(x, y)
-        if id != y * world.config.width + x + 1                 or not world.config.contains_cell(cell) or restored.has(id):
+        if id != y * world.config.width + x + 1 \
+                or not world.config.contains_cell(cell) or restored.has(id):
             return false
-        if not (raw[1] is String) or not (raw[2] is String)                 or not (raw[9] is String):
+        if not (raw[1] is String) or not (raw[2] is String) \
+                or not (raw[9] is String):
             return false
         var kind: String = raw[1]
-        if kind not in ["дерево", "кустарник", "валун"]                 or (kind == "дерево" and raw[2] not in TREE_SPECIES)                 or raw[9] not in ["целое", "сухостой", "пень"]:
+        if kind not in ["дерево", "кустарник", "валун"] \
+                or (kind == "дерево" and raw[2] not in TREE_SPECIES) \
+                or raw[9] not in ["целое", "сухостой", "пень"]:
             return false
         if cut_progress > 0 and (kind != "дерево" or raw[9] == "пень"):
             return false
-        if int(raw[5]) < 0 or int(raw[5]) > 100000000                 or int(raw[6]) < 0 or int(raw[6]) > 1000                 or int(raw[7]) < 0 or int(raw[7]) > 10000000                 or int(raw[8]) < 0 or int(raw[8]) > 10000000:
+        if version < FORMAT_VERSION:
+            # Старые снимки не знают дату гибели/валки: отсчёт
+            # естественного распада начинается с момента загрузки.
+            if raw[9] == "сухостой":
+                dead_since_day = int(day)
+            elif raw[9] == "пень":
+                fallen_since_day = int(day)
+        elif (raw[9] == "целое" and (
+                dead_since_day != -1 or fallen_since_day != -1)) \
+                or (raw[9] == "сухостой" and (
+                dead_since_day < 0 or fallen_since_day != -1)) \
+                or (raw[9] == "пень" and (
+                dead_since_day != -1 or fallen_since_day < 0)):
+            return false
+        if int(raw[5]) < 0 or int(raw[5]) > 100000000 \
+                or int(raw[6]) < 0 or int(raw[6]) > 1000 \
+                or int(raw[7]) < 0 or int(raw[7]) > 10000000 \
+                or int(raw[8]) < 0 or int(raw[8]) > 10000000:
             return false
         var item := {
             "id": id, "kind": kind, "species": String(raw[2]),
@@ -561,6 +636,8 @@ func load_data(data: Dictionary) -> bool:
             "health": int(raw[6]), "wood_units": int(raw[7]),
             "fallen_wood": int(raw[8]), "state": String(raw[9]),
             "cut_progress": cut_progress,
+            "dead_since_day": dead_since_day,
+            "fallen_since_day": fallen_since_day,
             "radius": 0.35 if kind == "валун" else (
                 0.21 if kind == "дерево" else 0.12)
         }

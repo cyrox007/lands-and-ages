@@ -51,6 +51,64 @@ func _state(world_seed: int = 1729) -> Dictionary:
     }
 
 
+func _check_natural_deadwood(tree_id: int) -> void:
+    # Принудительно подготавливаем старый сухостой, не меняя генератор.
+    var simulation := _state()
+    var nature: RefCounted = simulation["nature"]
+    var world: RefCounted = simulation["world"]
+    var initial: Dictionary = nature.to_data()
+    var stock_before := 0
+    for record in initial["objects"]:
+        if int(record[0]) != tree_id:
+            continue
+        stock_before = int(record[7])
+        record[6] = 0
+        record[9] = "сухостой"
+        record[11] = 1
+        record[12] = -1
+        break
+    _check(nature.load_data(initial),
+        "Снимок сухостоя содержит корректную дату гибели")
+
+    var deadline: int = 1 + Nature.DEADWOOD_FALL_DAYS + posmod(
+        tree_id * 23 + world.config.world_seed,
+        Nature.DEADWOOD_VARIATION_DAYS)
+    var fall_day: int = deadline + posmod(tree_id - deadline, 8)
+    simulation["climate"].set_day(fall_day)
+    var before_events: Array[Dictionary] = []
+    nature.tree_felled.connect(func(previous: Dictionary) -> void:
+        before_events.append(previous))
+    nature.advance_day(fall_day)
+    var fallen: Dictionary = nature.object_at(tree_id)
+    var expected_rot := 1 if fall_day % 96 < 8 else 0
+    _check(fallen["state"] == "пень"
+        and int(fallen["wood_units"]) == 0
+        and int(fallen["fallen_wood"]) == stock_before - expected_rot,
+        "Сухостой падает сам, без дублирования древесины")
+    _check(before_events.is_empty(),
+        "Естественное падение не выдаёт событие ручной рубки")
+    _check(int(fallen["fallen_since_day"]) == fall_day
+        and int(fallen["dead_since_day"]) == -1,
+        "Дата падения остаётся частью физического состояния")
+    _check(nature.fell_tree(tree_id).is_empty(),
+        "Повторная рубка естественно поваленного дерева запрещена")
+
+    var restored := Nature.new(world, simulation["hydro"],
+        simulation["surface"], simulation["climate"])
+    _check(restored.load_data(nature.to_data())
+        and restored.to_data() == nature.to_data(),
+        "Сроки гибели и падения переживают сохранение и загрузку")
+
+    var rot_day: int = fall_day + Nature.LOG_DECAY_INTERVAL_DAYS
+    rot_day += posmod(tree_id - rot_day,
+        Nature.LOG_DECAY_INTERVAL_DAYS)
+    simulation["climate"].set_day(rot_day)
+    nature.advance_day(rot_day)
+    _check(int(nature.object_at(tree_id)["fallen_wood"]) ==
+        maxi(0, stock_before - expected_rot - 1),
+        "Лежащая древесина постепенно разлагается вне кадра")
+
+
 func _run() -> void:
     var model_names: Array[String] = Models.available_models()
     _check(model_names.size() == 21,
@@ -127,6 +185,9 @@ func _run() -> void:
     _check(ids.size() == nature.count(),
         "Все природные объекты доступны через пространственный индекс")
     _check(tree_id > 0, "Для испытания есть настоящее дерево")
+    if tree_id > 0:
+        _check_natural_deadwood(tree_id)
+
 
     if tree_id > 0:
         var tree: Dictionary = nature.object_at(tree_id)
@@ -337,11 +398,11 @@ func _run() -> void:
             _check(recovered.hit_tree(tree_id, 250).is_empty(),
                 "Пень нельзя повторно рубить")
 
-        # Загружаем старый формат растительности без поля cut_progress.
+        # Форматы v1/v2 загружаются без дат разложения.
         var old_snapshot: Dictionary = damaged_snapshot.duplicate(true)
         old_snapshot["nature"]["version"] = 1
         for record in old_snapshot["nature"]["objects"]:
-            record.pop_back()
+            record.resize(10)
         var old_restore: Dictionary = Save.restore(old_snapshot)
         _check(not old_restore.is_empty(),
             "Старые сохранения версии 1 остаются читаемыми")
@@ -349,6 +410,18 @@ func _run() -> void:
             _check(int(old_restore["nature"].object_at(
                 tree_id)["cut_progress"]) == 0,
                 "У старых сохранений прогресс рубки равен нулю")
+
+        var v2_snapshot: Dictionary = damaged_snapshot.duplicate(true)
+        v2_snapshot["nature"]["version"] = 2
+        for record in v2_snapshot["nature"]["objects"]:
+            record.resize(11)
+        var v2_restore: Dictionary = Save.restore(v2_snapshot)
+        _check(not v2_restore.is_empty(),
+            "Сохранения версии 2 с прогрессом рубки загружаются")
+        if not v2_restore.is_empty():
+            _check(int(v2_restore["nature"].object_at(
+                tree_id)["cut_progress"]) == 250,
+                "Промежуточные сохранения не теряют зарубки")
 
         var invalid_snapshot: Dictionary = damaged_snapshot.duplicate(true)
         invalid_snapshot["nature"]["objects"][0][10] = 1000
