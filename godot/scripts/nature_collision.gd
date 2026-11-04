@@ -54,7 +54,7 @@ static func _add_stump(body: StaticBody3D, position: Vector3,
 
 
 static func _add_log(body: StaticBody3D, world: RefCounted,
-        point: Vector2, item: Dictionary) -> void:
+        item: Dictionary) -> void:
     if int(item["fallen_wood"]) <= 0:
         return
     var footprint: Dictionary = Geometry.log_footprint(item, world.config)
@@ -99,7 +99,7 @@ static func create_chunk(world: RefCounted,
         elif item["kind"] == "дерево":
             if item["state"] == "пень":
                 _add_stump(body, position, item)
-                _add_log(body, world, point, item)
+                _add_log(body, world, item)
             else:
                 _add_trunk(body, position, item)
         # Кроны, кусты и трава не перекрывают движение.
