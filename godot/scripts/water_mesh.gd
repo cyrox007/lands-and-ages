@@ -235,7 +235,7 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 			if not hydro.has_water(index):
 				continue
 			# Реки соединяют соседние разливы; озёра/море рисуются отдельно.
-			if hydro.flood_depth_at(index) <= 0.00001 and \
+			if not hydro.flooded_at(index) and \
 					not hydro.river_at(index) and not hydro.lake_at(index):
 				continue
 			var weight: float = (u if dx == 1 else 1.0 - u) * \
@@ -257,7 +257,7 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 			var index: int = hydro.cell_index(candidate)
 			if not hydro.has_water(index):
 				continue
-			if hydro.flood_depth_at(index) <= 0.00001 and \
+			if not hydro.flooded_at(index) and \
 					not hydro.river_at(index) and not hydro.lake_at(index):
 				continue
 			var distance: float = (point - Vector2(candidate) -
@@ -320,7 +320,8 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 
 
 static func _flood_cell(tool: SurfaceTool, world: RefCounted,
-		hydro: RefCounted, cell: Vector2i, tint: Color, ice: float) -> int:
+		hydro: RefCounted, cell: Vector2i, tint: Color, ice: float,
+		samples: Dictionary) -> int:
 	# У каждой клетки нет своего контура. Вершины берутся из одного
 	# глобального поля, поэтому между чанками нет прямоугольных швов.
 	var heights := PackedFloat32Array([
@@ -335,7 +336,15 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 			var point := Vector2(cell) + Vector2(
 				float(sx) / float(SHORE_SUBDIVISIONS),
 				float(sy) / float(SHORE_SUBDIVISIONS))
-			var profile := _flood_profile(hydro, point)
+			# Ключ в глобальной сетке одинаков для соседних клеток.
+			var key := Vector2i(cell.x * SHORE_SUBDIVISIONS + sx,
+				cell.y * SHORE_SUBDIVISIONS + sy)
+			var profile: Vector2
+			if samples.has(key):
+				profile = samples[key]
+			else:
+				profile = _flood_profile(hydro, point)
+				samples[key] = profile
 			grid.append(Vector4(point.x, point.y, profile.y, profile.x))
 
 	var added := 0
@@ -365,6 +374,7 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var added := 0
+	var flood_samples := {}
 	for y in range(bounds.position.y, bounds.end.y):
 		for x in range(bounds.position.x, bounds.end.x):
 			var cell := Vector2i(x, y)
@@ -394,7 +404,8 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			if flood_near and not ocean:
 				# Озёрные и речные клетки в пойме используют одно поле.
 				# Иначе независимая тёмная лента перекрывает разлив.
-				added += _flood_cell(tool, world, hydro, cell, color, ice)
+				added += _flood_cell(tool, world, hydro, cell, color, ice,
+					flood_samples)
 				continue
 			if ocean or lake:
 				added += _water_cell(tool, world, cell, level, color, ice)
