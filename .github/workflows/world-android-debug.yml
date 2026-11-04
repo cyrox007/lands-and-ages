@@ -25,13 +25,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Подготовить Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Установить инструменты подписи и ARM64 APK
+      - name: Подготовить SDK с уже установленного GitHub Runner
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "build-tools;35.0.0" "platforms;android-35"
-          test -x "$ANDROID_HOME/platform-tools/adb"
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          test -d "$SDK_ROOT"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if test -z "$SDKMANAGER"; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "build-tools;35.0.0" "platforms;android-35"
+          test -x "$SDK_ROOT/platform-tools/adb"
           test -x "$JAVA_HOME/bin/keytool"
       - name: Скачать официальный Godot 4.7.2 и подходящие шаблоны
         timeout-minutes: 6
