@@ -8,6 +8,7 @@ const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 const ChunkVisibility = preload("res://scripts/chunk_visibility.gd")
 const ChunkRenderCache = preload("res://scripts/chunk_render_cache.gd")
+const ChunkBuildQueue = preload("res://scripts/chunk_build_queue.gd")
 const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
 const NaturalWaterShader = preload("res://shaders/natural_water.gdshader")
 const Hydrology = preload("res://scripts/hydrology.gd")
@@ -73,6 +74,12 @@ var _ground_material: ShaderMaterial
 var _debug_ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
+var _wanted_chunks := {}
+var _rebuild_pending := {}
+var _pan_delta := Vector2.ZERO
+var _pan_pending := false
+var _skipped_stale_jobs := 0
+var _mesh_build_budget_us := MESH_BUDGET_US
 var _render_cache := ChunkRenderCache.new()
 var _render_world_revision := -1
 var _render_water_revision := -1
@@ -298,14 +305,22 @@ func _process(delta: float) -> void:
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	_last_chunk_build_us = 0
 	if _days_pending == 0 and _day_task_id < 0:
+		_mesh_build_budget_us = ChunkBuildQueue.budget_us(
+			_frame_percentile(_frame_samples, 0.95), _pan_pending, MESH_BUDGET_US)
 		var frame_start := Time.get_ticks_usec()
 		var built := 0
 		while built < MAX_BUILDS_PER_FRAME and not _pending.is_empty():
-			_create_chunk(_pending.pop_front())
+			var coord: Vector2i = _pending.pop_front()
+			if not _wanted_chunks.has(coord) or (
+					_active.has(coord) and not _rebuild_pending.has(coord)):
+				_skipped_stale_jobs += 1
+				continue
+			_create_chunk(coord)
 			built += 1
-			if Time.get_ticks_usec() - frame_start >= MESH_BUDGET_US:
+			if Time.get_ticks_usec() - frame_start >= _mesh_build_budget_us:
 				break
 		_last_chunk_build_us = Time.get_ticks_usec() - frame_start
+	_pan_pending = false
 	_hud_timer += delta
 	if _hud_timer > 0.3:
 		_update_hud()
@@ -380,14 +395,21 @@ func _update_material_detail() -> void:
 
 func _change_zoom(multiplier: float) -> void:
 	_camera.size = clampf(_camera.size * multiplier, MIN_ZOOM, MAX_ZOOM)
+	_pan_delta = Vector2.ZERO
+	_pan_pending = true
 	_update_material_detail()
 	_refresh_visible(false)
 
 
 func _move_center(amount: Vector2) -> void:
+	var previous := _center
 	_center = Vector2(
 		clampf(_center.x + amount.x, 0.0, float(_world_model.config.width) - 0.001),
 		clampf(_center.y + amount.y, 0.0, float(_world_model.config.height) - 0.001))
+	var displacement := _center - previous
+	if displacement.length_squared() > 0.001:
+		_pan_delta = displacement
+		_pan_pending = true
 	_update_camera()
 	var next_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
@@ -510,16 +532,27 @@ func _refresh_visible(force: bool) -> void:
 					_camera.size, aspect):
 				continue
 			desired[coord] = true
-	# Уходящие из кадра меши временно сохраняем для обратного пути.
+	_wanted_chunks = desired
+	if force:
+		# Старые меши могут оставаться видимыми до замены.
+		for coord in _active.keys():
+			_rebuild_pending[coord] = true
+	# Нельзя переносить в кеш меш с устаревшей физикой.
 	for coord in _active.keys():
 		if desired.has(coord):
 			continue
 		var node: Node3D = _active[coord]
 		_active.erase(coord)
-		if _terrain_holder != null and node.get_parent() == _terrain_holder:
+		if _rebuild_pending.has(coord):
+			_rebuild_pending.erase(coord)
+			node.queue_free()
+		elif _terrain_holder != null and node.get_parent() == _terrain_holder:
 			_render_cache.put(coord, node)
 		else:
 			node.queue_free()
+	for coord in _rebuild_pending.keys():
+		if not desired.has(coord):
+			_rebuild_pending.erase(coord)
 	if not force:
 		for coord in desired.keys():
 			if _active.has(coord):
@@ -529,16 +562,17 @@ func _refresh_visible(force: bool) -> void:
 				_active[coord] = restored
 	var scheduled := {}
 	for coord in _pending:
-		if desired.has(coord) and (force or not _active.has(coord)):
+		if desired.has(coord) and (not _active.has(coord) \
+				or _rebuild_pending.has(coord)):
 			scheduled[coord] = true
 	for coord in desired.keys():
-		if force or not _active.has(coord):
+		if not _active.has(coord) or _rebuild_pending.has(coord):
 			scheduled[coord] = true
 	_pending.clear()
 	for coord in scheduled.keys():
 		_pending.append(coord)
-	_pending.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return (a - center_chunk).length_squared() < (b - center_chunk).length_squared())
+	ChunkBuildQueue.prioritize(_pending, _center, _pan_delta,
+		_world_model.config.chunk_size, _active)
 
 
 func _create_chunk(coord: Vector2i) -> void:
@@ -564,6 +598,7 @@ func _create_chunk(coord: Vector2i) -> void:
 	if old_node != null:
 		old_node.queue_free()
 	_active[coord] = node
+	_rebuild_pending.erase(coord)
 	_chunk_rebuilds += 1
 
 
@@ -669,6 +704,10 @@ func _install_loaded_world(models: Dictionary) -> void:
 		_active[chunk].queue_free()
 	_active.clear()
 	_pending.clear()
+	_wanted_chunks.clear()
+	_rebuild_pending.clear()
+	_pan_delta = Vector2.ZERO
+	_pan_pending = false
 	_render_cache.clear()
 	_render_world_revision = -1
 	_render_water_revision = -1
@@ -814,6 +853,9 @@ func _update_hud() -> void:
 	_status.text += "GPU: %d мешей · кадр %.1f мс · перерисовок сезонов %d\n" % [
 		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0,
 		_visual_refreshes]
+	_status.text += "Очередь GPU %d · обновить %d · бюджет %d мкс · отброшено %d\n" % [
+		_pending.size(), _rebuild_pending.size(),
+		_mesh_build_budget_us, _skipped_stale_jobs]
 	_status.text += "Кеш мешей: %d/%d · оценка %.2f/%.0f МиБ · попаданий %d · вытеснений %d\n" % [
 		_render_cache.count(), ChunkRenderCache.MAX_CHUNKS,
 		float(_render_cache.estimated_bytes) / 1048576.0,

@@ -257,6 +257,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-render-cache.log; then
             exit 1
           fi
+      - name: Приоритетная очередь GPU — этап 8.6
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_build_queue_smoke.gd 2>&1 | tee /tmp/world-build-queue.log
+          grep -q "Этап 8.6:.*успешно" /tmp/world-build-queue.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-build-queue.log; then
+            exit 1
+          fi
       - name: Загрузка игровой сцены
         timeout-minutes: 2
         run: |
