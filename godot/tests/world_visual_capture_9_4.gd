@@ -46,11 +46,25 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 	var nearest_shore := INF
 	var best_height := -INF
 	var most_wet := -1.0
+	var flooded := Vector2i(-1, -1)
+	var flood_score := -1.0
 
 	for y in range(1, size.y - 1):
 		for x in range(1, size.x - 1):
 			var cell := Vector2i(x, y)
 			var index: int = hydro.cell_index(cell)
+			var flood_depth: float = hydro.flood_depth_at(index)
+			if flood_depth > 0.00001:
+				var flooded_neighbors := 0
+				for dy in range(-2, 3):
+					for dx in range(-2, 3):
+						if hydro.flood_depth_at(hydro.cell_index(
+							cell + Vector2i(dx, dy))) > 0.00001:
+							flooded_neighbors += 1
+				var score := float(flooded_neighbors) + flood_depth * 0.2
+				if score > flood_score:
+					flood_score = score
+					flooded = cell
 			if hydro.has_water(index):
 				continue
 			var height: float = world.vertex_at(cell)
@@ -85,13 +99,16 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 	_check(coastal.x >= 0, "Найдена суша рядом с настоящим морем")
 	_check(mountain.x >= 0, "Найдена скальная область")
 	_check(wetland.x >= 0, "Найдена суша с измеряемой влажностью")
+	_check(flooded.x >= 0, "Для сравнения найдена реально подтопленная пойма")
 	return [
 		{"name": SCENE_NAMES[0], "center": Vector2i(middle), "zoom": 96.0},
 		{"name": SCENE_NAMES[1], "center": coastal, "zoom": 28.0},
 		{"name": "берег_вблизи", "center": coastal, "zoom": 16.0},
 		{"name": "берег_издалека", "center": coastal, "zoom": 64.0},
 		{"name": SCENE_NAMES[2], "center": mountain, "zoom": 22.0},
-		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0}
+		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0},
+		{"name": "пойма_реки", "center": flooded if flooded.x >= 0 else wetland,
+			"zoom": 22.0}
 	]
 
 
