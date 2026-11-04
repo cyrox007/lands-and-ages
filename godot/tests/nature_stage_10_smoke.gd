@@ -145,6 +145,26 @@ func _run() -> void:
     for i in range(pine_mesh.get_surface_count()):
         _check(pine_mesh.surface_get_material(i) is ShaderMaterial,
             "У каждой поверхности работает свой материал GPU-ветра")
+    for key in ["PineDetailed", "BirchDetailed", "OakDetailed"]:
+        var foliage_count := 0
+        var bark_count := 0
+        var tree_mesh: Mesh = Models.info(key)["mesh"]
+        for surface in range(tree_mesh.get_surface_count()):
+            var material: Material = tree_mesh.surface_get_material(surface)
+            if not (material is ShaderMaterial):
+                continue
+            if bool(material.get_shader_parameter("foliage_surface")):
+                foliage_count += 1
+            else:
+                bark_count += 1
+        _check(foliage_count > 0 and bark_count > 0,
+            "У " + key + " есть независимые материалы листвы и коры")
+    _check(Models.foliage_stage("осень", "дуб") > 0.8,
+        "Осенью лиственное дерево получает тёплую палитру")
+    _check(Models.foliage_stage("лето", "дуб") == 0.0,
+        "Летом листва сохраняет исходную окраску")
+    _check(Models.foliage_stage("осень", "сосна") == 0.0,
+        "Хвойная порода не желтеет вместе с лиственными деревьями")
     _check(Models.select_tree(30 * 96, 2, 1.0, "сосна") == "PineDetailed",
         "Вблизи взрослой сосне назначена детализированная модель")
     _check(Models.select_tree(30 * 96, 2, 0.1, "сосна") == "PineLight",
