@@ -113,7 +113,8 @@ static func object_from_shape(body: CollisionObject3D,
     if body == null or shape_index < 0:
         return {}
     var owner_id: int = body.shape_find_owner(shape_index)
-    if owner_id == 0:
+    # В Godot первый владелец формы имеет ID 0: это корректное значение.
+    if not body.get_shape_owners().has(owner_id):
         return {}
     var shape_node: Object = body.shape_owner_get_owner(owner_id)
     if shape_node == null or not shape_node.has_meta("nature_id"):
