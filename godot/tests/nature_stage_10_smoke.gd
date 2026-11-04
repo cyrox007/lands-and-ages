@@ -53,23 +53,39 @@ func _state(world_seed: int = 1729) -> Dictionary:
 
 func _run() -> void:
     var model_names: Array[String] = Models.available_models()
-    _check(model_names.size() == 12,
-        "Все 12 настоящих CC0 GLB загружаются в Godot")
+    _check(model_names.size() == 21,
+        "Загружены 9 детализированных и 12 резервных CC0 GLB")
     for key in model_names:
         var info: Dictionary = Models.info(key)
-        _check(int(info.get("triangles", 999999)) <= 1000,
-            "Лёгкая модель помещается в бюджет полигонов: " + key)
+        var triangle_limit := 22000 if Models.STYLIZED.has(key) else 1000
+        _check(int(info.get("triangles", 999999)) <= triangle_limit,
+            "Модель помещается в бюджет полигонов: " + key)
+        var mesh: Mesh = info["mesh"]
         var transform: Transform3D = Models.placement(key, Vector3.ZERO)
-        var bounds: AABB = (info["mesh"] as Mesh).get_aabb()
+        var bounds: AABB = mesh.get_aabb()
         var ground: Vector3 = transform * Vector3(0.0, bounds.position.y, 0.0)
         _check(absf(ground.y) < 0.025,
             "Модель нормализована по уровню земли: " + key)
         _check(transform.basis.get_scale().y > 0.0,
             "Масштаб GLB положительный: " + key)
-    _check(Models.select_tree(30 * 96, 2, 1.0).begins_with("TreeHigh"),
-        "Взрослое дерево использует полноценную визуальную модель")
-    _check(Models.select_tree(30 * 96, 2, 0.1).begins_with("TreeLow"),
-        "Отдалённая камера выбирает низкий LOD")
+    var pine_mesh: Mesh = Models.info("PineDetailed")["mesh"]
+    _check(pine_mesh.get_surface_count() >= 2,
+        "Меш дерева объединяет кору и листву, не теряя поверхности")
+    for i in range(pine_mesh.get_surface_count()):
+        _check(pine_mesh.surface_get_material(i) is ShaderMaterial,
+            "У каждой поверхности работает свой материал GPU-ветра")
+    _check(Models.select_tree(30 * 96, 2, 1.0, "сосна") == "PineDetailed",
+        "Вблизи взрослой сосне назначена детализированная модель")
+    _check(Models.select_tree(30 * 96, 2, 0.1, "сосна") == "PineLight",
+        "Вдали сосна переключается на облегчённую модель")
+    _check(Models.select_tree(30 * 96, 2, 0.1, "берёза") == "BirchLight",
+        "Вдали берёза использует отдельный низкополигональный LOD")
+    _check(Models.select_tree(30 * 96, 2, 1.0, "дуб") == "OakDetailed",
+        "У дуба собственная широколиственная модель")
+    _check(Models.select_tree(30 * 96, 2, 1.0, "берёза", true)
+        == "DeadBirch", "Зимняя берёза сохраняет ветвистую геометрию")
+    _check(Models.select_tree(30 * 96, 2, 1.0, "дуб", false,
+        "сухостой") == "DeadTree", "Сухостой не заменяется цилиндром")
 
     var original := _state()
     var repeated := _state()
@@ -211,6 +227,7 @@ func _run() -> void:
     var rendered_objects := 0
     var rendered_grass := 0
     var rendered_glb := 0
+    var rendered_stylized_trees := 0
     var chunk_count: Vector2i = original["world"].config.chunk_count()
     for cy in range(chunk_count.y):
         for cx in range(chunk_count.x):
@@ -225,13 +242,15 @@ func _run() -> void:
                 rendered_objects += instance.multimesh.instance_count
                 if instance.name.begins_with("glb_"):
                     rendered_glb += instance.multimesh.instance_count
+                    if Models.STYLIZED.has(instance.name.substr(4)):
+                        rendered_stylized_trees += instance.multimesh.instance_count
                 if instance.name == "трава" or instance.name.begins_with("glb_Grass"):
                     rendered_grass += instance.multimesh.instance_count
             visible_chunk.free()
     _check(rendered_objects > 0 and rendered_grass > 0,
         "Трава и природные объекты создаются в видимых чанках")
-    _check(rendered_glb > 0,
-        "На реальных видимых чанках присутствуют GLB, а не только заглушки")
+    _check(rendered_glb > 0 and rendered_stylized_trees > 0,
+        "На видимых чанках присутствуют новые деревья, а не только заглушки")
 
     var cache := RenderCache.new()
     var cached_chunk := Vector2i(2, 3)
