@@ -8,6 +8,8 @@ const Surface = preload("res://scripts/surface.gd")
 const Mix = preload("res://scripts/terrain_material_mix.gd")
 const Appearance = preload("res://scripts/landscape_appearance.gd")
 const Water = preload("res://scripts/water_mesh.gd")
+const ShoreVisual = preload("res://scripts/shore_visual.gd")
+const Chunk = preload("res://scripts/chunk.gd")
 const WaveShader = preload("res://shaders/natural_water.gdshader")
 
 var errors: Array[String] = []
@@ -25,19 +27,19 @@ func _test_coast() -> void:
 	var b := Water._terrain_height(-1.0, 1.0, 0.0, 2.0, 0.5, 1.0)
 	_check(is_equal_approx(a, 0.0) and is_equal_approx(b, 1.0),
 		"Интерполяция согласована с высотами физической сетки")
-	# На седловине билинейная поверхность давала ноль,
-	# хотя фактические треугольники земли в центре имеют высоту 1.
+	# На седловине визуальная поверхность теперь плавная: ноль в центре.
+	# Вода и грунт используют одну и ту же билинейную сетку.
 	var diagonal: float = Water._terrain_height(-1.0, 1.0, 1.0,
 		-1.0, 0.5, 0.5)
-	_check(is_equal_approx(diagonal, 1.0),
-		"Седловина у воды повторяет фактическую диагональ меша")
+	_check(is_equal_approx(diagonal, 0.0),
+		"Визуальная седловина сглажена независимо от физической диагонали")
 	var first: float = Water._terrain_height(0.0, 1.0, 2.0,
 		6.0, 0.2, 0.3)
 	var second: float = Water._terrain_height(0.0, 1.0, 2.0,
 		6.0, 0.8, 0.7)
-	_check(is_equal_approx(first, 0.8) and
-		is_equal_approx(second, 3.7),
-		"Интерполяция использует обе треугольные плоскости")
+	_check(is_equal_approx(first, 0.98) and
+		is_equal_approx(second, 3.88),
+		"Береговая интерполяция непрерывна внутри физических клеток")
 	# Общая сторона соседних ячеек не может разойтись.
 	for j in range(4):
 		var v := float(j) / 3.0
@@ -53,6 +55,202 @@ func _test_coast() -> void:
 		-1.0, 1.0, -0.4, 0.9)
 	_check(triangles > 2,
 		"Прибрежная граница использует несколько полигонов")
+
+
+
+func _test_shared_coastal_mesh() -> void:
+	var world := WorldMap.new(Config.new(64, 48, 1729, 16, 32))
+	var hydro := Hydro.new(world)
+	hydro.rebuild()
+	var surface := Surface.new(world, hydro)
+	surface.rebuild()
+	hydro.apply_rainfall_map(surface.runoff_map())
+	var before := world.to_data()
+	var water_before := hydro.to_snapshot()
+	var total_shores := 0
+	var subdivisions: int = ShoreVisual.SUBDIVISIONS
+	# Проверяем полное покрытие: уточняются только береговые клетки,
+	# массивы атрибутов остаются одинакового размера.
+	for cy in range(world.config.chunk_count().y):
+		for cx in range(world.config.chunk_count().x):
+			var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
+			var shores := 0
+			for y in range(bounds.position.y, bounds.end.y):
+				for x in range(bounds.position.x, bounds.end.x):
+					if ShoreVisual.is_coastal_cell(world, hydro, Vector2i(x, y)):
+						shores += 1
+			total_shores += shores
+			var prepared := Chunk.prepare_arrays(cx, cy, 1, world, null, 0, null, hydro)
+			var points: PackedVector3Array = prepared[Mesh.ARRAY_VERTEX]
+			var triangles: PackedInt32Array = prepared[Mesh.ARRAY_INDEX]
+			var base := (bounds.size.x + 1) * (bounds.size.y + 1)
+			_check(points.size() == base + shores * (subdivisions + 1) * (subdivisions + 1),
+				"Уточнённые вершины есть только у пересечения суши с водой")
+			_check(triangles.size() == bounds.size.x * bounds.size.y * 6 +
+				shores * (subdivisions * subdivisions * 6 - 6),
+				"Береговая сетка точно заменяет крупные треугольники")
+			_check(prepared[Mesh.ARRAY_NORMAL].size() == points.size() and
+				prepared[Mesh.ARRAY_COLOR].size() == points.size() and
+				prepared[Mesh.ARRAY_TEX_UV].size() == points.size() and
+				prepared[Mesh.ARRAY_TEX_UV2].size() == points.size() and
+				prepared[Mesh.ARRAY_CUSTOM0].size() == points.size() * 4,
+				"Нормали, PBR-веса и условия не отстают от геометрии")
+			for index in triangles:
+				_check(index >= 0 and index < points.size(),
+					"Индекс новой триангуляции попадает в массив вершин")
+	_check(total_shores > 0, "В контрольном мире есть пересекаемый морской берег")
+	var dry_side_extensions := 0
+	for y in range(world.config.height):
+		for x in range(world.config.width):
+			var cell := Vector2i(x, y)
+			var index: int = hydro.cell_index(cell)
+			if hydro.has_water(index):
+				continue
+			var context: Dictionary = ShoreVisual.water_context(world, hydro, cell)
+			if context.is_empty():
+				continue
+			dry_side_extensions += 1
+			_check(bool(context["extension"]) and
+				(hydro.ocean_at(int(context["index"])) or hydro.lake_at(int(context["index"]))),
+				"Визуальный сухой берег использует только физическое море/озеро")
+			_check(ShoreVisual.is_coastal_cell(world, hydro, cell),
+				"Сухая сторона берега уточнена так же, как сторона воды")
+	_check(dry_side_extensions > 0,
+		"Вода визуально продолжается на сухую сторону клеточного края")
+	_check(world.to_data() == before and hydro.to_snapshot() == water_before,
+		"Уточнение берега не изменяет ни физические высоты, ни воду")
+	# Общие рёбра и пересечения с уровнем воды должны оставаться
+	# непрерывны даже когда по разные стороны ребра разные чанки.
+	for step in range(subdivisions + 1):
+		var fraction := float(step) / float(subdivisions)
+		var left: float = ShoreVisual.height(-2.0, 1.0, 2.0, 3.0, 1.0, fraction)
+		var right: float = ShoreVisual.height(1.0, 4.0, 3.0, 5.0, 0.0, fraction)
+		_check(is_equal_approx(left, right),
+			"Общее ребро соседних береговых мешей совпадает")
+	var level := 0.0
+	var h00 := -1.0
+	var h10 := 1.0
+	var h01 := 1.0
+	var h11 := -1.0
+	for j in range(subdivisions):
+		for i in range(subdivisions):
+			var u0 := float(i) / float(subdivisions)
+			var v0 := float(j) / float(subdivisions)
+			var u1 := float(i + 1) / float(subdivisions)
+			var v1 := float(j + 1) / float(subdivisions)
+			var h0: float = ShoreVisual.height(h00, h10, h01, h11, u0, v0)
+			var h1: float = ShoreVisual.height(h00, h10, h01, h11, u0, v1)
+			var h2: float = ShoreVisual.height(h00, h10, h01, h11, u1, v0)
+			var tri := PackedVector2Array([Vector2(u0, v0),
+				Vector2(u0, v1), Vector2(u1, v0)])
+			var clipped := Water._clip_submerged_triangle(tri,
+				PackedFloat32Array([h0, h1, h2]), level)
+			for point in clipped:
+				# Все точки воды являются точно теми же пересечениями,
+				# что и пересечения уточнённых треугольников суши.
+				if point.z > 0.000001:
+					continue
+				var edge_hit := false
+				for k in range(3):
+					var k2 := (k + 1) % 3
+					var edge := tri[k2] - tri[k]
+					var rel := Vector2(point.x, point.y) - tri[k]
+					if absf(edge.cross(rel)) > 0.00001:
+						continue
+					var length_sq := edge.length_squared()
+					var t := clampf(edge.dot(rel) / length_sq, 0.0, 1.0)
+					var ground := lerpf([h0, h1, h2][k], [h0, h1, h2][k2], t)
+					if absf(ground - level) <= 0.00001:
+						edge_hit = true
+				_check(edge_hit, "Кромка воды совпадает с уточнённым рельефом")
+
+
+
+
+func _test_flood_outlines() -> void:
+	# Разлив не должен образовывать отдельные квадратные плитки.
+	var isolated := Water._flood_outline([false, false, false, false])
+	_check(isolated.size() == 8, "Контур разлива имеет восемь опорных точек")
+	for point in isolated:
+		_check(point.x > 0.0 and point.x < 1.0 and
+			point.y > 0.0 and point.y < 1.0,
+			"Изолированное подтопление не заполняет прямоугольник клетки")
+	# После обрезки очертанием высота каждой вершины остаётся на
+	# физически согласованной плоскости исходного субтреугольника.
+	var clipped: Dictionary = Water._clip_flood_outline(
+		PackedVector2Array([Vector2.ZERO, Vector2(1.0, 0.0),
+			Vector2(0.0, 1.0)]),
+		PackedFloat32Array([0.0, 1.0, 2.0]), isolated)
+	var positions: PackedVector2Array = clipped["points"]
+	var heights: PackedFloat32Array = clipped["heights"]
+	_check(positions.size() == heights.size() and positions.size() >= 3,
+		"Согласованная береговая обрезка сохраняет высоты")
+	for i in range(positions.size()):
+		_check(absf(heights[i] - positions[i].x -
+			2.0 * positions[i].y) < 0.00001,
+			"Контур паводка не пересекает визуальный грунт")
+
+	var east := Water._flood_outline([false, true, false, false])
+	var west := Water._flood_outline([false, false, false, true])
+	_check(east[2] == west[7] + Vector2(1.0, 0.0) and
+		east[3] == west[6] + Vector2(1.0, 0.0),
+		"Смежные участки паводка имеют согласованные края")
+
+	var world := WorldMap.new(Config.new(64, 48, 1729, 16, 32))
+	var hydro := Hydro.new(world)
+	hydro.rebuild()
+	var cell := Vector2i(9, 11)
+	var max_height := -INF
+	for corner in [cell, cell + Vector2i(1, 0),
+			cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
+		max_height = maxf(max_height, world.vertex_at(corner))
+	var level := max_height + 0.6
+	var before: Dictionary = world.to_data()
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var triangles := Water._flood_cell(
+		tool, world, hydro, cell, level, Color.BLUE, 0.0)
+	_check(triangles >= 8,
+		"Паводок разбит по береговой сетке, а не на целую квадратную плитку")
+	if triangles > 0:
+		var mesh: ArrayMesh = tool.commit()
+		var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		_check(verts.size() == triangles * 3,
+			"Паводковые треугольники формируют полный меш")
+		for corner in [cell, cell + Vector2i(1, 0),
+				cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
+			var square_corner: Vector3 = world.config.to_scene(
+				Vector2(corner), level + Water.WATER_OFFSET)
+			for vertex in verts:
+				_check(vertex.distance_to(square_corner) > 0.00001,
+					"Паводковый меш не содержит углов квадратной плитки")
+	_check(world.to_data() == before,
+		"Контур паводка не изменяет физические высоты")
+
+
+func _test_river_curves() -> void:
+	_check(Water.RIVER_SEGMENTS >= 3,
+		"Речные ленты состоят из последовательных гладких секций")
+	var start := Vector2(0.5, 0.5)
+	var finish := Vector2(1.5, 0.5)
+	var first_control := start + Vector2(0.0, 0.35)
+	var second_control := finish - Vector2(0.35, 0.0)
+	_check(Water._river_curve(start, first_control, second_control,
+		finish, 0.0).is_equal_approx(start) and
+		Water._river_curve(start, first_control, second_control,
+		finish, 1.0).is_equal_approx(finish),
+		"Гладкая река начинается и заканчивается в физических центрах")
+	var center := Water._river_curve(start, first_control, second_control,
+		finish, 0.5)
+	_check(center.y > 0.51,
+		"Геометрия действительно изгибается, а не заменена прямой лентой")
+	var from_direction := Water._river_curve_direction(start, first_control,
+		second_control, finish, 0.0)
+	var to_direction := Water._river_curve_direction(start, first_control,
+		second_control, finish, 1.0)
+	_check(from_direction.is_equal_approx(Vector2(0.0, 1.0)) and
+		to_direction.is_equal_approx(Vector2(1.0, 0.0)),
+		"Сегменты речной ленты согласуют касательные на концах")
 
 
 func _test_wetness() -> void:
@@ -112,6 +310,9 @@ func _test_waves() -> void:
 
 func _initialize() -> void:
 	_test_coast()
+	_test_shared_coastal_mesh()
+	_test_flood_outlines()
+	_test_river_curves()
 	_test_wetness()
 	_test_waves()
 	if not errors.is_empty():

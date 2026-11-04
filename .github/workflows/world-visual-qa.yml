@@ -61,16 +61,17 @@ jobs:
           assert manifest["hardware_accepted"] is False
           assert manifest["renderer"] != "headless"
           assert manifest["checks_passed"]
-          assert len(manifest["captures"]) == 4
+          assert len(manifest["captures"]) == 8
+          assert {shot["name"] for shot in manifest["captures"]} >= {"берег", "берег_вблизи", "берег_издалека", "влажная_земля_без_воды", "влажная_земля_без_PBR"}
           for shot in manifest["captures"]:
               assert (root / shot["file"]).stat().st_size > 10000
-              assert shot["quality"]["distinct_color_buckets"] >= 14
+              assert shot["quality"]["distinct_color_buckets"] >= (4 if shot.get("diagnostic", False) else 14)
               assert shot["quality"]["visible_pixel_ratio"] > 0.20
               assert shot["loaded_chunks"] > 0
           assert benchmark["route_frames"] >= 300
           assert benchmark["summary"]["physics_unchanged"]
           assert len(benchmark["phases"]) == 9
-          print("Этап 9.4: четыре кадра, измерения и неизменность физики — успешно.")
+          print("Этап 9.4: восемь кадров: три масштаба берега и две диагностики, измерения и неизменность физики — успешно.")
           PY
       - name: Сохранить кадры и JSON для художественной проверки
         if: always()

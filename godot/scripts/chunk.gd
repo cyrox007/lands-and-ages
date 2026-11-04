@@ -4,6 +4,7 @@ extends RefCounted
 const Relief = preload("res://scripts/relief.gd")
 const Appearance = preload("res://scripts/landscape_appearance.gd")
 const MaterialMix = preload("res://scripts/terrain_material_mix.gd")
+const ShoreVisual = preload("res://scripts/shore_visual.gd")
 
 static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 		surface: RefCounted = null, mode: int = 0,
@@ -91,8 +92,49 @@ static func prepare_arrays(cx: int, cy: int, day: int,
 			var b := a + 1
 			var c := a + stride
 			var d := c + 1
-			# Та же диагональ, что используется в высотной модели.
-			indices.append_array(PackedInt32Array([a, c, b, d, b, c]))
+			# Только пересечение физического уровня с морем/озером
+			# получает согласованную с водой визуальную сетку.
+			# На границах клетки билинейная высота точно повторяет
+			# исходные рёбра: нет зазора с обычным чанк-мешем.
+			if mode == 0 and ShoreVisual.is_coastal_cell(world, hydro,
+					Vector2i(x0 + i, y0 + j)):
+				var subdivisions: int = ShoreVisual.SUBDIVISIONS
+				var fine := PackedInt32Array()
+				for sy in range(subdivisions + 1):
+					var v := float(sy) / float(subdivisions)
+					for sx in range(subdivisions + 1):
+						var u := float(sx) / float(subdivisions)
+						fine.append(vertices.size())
+						var top := vertices[a].lerp(vertices[b], u)
+						var bottom := vertices[c].lerp(vertices[d], u)
+						vertices.append(top.lerp(bottom, v))
+						var na := normals[a].lerp(normals[b], u)
+						var nb := normals[c].lerp(normals[d], u)
+						normals.append(na.lerp(nb, v).normalized())
+						var ca := colors[a].lerp(colors[b], u)
+						var cb := colors[c].lerp(colors[d], u)
+						colors.append(ca.lerp(cb, v))
+						uvs.append(uvs[a].lerp(uvs[b], u).lerp(
+							uvs[c].lerp(uvs[d], u), v))
+						uv2s.append(uv2s[a].lerp(uv2s[b], u).lerp(
+							uv2s[c].lerp(uv2s[d], u), v))
+						for channel in range(4):
+							var t := lerpf(float(conditions[a * 4 + channel]),
+								float(conditions[b * 4 + channel]), u)
+							var btm := lerpf(float(conditions[c * 4 + channel]),
+								float(conditions[d * 4 + channel]), u)
+							conditions.append(clampi(roundi(lerpf(t, btm, v)), 0, 255))
+				for sy in range(subdivisions):
+					for sx in range(subdivisions):
+						var top_left := sy * (subdivisions + 1) + sx
+						var fa := fine[top_left]
+						var fb := fine[top_left + 1]
+						var fc := fine[top_left + subdivisions + 1]
+						var fd := fine[top_left + subdivisions + 2]
+						indices.append_array(PackedInt32Array([fa, fc, fb, fd, fb, fc]))
+			else:
+				# Вдали от береговой зоны геометрия и цена остаются прежними.
+				indices.append_array(PackedInt32Array([a, c, b, d, b, c]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices

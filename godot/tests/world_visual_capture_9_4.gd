@@ -88,6 +88,8 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 	return [
 		{"name": SCENE_NAMES[0], "center": Vector2i(middle), "zoom": 96.0},
 		{"name": SCENE_NAMES[1], "center": coastal, "zoom": 28.0},
+		{"name": "берег_вблизи", "center": coastal, "zoom": 16.0},
+		{"name": "берег_издалека", "center": coastal, "zoom": 64.0},
 		{"name": SCENE_NAMES[2], "center": mountain, "zoom": 22.0},
 		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0}
 	]
@@ -141,7 +143,8 @@ func _snapshot(view: Node3D, scenario: Dictionary, folder: String) -> Dictionary
 	if image == null:
 		return {}
 	var quality: Dictionary = _image_quality(image)
-	_check(quality["distinct_color_buckets"] >= QUALITY_MIN_COLORS and
+	var min_colors: int = 4 if bool(scenario.get("diagnostic", false)) else QUALITY_MIN_COLORS
+	_check(quality["distinct_color_buckets"] >= min_colors and
 		quality["visible_pixel_ratio"] > 0.20,
 		"Рендер " + str(scenario["name"]) + " не пустой и не однотонный")
 	var filename: String = str(scenario["name"]) + ".png"
@@ -152,7 +155,7 @@ func _snapshot(view: Node3D, scenario: Dictionary, folder: String) -> Dictionary
 		"name": scenario["name"], "file": filename,
 		"center": {"x": center.x, "y": center.y},
 		"zoom": zoom, "loaded_chunks": view._active.size(),
-		"load_frames": frames,
+		"load_frames": frames, "diagnostic": bool(scenario.get("diagnostic", false)),
 		"moisture": view._surface.moisture_at_index(index),
 		"snow": view._surface.snow_at_index(index),
 		"frost": view._surface.frost_at_index(index),
@@ -192,6 +195,39 @@ func _run() -> void:
 		var result: Dictionary = await _snapshot(view, scenario, folder)
 		if not result.is_empty():
 			captures.append(result)
+
+	# Диагностика сетчатых артефактов: отделяем полупрозрачную воду
+	# от грунта, затем проверяем сам грунт без PBR-шейдера.
+	var wet_scene: Dictionary = scenes[scenes.size() - 1]
+	var water_nodes: Array[MeshInstance3D] = []
+	var ground_nodes: Array[MeshInstance3D] = []
+	for chunk in view._active.values():
+		var node: Node3D = chunk
+		for child in node.get_children():
+			if child is MeshInstance3D and child.name == "Поверхностная вода":
+				water_nodes.append(child)
+			elif child is MeshInstance3D:
+				ground_nodes.append(child)
+	for water_node in water_nodes:
+		water_node.visible = false
+	var ground_only := wet_scene.duplicate()
+	ground_only["name"] = "влажная_земля_без_воды"
+	ground_only["diagnostic"] = true
+	var ground_only_result: Dictionary = await _snapshot(view, ground_only, folder)
+	if not ground_only_result.is_empty():
+		captures.append(ground_only_result)
+	for water_node in water_nodes:
+		water_node.visible = true
+	for ground_node in ground_nodes:
+		ground_node.material_override = view._debug_ground_material
+	var unshaded := wet_scene.duplicate()
+	unshaded["name"] = "влажная_земля_без_PBR"
+	unshaded["diagnostic"] = true
+	var unshaded_result: Dictionary = await _snapshot(view, unshaded, folder)
+	if not unshaded_result.is_empty():
+		captures.append(unshaded_result)
+	for ground_node in ground_nodes:
+		ground_node.material_override = view._ground_material
 
 	var benchmark: Dictionary = await Runner.new().run(view)
 	benchmark["evaluation"] = "ПРОГРАММНЫЙ GL; НЕ ФАКТИЧЕСКИЕ FPS GPU"
