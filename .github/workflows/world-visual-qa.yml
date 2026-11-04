@@ -1,14 +1,7 @@
 name: Визуальная приёмка ландшафта — этап 9.4
 
 on:
-  push:
-    paths:
-      - "godot/**"
-      - ".github/workflows/world-visual-qa.yml"
-  pull_request:
-    paths:
-      - "godot/**"
-      - ".github/workflows/world-visual-qa.yml"
+  workflow_dispatch:
 
 jobs:
   visual-qa:
