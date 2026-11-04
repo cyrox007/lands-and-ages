@@ -92,7 +92,9 @@ static func make_visual(world: RefCounted, previous: Dictionary,
         return null
     var id: int = previous["id"]
     var key: String = Models.select_tree(
-        int(previous["age_days"]), id, detail)
+        int(previous["age_days"]), id, detail,
+        str(previous.get("species", "дуб")), false,
+        str(previous.get("state", "целое")))
     var model: Dictionary = Models.info(key)
     if model.is_empty():
         return null
