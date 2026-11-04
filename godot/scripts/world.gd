@@ -7,6 +7,7 @@ const WorldMap = preload("res://scripts/world_map.gd")
 const Relief = preload("res://scripts/relief.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 const ChunkVisibility = preload("res://scripts/chunk_visibility.gd")
+const ChunkRenderCache = preload("res://scripts/chunk_render_cache.gd")
 const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
 const NaturalWaterShader = preload("res://shaders/natural_water.gdshader")
 const Hydrology = preload("res://scripts/hydrology.gd")
@@ -30,6 +31,8 @@ const VIEW_NAMES := [
 ]
 const MAX_BUILDS_PER_FRAME := 8
 const MESH_BUDGET_US := 4200
+const HEIGHT_BOUNDS_CACHE_LIMIT := 512
+const FRAME_SAMPLE_LIMIT := 120
 const CAMERA_SPEED := 32.0
 const MIN_ZOOM := 16.0
 const MAX_ZOOM := 105.0
@@ -70,12 +73,18 @@ var _ground_material: ShaderMaterial
 var _debug_ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
+var _render_cache := ChunkRenderCache.new()
+var _render_world_revision := -1
+var _render_water_revision := -1
+var _render_surface_revision := -1
+var _frame_samples: Array[float] = []
 var _terrain_dirty := {}
 var _last_chunk_build_us := 0
 var _chunk_rebuilds := 0
 var _chunk_center := Vector2i(-1, -1)
 var _visibility_center := Vector2(-1000000.0, -1000000.0)
 var _chunk_height_bounds := {}
+var _chunk_height_order: Array[Vector2i] = []
 var _height_bounds_revision := -1
 var _water_bounds_revision := -1
 var _status: Label
@@ -236,6 +245,7 @@ func _update_camera() -> void:
 
 
 func _process(delta: float) -> void:
+	_record_frame(delta)
 	if _lightning_life > 0.0:
 		_lightning_life -= delta
 		if _lightning_life <= 0.0:
@@ -316,6 +326,24 @@ func _input(event: InputEvent) -> void:
 		_move_center(Vector2(-event.relative.x, -event.relative.y) * scale_factor)
 
 
+func _record_frame(delta: float) -> void:
+	if delta <= 0.0 or delta > 0.5:
+		return
+	_frame_samples.append(delta * 1000.0)
+	if _frame_samples.size() > FRAME_SAMPLE_LIMIT:
+		_frame_samples.pop_front()
+
+
+static func _frame_percentile(samples: Array[float], fraction: float) -> float:
+	if samples.is_empty():
+		return 0.0
+	var ordered: Array[float] = samples.duplicate()
+	ordered.sort()
+	var index := clampi(ceili(float(ordered.size()) * fraction) - 1,
+		0, ordered.size() - 1)
+	return ordered[index]
+
+
 static func _detail_for_zoom(size: float) -> float:
 	# Мелкие GPU-эффекты постепенно исчезают при отдалении камеры.
 	return 1.0 - smoothstep(44.0, 96.0, size)
@@ -376,6 +404,7 @@ func _ensure_chunk_bounds_fresh() -> void:
 			and _water_bounds_revision == water_revision:
 		return
 	_chunk_height_bounds.clear()
+	_chunk_height_order.clear()
 	_height_bounds_revision = _world_model.revision
 	_water_bounds_revision = water_revision
 
@@ -408,11 +437,39 @@ func _chunk_elevation_bounds(coord: Vector2i) -> Vector2:
 	var scene_scale: float = _world_model.config.height_scale
 	var elevation := Vector2(minimum * scene_scale - 0.25,
 		maximum * scene_scale + 0.25)
-	_chunk_height_bounds[coord] = elevation
+	_remember_height_bounds(coord, elevation)
 	return elevation
 
 
+func _remember_height_bounds(coord: Vector2i, elevation: Vector2) -> void:
+	_chunk_height_bounds[coord] = elevation
+	_chunk_height_order.append(coord)
+	if _chunk_height_order.size() > HEIGHT_BOUNDS_CACHE_LIMIT:
+		_chunk_height_bounds.erase(_chunk_height_order.pop_front())
+
+
+func _synchronize_render_cache(force: bool) -> void:
+	if _hydro == null or _surface == null:
+		if force:
+			_render_cache.clear()
+		return
+	if force:
+		_render_cache.clear()
+	elif _day_task_id >= 0:
+		# Физическая модель сейчас принадлежит фоновому потоку.
+		return
+	elif _render_world_revision != _world_model.revision \
+			or _render_water_revision != _hydro.revision \
+			or _render_surface_revision != _surface.revision:
+		_render_cache.clear()
+	if _day_task_id < 0 and _surface != null and _hydro != null:
+		_render_world_revision = _world_model.revision
+		_render_water_revision = _hydro.revision
+		_render_surface_revision = _surface.revision
+
+
 func _refresh_visible(force: bool) -> void:
+	_synchronize_render_cache(force)
 	var center_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
 	_chunk_center = center_chunk
@@ -453,14 +510,26 @@ func _refresh_visible(force: bool) -> void:
 					_camera.size, aspect):
 				continue
 			desired[coord] = true
-	# Невидимые чанки удаляем, видимые сохраняем до готовности новой сетки.
+	# Уходящие из кадра меши временно сохраняем для обратного пути.
 	for coord in _active.keys():
-		if not desired.has(coord):
-			_active[coord].queue_free()
-			_active.erase(coord)
+		if desired.has(coord):
+			continue
+		var node: Node3D = _active[coord]
+		_active.erase(coord)
+		if _terrain_holder != null and node.get_parent() == _terrain_holder:
+			_render_cache.put(coord, node)
+		else:
+			node.queue_free()
+	if not force:
+		for coord in desired.keys():
+			if _active.has(coord):
+				continue
+			var restored: Node3D = _render_cache.take(coord)
+			if restored != null:
+				_active[coord] = restored
 	var scheduled := {}
 	for coord in _pending:
-		if desired.has(coord):
+		if desired.has(coord) and (force or not _active.has(coord)):
 			scheduled[coord] = true
 	for coord in desired.keys():
 		if force or not _active.has(coord):
@@ -600,7 +669,12 @@ func _install_loaded_world(models: Dictionary) -> void:
 		_active[chunk].queue_free()
 	_active.clear()
 	_pending.clear()
+	_render_cache.clear()
+	_render_world_revision = -1
+	_render_water_revision = -1
+	_render_surface_revision = -1
 	_chunk_height_bounds.clear()
+	_chunk_height_order.clear()
 	_height_bounds_revision = -1
 	_water_bounds_revision = -1
 	_chunk_center = Vector2i(-1, -1)
@@ -740,6 +814,17 @@ func _update_hud() -> void:
 	_status.text += "GPU: %d мешей · кадр %.1f мс · перерисовок сезонов %d\n" % [
 		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0,
 		_visual_refreshes]
+	_status.text += "Кеш мешей: %d/%d · оценка %.2f/%.0f МиБ · попаданий %d · вытеснений %d\n" % [
+		_render_cache.count(), ChunkRenderCache.MAX_CHUNKS,
+		float(_render_cache.estimated_bytes) / 1048576.0,
+		float(ChunkRenderCache.MAX_ESTIMATED_BYTES) / 1048576.0,
+		_render_cache.hits, _render_cache.evictions]
+	_status.text += "Кеш высот %d/%d · кадр p50 %.1f мс / p95 %.1f мс\n" % [
+		_chunk_height_bounds.size(), HEIGHT_BOUNDS_CACHE_LIMIT,
+		_frame_percentile(_frame_samples, 0.50),
+		_frame_percentile(_frame_samples, 0.95)]
+	_status.text += "Статическая память Godot %.1f МиБ (не вся ОЗУ/VRAM)\n" % [
+		Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0]
 	if _camera != null:
 		_status.text += "Масштаб %.0f · радиус чанков %d · детали GPU %.0f%%\n" % [
 			_camera.size, _visible_radius(), _detail_for_zoom(_camera.size) * 100.0]
