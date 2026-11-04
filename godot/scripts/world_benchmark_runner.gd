@@ -48,6 +48,8 @@ func run(view: Node3D) -> Dictionary:
 	var peak_pending := 0
 	var peak_static := 0
 	var peak_cache := 0
+	var ground_cpu_ms := 0.0
+	var water_cpu_ms := 0.0
 	for result in phases:
 		built += int(result["chunks_built"])
 		hits += int(result["cache_hits"])
@@ -57,6 +59,8 @@ func run(view: Node3D) -> Dictionary:
 		peak_pending = maxi(peak_pending, int(result["peak_pending_chunks"]))
 		peak_static = maxi(peak_static, int(result["peak_godot_static_bytes"]))
 		peak_cache = maxi(peak_cache, int(result["peak_cached_geometry_bytes"]))
+		ground_cpu_ms += float(result["ground_mesh_cpu_ms_total"])
+		water_cpu_ms += float(result["water_mesh_cpu_ms_total"])
 
 	var dimensions: Vector2 = view.get_viewport().get_visible_rect().size
 	return {
@@ -76,6 +80,8 @@ func run(view: Node3D) -> Dictionary:
 			"build_frame_ms": "время построения мешей CPU",
 			"peak_visibility_ms": "время одного обновления видимости CPU",
 			"peak_cached_geometry_bytes": "оценка буферов вершин/индексов",
+			"ground_mesh_cpu_ms_total": "построение геометрии земли на CPU, не GPU",
+			"water_mesh_cpu_ms_total": "построение геометрии воды на CPU, не GPU",
 			"peak_godot_static_bytes": "статическая память Godot, не RAM/VRAM"
 		},
 		"map": {
@@ -92,6 +98,8 @@ func run(view: Node3D) -> Dictionary:
 			"visibility_fast_rejects": fast_rejects,
 			"visibility_precise_checks": precise_checks,
 			"peak_pending_chunks": peak_pending,
+			"ground_mesh_cpu_ms_total": ground_cpu_ms,
+			"water_mesh_cpu_ms_total": water_cpu_ms,
 			"peak_cached_geometry_bytes": peak_cache,
 			"peak_godot_static_bytes": peak_static,
 			"pending_after_route": view._pending.size(),

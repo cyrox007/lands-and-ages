@@ -91,6 +91,10 @@ var _render_surface_revision := -1
 var _frame_samples: Array[float] = []
 var _terrain_dirty := {}
 var _last_chunk_build_us := 0
+var _last_ground_build_us := 0
+var _last_water_build_us := 0
+var _total_ground_build_us := 0
+var _total_water_build_us := 0
 var _chunk_rebuilds := 0
 var _visibility_refreshes := 0
 var _visibility_fast_rejects := 0
@@ -322,6 +326,8 @@ func _process(delta: float) -> void:
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	_last_chunk_build_us = 0
+	_last_ground_build_us = 0
+	_last_water_build_us = 0
 	if _days_pending == 0 and _day_task_id < 0:
 		_mesh_build_budget_us = ChunkBuildQueue.budget_us(
 			_frame_percentile(_frame_samples, 0.95), _pan_pending, MESH_BUDGET_US)
@@ -611,13 +617,21 @@ func _create_chunk(coord: Vector2i) -> void:
 	var node := Node3D.new()
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
+	var ground_started := Time.get_ticks_usec()
 	ground.mesh = Chunk.create_mesh(coord.x, coord.y, 1, _world_model,
 		_surface, _view_mode, _climate, _hydro)
+	var ground_us := Time.get_ticks_usec() - ground_started
+	_last_ground_build_us += ground_us
+	_total_ground_build_us += ground_us
 	ground.material_override = _ground_material if _view_mode == 0 \
 		else _debug_ground_material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(ground)
+	var water_started := Time.get_ticks_usec()
 	var water_mesh: ArrayMesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface)
+	var water_us := Time.get_ticks_usec() - water_started
+	_last_water_build_us += water_us
+	_total_water_build_us += water_us
 	if water_mesh.get_surface_count() > 0:
 		var water_node := MeshInstance3D.new()
 		water_node.name = "Поверхностная вода"
@@ -946,9 +960,10 @@ func _update_hud() -> void:
 	_status.text += "Почва: %d клеток · климат: %d строк · гидро: %d пересчётов\n" % [
 		_surface.last_rebuilt_cells, _climate.last_rebuild_rows,
 		_hydro.full_rebuilds]
-	_status.text += "GPU: %d мешей · кадр %.1f мс · перерисовок сезонов %d\n" % [
+	_status.text += "Меши CPU: %d · кадр %.1f мс (земля %.1f, вода %.1f) · сезонов %d\n" % [
 		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0,
-		_visual_refreshes]
+		float(_last_ground_build_us) / 1000.0,
+		float(_last_water_build_us) / 1000.0, _visual_refreshes]
 	_status.text += "Очередь GPU %d · обновить %d · бюджет %d мкс · отброшено %d\n" % [
 		_pending.size(), _rebuild_pending.size(),
 		_mesh_build_budget_us, _skipped_stale_jobs]

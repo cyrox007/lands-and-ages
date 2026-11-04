@@ -8,6 +8,8 @@ var _name := ""
 var _frames: Array[float] = []
 var _build_frames: Array[float] = []
 var _builds_before := 0
+var _ground_before := 0
+var _water_before := 0
 var _last_build_count := 0
 var _hits_before := 0
 var _evictions_before := 0
@@ -39,6 +41,8 @@ func begin(name: String, view: Node3D) -> void:
 	_frames.clear()
 	_build_frames.clear()
 	_builds_before = view._chunk_rebuilds
+	_ground_before = view._total_ground_build_us
+	_water_before = view._total_water_build_us
 	_last_build_count = _builds_before
 	_hits_before = view._render_cache.hits
 	_evictions_before = view._render_cache.evictions
@@ -91,6 +95,10 @@ func finish(view: Node3D) -> Dictionary:
 			"max": percentile(_build_frames, 1.0)
 		},
 		"chunks_built": view._chunk_rebuilds - _builds_before,
+		"ground_mesh_cpu_ms_total": float(view._total_ground_build_us -
+			_ground_before) / 1000.0,
+		"water_mesh_cpu_ms_total": float(view._total_water_build_us -
+			_water_before) / 1000.0,
 		"cache_hits": view._render_cache.hits - _hits_before,
 		"cache_evictions": view._render_cache.evictions - _evictions_before,
 		"stale_jobs_skipped": view._skipped_stale_jobs - _skipped_before,

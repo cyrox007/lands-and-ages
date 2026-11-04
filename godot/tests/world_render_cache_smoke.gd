@@ -42,6 +42,29 @@ func _test_cache_limit() -> void:
 	holder.queue_free()
 
 
+func _test_pan_cache_capacity() -> void:
+	# При долгой панораме раньше хватало лишь на 24 готовых чанка,
+	# хотя установленный предел памяти почти не использовался.
+	var holder := Node3D.new()
+	get_root().add_child(holder)
+	var cache := Cache.new()
+	var nodes: Array[Node3D] = []
+	for x in range(72):
+		var node := Node3D.new()
+		holder.add_child(node)
+		nodes.append(node)
+		cache.put(Vector2i(x, 0), node)
+	_check(cache.count() == 72 and cache.evictions == 0,
+		"При движении кеш удерживает 72 небольших участка без вытеснения")
+	_check(cache.estimated_bytes <= Cache.MAX_ESTIMATED_BYTES,
+		"Увеличенный кеш сохраняет прежний предел памяти")
+	var restored := cache.take(Vector2i(0, 0))
+	_check(restored == nodes[0] and cache.hits == 1,
+		"Первый участок повторно используется без пересоздания GPU-меша")
+	cache.clear()
+	holder.queue_free()
+
+
 func _test_mesh_estimate() -> void:
 	var vertices := PackedVector3Array([
 		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 1, 0)
@@ -144,6 +167,7 @@ func _initialize() -> void:
 func _run() -> void:
 	await process_frame
 	_test_cache_limit()
+	_test_pan_cache_capacity()
 	_test_mesh_estimate()
 	_test_height_cache()
 	_test_scene_reuse()
