@@ -106,9 +106,9 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 		{"name": "берег_вблизи", "center": coastal, "zoom": 16.0},
 		{"name": "берег_издалека", "center": coastal, "zoom": 64.0},
 		{"name": SCENE_NAMES[2], "center": mountain, "zoom": 22.0},
-		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0},
 		{"name": "пойма_реки", "center": flooded if flooded.x >= 0 else wetland,
-			"zoom": 22.0}
+			"zoom": 22.0},
+		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0}
 	]
 
 
