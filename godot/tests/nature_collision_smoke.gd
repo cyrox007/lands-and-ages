@@ -8,6 +8,7 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Collisions = preload("res://scripts/nature_collision.gd")
+const Geometry = preload("res://scripts/nature_geometry.gd")
 
 var errors: Array[String] = []
 
@@ -106,9 +107,23 @@ func _run() -> void:
         var result: Dictionary = nature.fell_tree(id)
         _check(not result.is_empty() and int(result["wood_units"]) > 0,
             "Рубка создаёт конечный остаток древесины")
+        var footprint: Dictionary = Geometry.log_footprint(
+            nature.object_at(id), world.config)
+        _check(not footprint.is_empty(),
+            "Физический остаток древесины имеет координаты")
+        if not footprint.is_empty():
+            var center: Vector2 = footprint["center"]
+            _check(Geometry.hits_log(
+                center, 0.0, nature.object_at(id), world.config),
+                "Лежащее бревно занимает собственный физический контур")
+            _check(nature.intersects_solid(center),
+                "Логическая проходимость учитывает лежащее бревно")
         var fallen := Collisions.create_chunk(world, nature, chunk)
         _check(_parts_for(fallen, id) == ["бревно", "пень"],
             "После рубки ствол заменяется пнём и бревном")
+        _check(int(Collisions.object_from_shape(
+            fallen, 0).get("id", -1)) > 0,
+            "Обратный поиск столкновения возвращает ID природного объекта")
         fallen.free()
 
         var amount: int = nature.object_at(id)["fallen_wood"]
@@ -117,6 +132,9 @@ func _run() -> void:
         var cleared := Collisions.create_chunk(world, nature, chunk)
         _check(_parts_for(cleared, id) == ["пень"],
             "После вывоза древесины физический пень остаётся")
+        _check(Geometry.log_footprint(
+            nature.object_at(id), world.config).is_empty(),
+            "После вывоза древесины логический контур бревна исчезает")
         cleared.free()
 
     if not errors.is_empty():
