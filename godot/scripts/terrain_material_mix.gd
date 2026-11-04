@@ -79,7 +79,9 @@ static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
 			var is_water: bool = hydro.has_water(index)
 			var moisture: float = surface.moisture_at_index(index)
 			var waterlogging: float = surface.waterlogging_at_index(index)
-			wetness += 1.0 if is_water else maxf(moisture, waterlogging)
+			# Влажная почва не равна затопленной. Обычная почвенная
+			# влага даёт лишь слабый блеск, застой воды — сильный.
+			wetness += maxf(moisture * 0.55, waterlogging)
 			frost += surface.frost_at_index(index)
 			if not is_water:
 				dry_cells += 1
@@ -94,11 +96,26 @@ static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
 	var dry_share := float(dry_cells) / float(cells)
 	var gentle := 1.0 - smoothstep(0.14, 0.46,
 		1.0 - clampf(normal.y, 0.0, 1.0))
-	_blend(result, SAND, nearby.x * dry_share * gentle * 0.60)
-	_blend(result, SOIL, nearby.y * dry_share * 0.18)
+	# Даже рядом с морем высокий берег остаётся сухим.
+	var water_level := -INF
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var neighbor := vertex + Vector2i(dx, dy)
+			if not world.config.contains_cell(neighbor):
+				continue
+			var water_index: int = hydro.cell_index(neighbor)
+			if hydro.has_water(water_index):
+				water_level = maxf(water_level, hydro.level_at(water_index))
+	var coastal_height := 0.0
+	if is_finite(water_level):
+		coastal_height = 1.0 - smoothstep(0.03, 0.65,
+			maxf(0.0, height - water_level))
+	var shore_factor := coastal_height * gentle * dry_share
+	_blend(result, SAND, nearby.x * shore_factor * 0.60)
+	_blend(result, SOIL, nearby.y * shore_factor * 0.18)
 	var conditions := Vector4(
 		clampf(wetness / float(cells), 0.0, 1.0),
-		clampf(nearby.x * dry_share * gentle, 0.0, 1.0),
+		clampf(nearby.x * shore_factor, 0.0, 1.0),
 		clampf(frost / float(cells), 0.0, 1.0),
-		clampf(nearby.y * dry_share, 0.0, 1.0))
+		clampf(nearby.y * shore_factor, 0.0, 1.0))
 	return {"weights": result, "conditions": conditions}
