@@ -46,7 +46,7 @@ func _init(map: RefCounted, hydrology: RefCounted) -> void:
 	hydro = hydrology
 
 
-static func _geology_field(x: int, y: int, seed: int) -> float:
+static func _geology_field(x: int, y: int, geology_seed: int) -> float:
 	# Осадочные области распределены плавно, без случайной клетки-глины
 	# посреди независимого песчаного региона.
 	var fx := float(x) / 46.0
@@ -55,10 +55,10 @@ static func _geology_field(x: int, y: int, seed: int) -> float:
 	var gy := floori(fy)
 	var u := smoothstep(0.0, 1.0, fx - float(gx))
 	var v := smoothstep(0.0, 1.0, fy - float(gy))
-	var north := lerpf(Terrain.hash2(gx, gy, seed + 7201),
-		Terrain.hash2(gx + 1, gy, seed + 7201), u)
-	var south := lerpf(Terrain.hash2(gx, gy + 1, seed + 7201),
-		Terrain.hash2(gx + 1, gy + 1, seed + 7201), u)
+	var north := lerpf(Terrain.hash2(gx, gy, geology_seed + 7201),
+		Terrain.hash2(gx + 1, gy, geology_seed + 7201), u)
+	var south := lerpf(Terrain.hash2(gx, gy + 1, geology_seed + 7201),
+		Terrain.hash2(gx + 1, gy + 1, geology_seed + 7201), u)
 	return lerpf(north, south, v)
 
 
