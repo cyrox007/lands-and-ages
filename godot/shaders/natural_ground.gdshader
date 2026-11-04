@@ -82,7 +82,10 @@ void fragment() {
 		albedo_sum, packed_sum);
 
 	// Скалистая геологическая слоистость остаётся лишь слабой деталью.
-	float strata = sin(ground_position.y * 9.0 + ground_position.x * 0.42);
+	float strata = 0.0;
+	if (detail_strength > 0.01) {
+		strata = sin(ground_position.y * 9.0 + ground_position.x * 0.42);
+	}
 	float cliff = smoothstep(0.25, 0.56, ground_steepness) * rock;
 	vec3 tint = clamp(COLOR.rgb / vec3(0.55), vec3(0.74), vec3(1.19));
 	ALBEDO = clamp(albedo_sum * mix(vec3(1.0), tint, 0.17) *
@@ -94,6 +97,8 @@ void fragment() {
 	// Карта нормалей сообщает микрорельеф, но не деформирует сетку.
 	vec3 bump = vec3(packed_sum.r * 2.0 - 1.0, 0.0,
 		packed_sum.g * 2.0 - 1.0);
-	NORMAL = normalize(NORMAL + mat3(VIEW_MATRIX) * bump *
-		(0.30 * detail_strength * (1.0 - cliff * 0.4)));
+	if (detail_strength > 0.01) {
+		NORMAL = normalize(NORMAL + mat3(VIEW_MATRIX) * bump *
+			(0.30 * detail_strength * (1.0 - cliff * 0.4)));
+	}
 }
