@@ -54,8 +54,15 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 			if hydro.has_water(index):
 				continue
 			var height: float = world.vertex_at(cell)
-			if height > best_height and surface.rock_at_index(index):
-				best_height = height
+			# Приёмочная гора должна быть внутри мира, а не на
+			# искусственном краю его географического обрамления.
+			var inland := (x >= 16 and y >= 16 and
+				x < size.x - 16 and y < size.y - 16)
+			var mountain_score := height
+			if surface.rock_at_index(index):
+				mountain_score += 6.0
+			if inland and mountain_score > best_height:
+				best_height = mountain_score
 				mountain = cell
 			var wet: float = maxf(surface.moisture_at_index(index),
 				surface.waterlogging_at_index(index))
@@ -151,6 +158,7 @@ func _snapshot(view: Node3D, scenario: Dictionary, folder: String) -> Dictionary
 		"frost": view._surface.frost_at_index(index),
 		"waterlogging": view._surface.waterlogging_at_index(index),
 		"height": view._world_model.vertex_at(center),
+		"rock_at_center": view._surface.rock_at_index(index),
 		"quality": quality
 	}
 
