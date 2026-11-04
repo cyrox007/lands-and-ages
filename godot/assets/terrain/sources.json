@@ -1,5 +1,6 @@
 {
   "license": "CC0 1.0",
+  "bake_version": 2,
   "source": "https://ambientcg.com/",
   "tile": 384,
   "border": 8,
