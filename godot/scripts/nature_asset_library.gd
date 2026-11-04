@@ -113,7 +113,7 @@ static func wind_material(key: String) -> ShaderMaterial:
     shader.set_shader_parameter("source_base", (model["base_point"] as Vector3).y)
     if source is BaseMaterial3D:
         var material := source as BaseMaterial3D
-        shader.set_shader_parameter("source_color", material.albedo_color)
+        shader.set_shader_parameter("source_tint", material.albedo_color)
         if material.albedo_texture != null:
             shader.set_shader_parameter("source_texture", material.albedo_texture)
             shader.set_shader_parameter("has_texture", true)

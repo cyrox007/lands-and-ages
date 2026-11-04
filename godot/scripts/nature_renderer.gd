@@ -93,7 +93,7 @@ static func _place_model(groups: Dictionary, key: String, origin: Vector3,
         wind: float = 0.0) -> bool:
     if Models.info(key).is_empty():
         return false
-    _push(groups, "glb:" + key, Models.placement(key, origin, scale_factor),
+    _push(groups, "glb_" + key, Models.placement(key, origin, scale_factor),
         color, phase, wind)
     return true
 
@@ -216,7 +216,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         multi.transform_format = MultiMesh.TRANSFORM_3D
         multi.use_colors = true
         multi.use_custom_data = true
-        if str(kind).begins_with("glb:"):
+        if str(kind).begins_with("glb_"):
             var model: Dictionary = Models.info(str(kind).substr(4))
             if model.is_empty():
                 continue
@@ -233,7 +233,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var node := MultiMeshInstance3D.new()
         node.name = str(kind)
         node.multimesh = multi
-        if str(kind).begins_with("glb:") and not str(kind).contains("Rock"):
+        if str(kind).begins_with("glb_") and not str(kind).contains("Rock"):
             node.material_override = Models.wind_material(str(kind).substr(4))
         node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
         result.add_child(node)

@@ -182,9 +182,9 @@ func _run() -> void:
                 _check(instance.multimesh.instance_count > 0,
                     "Пустой MultiMesh не расходует GPU-ресурсы")
                 rendered_objects += instance.multimesh.instance_count
-                if instance.name.begins_with("glb:"):
+                if instance.name.begins_with("glb_"):
                     rendered_glb += instance.multimesh.instance_count
-                if instance.name == "трава" or instance.name.begins_with("glb:Grass"):
+                if instance.name == "трава" or instance.name.begins_with("glb_Grass"):
                     rendered_grass += instance.multimesh.instance_count
             visible_chunk.free()
     _check(rendered_objects > 0 and rendered_grass > 0,
