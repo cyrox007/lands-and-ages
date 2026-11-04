@@ -1,0 +1,84 @@
+name: Визуальная приёмка ландшафта — этап 9.4
+
+on:
+  push:
+    paths:
+      - "godot/**"
+      - ".github/workflows/world-visual-qa.yml"
+  pull_request:
+    paths:
+      - "godot/**"
+      - ".github/workflows/world-visual-qa.yml"
+
+jobs:
+  visual-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подготовить Godot и программный OpenGL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт текстур и GDScript
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/qa-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load" /tmp/qa-import.log; then
+            exit 1
+          fi
+      - name: Отрисовать реальные кадры и измерить маршрут
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/world-visual-9-4
+          timeout 260s xvfb-run -a -s "-screen 0 1280x720x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/world_visual_capture_9_4.gd \
+            -- --out=/tmp/world-visual-9-4 2>&1 | tee /tmp/visual-qa.log
+          grep -q "Этап 9.4:.*успешно" /tmp/visual-qa.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load|ERROR:" /tmp/visual-qa.log; then
+            exit 1
+          fi
+      - name: Проверить отчёт и наличие реальных PNG
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          root = pathlib.Path("/tmp/world-visual-9-4")
+          manifest = json.loads((root / "manifest.json").read_text())
+          benchmark = json.loads((root / "benchmark.json").read_text())
+          assert manifest["stage"] == "9.4"
+          assert manifest["hardware_accepted"] is False
+          assert manifest["renderer"] != "headless"
+          assert manifest["checks_passed"]
+          assert len(manifest["captures"]) == 4
+          for shot in manifest["captures"]:
+              assert (root / shot["file"]).stat().st_size > 10000
+              assert shot["quality"]["distinct_color_buckets"] >= 14
+              assert shot["quality"]["visible_pixel_ratio"] > 0.20
+              assert shot["loaded_chunks"] > 0
+          assert benchmark["route_frames"] >= 300
+          assert benchmark["summary"]["physics_unchanged"]
+          assert len(benchmark["phases"]) == 9
+          print("Этап 9.4: четыре кадра, измерения и неизменность физики — успешно.")
+          PY
+      - name: Сохранить кадры и JSON для художественной проверки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-visual-9-4-software-gl
+          path: |
+            /tmp/world-visual-9-4/
+            /tmp/visual-qa.log
+          if-no-files-found: warn
+          retention-days: 30
