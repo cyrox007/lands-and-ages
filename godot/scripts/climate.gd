@@ -43,7 +43,7 @@ func _init(map: RefCounted, water: RefCounted) -> void:
 
 
 static func season_name(index: int) -> String:
-	return SEASONS[posmod(index / SEASON_DAYS, SEASONS.size())]
+	return SEASONS[posmod(floori(float(index) / float(SEASON_DAYS)), SEASONS.size())]
 
 
 static func snowfall_fraction(air_temperature: float) -> float:
@@ -61,15 +61,15 @@ static func _seasonal_rain_factor(day_of_year: int, latitude: float) -> float:
 	return lerpf(temperate, southern, smoothstep(0.25, 0.85, latitude))
 
 
-static func _smooth_noise(x: float, y: float, seed: int) -> float:
+static func _smooth_noise(x: float, y: float, noise_seed: int) -> float:
 	var x0 := floori(x)
 	var y0 := floori(y)
 	var u := smoothstep(0.0, 1.0, x - float(x0))
 	var v := smoothstep(0.0, 1.0, y - float(y0))
-	var a := lerpf(Terrain.hash2(x0, y0, seed),
-		Terrain.hash2(x0 + 1, y0, seed), u)
-	var b := lerpf(Terrain.hash2(x0, y0 + 1, seed),
-		Terrain.hash2(x0 + 1, y0 + 1, seed), u)
+	var a := lerpf(Terrain.hash2(x0, y0, noise_seed),
+		Terrain.hash2(x0 + 1, y0, noise_seed), u)
+	var b := lerpf(Terrain.hash2(x0, y0 + 1, noise_seed),
+		Terrain.hash2(x0 + 1, y0 + 1, noise_seed), u)
 	return lerpf(a, b, v) * 2.0 - 1.0
 
 
@@ -147,7 +147,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 		var current: int = queue[pointer]
 		pointer += 1
 		var x: int = current % _width
-		var y: int = current / _width
+		var y: int = floori(float(current) / float(_width))
 		for direction in DIRECTIONS:
 			var nx: int = x + direction.x
 			var ny: int = y + direction.y
