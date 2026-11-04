@@ -896,8 +896,10 @@ func _on_tree_felled(previous: Dictionary) -> void:
 	_show_hit_effect(previous, chunk)
 	if _view_mode != 0 or not _active.has(chunk):
 		return
+	var winter: bool = _climate != null and \
+		_climate.weather_at(cell).get("season") == "зима"
 	var visual: Node3D = NatureFelling.make_visual(
-		_world_model, previous, _detail_for_zoom(_camera.size))
+		_world_model, previous, _detail_for_zoom(_camera.size), winter)
 	if visual == null:
 		return
 	var chunk_node: Node3D = _active[chunk]

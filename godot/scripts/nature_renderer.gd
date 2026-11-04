@@ -97,10 +97,12 @@ static func _push(groups: Dictionary, kind: String, transform: Transform3D,
 
 static func _place_model(groups: Dictionary, key: String, origin: Vector3,
         scale_factor: float, color: Color, phase: float,
-        wind: float = 0.0) -> bool:
+        wind: float = 0.0, shape: Vector3 = Vector3.ONE,
+        yaw: float = 0.0) -> bool:
     if Models.info(key).is_empty():
         return false
-    _push(groups, "glb_" + key, Models.placement(key, origin, scale_factor),
+    _push(groups, "glb_" + key,
+        Models.placement(key, origin, scale_factor, shape, yaw),
         color, phase, wind)
     return true
 
@@ -162,17 +164,20 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                     origin + radial * scale_factor * 0.17 +
                     Vector3(0, scale_factor * 0.45, 0)),
                     _color("зарубка", species, state), phase)
-            # Взрослые деревья используют настоящую модель. Зимой
-            # у лиственных временно остаётся только голый ствол.
-            var foliage_visible := state == "целое" and (
-                not winter or species in ["сосна", "ель"])
-            if foliage_visible:
-                var selected := Models.select_tree(age, int(item["id"]), detail)
-                var snowy := Color.WHITE.lerp(
-                    Color(0.78, 0.84, 0.78), snow * 0.45)
-                if _place_model(groups, selected, origin, scale_factor,
-                        snowy, phase, wind):
-                    continue
+            # Разные породы используют разные модели. Даже зимой
+            # лиственные деревья сохраняют ветвистый, а не цилиндрический ствол.
+            var object_id: int = int(item["id"])
+            var selected: String = Models.select_tree(
+                age, object_id, detail, species, winter, state)
+            var shape: Vector3 = Models.shape_for(species)
+            var tree_color := Color.WHITE.lerp(
+                Color(0.87, 0.91, 0.88), snow * 0.32)
+            if species == "ель":
+                tree_color = tree_color * Color(0.78, 0.89, 0.82)
+            var yaw: float = Models.rotation_for(object_id)
+            if _place_model(groups, selected, origin, scale_factor,
+                    tree_color, phase, wind, shape, yaw):
+                continue
             var trunk_base := Basis.IDENTITY.scaled(
                 Vector3(scale_factor, scale_factor, scale_factor))
             _push(groups, "ствол",
@@ -268,7 +273,11 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         node.name = str(kind)
         node.multimesh = multi
         if str(kind).begins_with("glb_") and not str(kind).contains("Rock"):
-            node.material_override = Models.wind_material(str(kind).substr(4))
+            # У новых моделей ветер назначен каждой поверхности отдельно.
+            # Общий override уничтожил бы текстуры коры и листьев.
+            var legacy_wind := Models.wind_material(str(kind).substr(4))
+            if legacy_wind != null:
+                node.material_override = legacy_wind
         node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
         result.add_child(node)
     return result
