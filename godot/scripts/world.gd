@@ -657,8 +657,9 @@ func _update_hud() -> void:
 	_status.text += "GPU: %d мешей · кадр %.1f мс · перерисовок сезонов %d\n" % [
 		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0,
 		_visual_refreshes]
-	_status.text += "Масштаб %.0f · радиус чанков %d · детали GPU %.0f%%\n" % [
-		_camera.size, _visible_radius(), _detail_for_zoom(_camera.size) * 100.0]
+	if _camera != null:
+		_status.text += "Масштаб %.0f · радиус чанков %d · детали GPU %.0f%%\n" % [
+			_camera.size, _visible_radius(), _detail_for_zoom(_camera.size) * 100.0]
 	_status.text += "Шаг физики: последний %.1f мс · максимум %.1f мс\n" % [
 		float(_last_day_step_us) / 1000.0,
 		float(_peak_day_step_us) / 1000.0]
