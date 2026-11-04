@@ -97,9 +97,11 @@ func _run() -> void:
         var target: Dictionary = repeated["nature"].object_at(tree_id)
         var target_cell := Vector2i(int(target["x"]), int(target["y"]))
         repeated["climate"].set_day(2)
-        repeated["nature"].advance_day(2, [{
+        var hazards: Array[Dictionary] = [{
             "cell": target_cell, "severity": 1.0
-        }], [])
+        }]
+        var strikes: Array[Dictionary] = []
+        repeated["nature"].advance_day(2, hazards, strikes)
         _check(int(repeated["nature"].object_at(tree_id)["health"]) <
             int(target["health"]),
             "Стихийное событие повреждает живое дерево вне камеры")
