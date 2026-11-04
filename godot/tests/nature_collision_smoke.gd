@@ -9,6 +9,7 @@ const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Collisions = preload("res://scripts/nature_collision.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
+const Felling = preload("res://scripts/nature_felling_visual.gd")
 
 var errors: Array[String] = []
 
@@ -105,7 +106,7 @@ func _run() -> void:
         standing.free()
 
         _check(is_equal_approx(Geometry.angle_for(id, world.config.seed),
-            preload("res://scripts/nature_felling_visual.gd").angle_for(
+            Felling.angle_for(
                 id, world.config.seed)),
             "Направление лежащего бревна совпадает с анимацией")
         var result: Dictionary = nature.fell_tree(id)
