@@ -2,10 +2,11 @@ extends RefCounted
 ## Отрисовка водной поверхности по действующим отметкам гидрологии.
 ## Прибрежные треугольники обрезаются по реальной геометрии грунта.
 
+const ShoreVisual = preload("res://scripts/shore_visual.gd")
 const WATER_OFFSET := 0.018
 const SHORE_FADE_DEPTH := 0.7
 # Только пересекающие сушу клетки получают более точную кромку.
-const SHORE_SUBDIVISIONS := 3
+const SHORE_SUBDIVISIONS := ShoreVisual.SUBDIVISIONS
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
@@ -80,7 +81,7 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint, ice)
 		return 2
 
-	# Высоты прибрежной воды совпадают с двумя треугольниками земли.
+	# Высоты воды совпадают с уточнённой визуальной сеткой суши.
 	# Делим только береговые полигоны: открытая вода не усложняется.
 	# Соседние клетки получают одинаковые точки на общей границе.
 	return _subdivided_shore(tool, world, cell, level, tint, ice,
@@ -89,12 +90,9 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 
 static func _terrain_height(ha: float, hb: float, hc: float,
 		hd: float, u: float, v: float) -> float:
-	# Диагональ B–C: такие же треугольники, как у Chunk.
-	# Билинейная высота на неровном рельефе пересекала меш земли.
-	if u + v <= 1.0:
-		return ha + (hb - ha) * u + (hc - ha) * v
-	return hd + (hc - hd) * (1.0 - u) + (hb - hd) * (1.0 - v)
-
+	# Та же визуальная высота, что у береговых клеток Chunk.
+	# Физические высоты WorldMap и водный баланс не изменяются.
+	return ShoreVisual.height(ha, hb, hc, hd, u, v)
 
 static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, level: float, tint: Color, ice: float,
