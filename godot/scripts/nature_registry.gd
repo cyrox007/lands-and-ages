@@ -196,8 +196,11 @@ func interaction_points(id: int, clearance: float = 0.28) -> Array[Vector2]:
     var origin := Vector2(float(item["x"]) + 0.5,
         float(item["y"]) + 0.5)
     var offset := footprint_radius(item) + clearance
-    for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
-        var point := origin + direction * offset
+    var directions: Array[Vector2] = [
+        Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN
+    ]
+    for direction in directions:
+        var point: Vector2 = origin + direction * offset
         if not world.config.contains_point(point):
             continue
         var index: int = hydro.cell_index(world.config.cell_at(point))
