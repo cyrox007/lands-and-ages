@@ -34,8 +34,8 @@ func _init(map: RefCounted, water: RefCounted,
     last_day = weather.day
 
 
-static func _hash(x: int, y: int, seed: int) -> float:
-    return Terrain.hash2(x, y, seed)
+static func _hash(x: int, y: int, object_seed: int) -> float:
+    return Terrain.hash2(x, y, object_seed)
 
 
 func _index(object: Dictionary) -> void:
@@ -90,7 +90,7 @@ func generate() -> bool:
             var moisture: float = float(soil.get("moisture", 0.0))
             var growth: float = float(soil.get("growth_potential", 0.0))
             var temperature: float = climate.temperature_at_index(index)
-            var cluster := _hash(x / 21, y / 21, config.seed + 3001)
+            var cluster := _hash(floori(float(x) / 21.0), floori(float(y) / 21.0), config.seed + 3001)
             var chance := _hash(x, y, config.seed + 3002)
             var kind := ""
             var species := ""
@@ -114,7 +114,7 @@ func generate() -> bool:
             var stock := 0
             if kind == "дерево":
                 age = 2 * 96 + int(_hash(x, y, config.seed + 3004) * 38.0 * 96.0)
-                stock = maxi(1, age / 96 * 3)
+                stock = maxi(1, floori(float(age) / 96.0) * 3)
             elif kind == "кустарник":
                 age = int(_hash(x, y, config.seed + 3004) * 10.0 * 96.0)
             var id: int = y * int(config.width) + x + 1
@@ -357,10 +357,10 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
             continue
         var x: int = parent["x"]
         var y: int = parent["y"]
-        var seed: int = world.config.seed + day * 17
-        if _hash(x, y, seed) > 0.16:
+        var daily_seed: int = world.config.seed + day * 17
+        if _hash(x, y, daily_seed) > 0.16:
             continue
-        var direction_index := mini(3, int(_hash(x, y, seed + 1) * 4.0))
+        var direction_index := mini(3, int(_hash(x, y, daily_seed + 1) * 4.0))
         var next: Vector2i = Vector2i(x, y) + directions[direction_index]
         if not world.config.contains_cell(next):
             continue
