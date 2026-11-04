@@ -25,6 +25,7 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 	var colors := PackedColorArray()
 	var uvs := PackedVector2Array()
 	var uv2s := PackedVector2Array()
+	var conditions := PackedByteArray()
 	var indices := PackedInt32Array()
 	for j in range(height + 1):
 		for i in range(width + 1):
@@ -40,8 +41,14 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 			if mode == 0 and surface != null and hydro != null:
 				var color := Appearance.color_at(vertex, h, normal,
 					world, surface, hydro)
-				var weights: PackedFloat32Array = MaterialMix.at(
+				var sample: Dictionary = MaterialMix.sample_at(
 					vertex, h, normal, world, surface, hydro)
+				var weights: PackedFloat32Array = sample["weights"]
+				var natural: Vector4 = sample["conditions"]
+				# Уплотнённые RGBA8: влага, морской берег, мороз, пресный берег.
+				# Дополнительно 4 байта на вершину, без отдельного меша.
+				for amount in [natural.x, natural.y, natural.z, natural.w]:
+					conditions.append(roundi(clampf(amount, 0.0, 1.0) * 255.0))
 				# Текстурные веса передаются в UV/UV2 и альфа-канале,
 				# а цвет RGB остаётся доступен прежним диагностическим тестам.
 				color.a = weights[MaterialMix.SNOW]
@@ -53,6 +60,7 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 			else:
 				uvs.push_back(Vector2.ZERO)
 				uv2s.push_back(Vector2.ZERO)
+				conditions.append_array(PackedByteArray([0, 0, 0, 0]))
 				if mode == 0 or surface == null:
 					colors.push_back(Relief.relief_color(h, normal))
 				elif mode == 5:
@@ -82,7 +90,9 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
+	arrays[Mesh.ARRAY_CUSTOM0] = conditions
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var flags := Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
 	return mesh

@@ -52,11 +52,20 @@ static func _cell_weights(cell: Vector2i, height: float, normal: Vector3,
 static func at(vertex: Vector2i, height: float, normal: Vector3,
 		world: RefCounted, surface: RefCounted,
 		hydro: RefCounted) -> PackedFloat32Array:
-	# Усредняем по четырём клеткам, как и прежний цвет вершины.
+	return sample_at(vertex, height, normal, world, surface, hydro)["weights"]
+
+
+static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
+		world: RefCounted, surface: RefCounted,
+		hydro: RefCounted) -> Dictionary:
+	# Веса и влажность берутся из одного физического снимка вершины.
+	# У каждого чанка на общей вершине будет одинаковый набор данных.
 	# Поэтому на границах GPU-чанков коэффициенты одинаковы.
 	var result := PackedFloat32Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 	var cells := 0
 	var dry_cells := 0
+	var wetness := 0.0
+	var frost := 0.0
 	for dy in [-1, 0]:
 		for dx in [-1, 0]:
 			var cell := vertex + Vector2i(dx, dy)
@@ -66,12 +75,18 @@ static func at(vertex: Vector2i, height: float, normal: Vector3,
 			for index in range(MATERIALS):
 				result[index] += weights[index]
 			cells += 1
-			if not hydro.has_water(hydro.cell_index(cell)):
+			var index: int = hydro.cell_index(cell)
+			var is_water: bool = hydro.has_water(index)
+			var moisture: float = surface.moisture_at_index(index)
+			var waterlogging: float = surface.waterlogging_at_index(index)
+			wetness += 1.0 if is_water else maxf(moisture, waterlogging)
+			frost += surface.frost_at_index(index)
+			if not is_water:
 				dry_cells += 1
 
 	if cells == 0:
 		result[GRASS] = 1.0
-		return result
+		return {"weights": result, "conditions": Vector4.ZERO}
 
 	for index in range(MATERIALS):
 		result[index] /= float(cells)
@@ -81,4 +96,9 @@ static func at(vertex: Vector2i, height: float, normal: Vector3,
 		1.0 - clampf(normal.y, 0.0, 1.0))
 	_blend(result, SAND, nearby.x * dry_share * gentle * 0.60)
 	_blend(result, SOIL, nearby.y * dry_share * 0.18)
-	return result
+	var conditions := Vector4(
+		clampf(wetness / float(cells), 0.0, 1.0),
+		clampf(nearby.x * dry_share * gentle, 0.0, 1.0),
+		clampf(frost / float(cells), 0.0, 1.0),
+		clampf(nearby.y * dry_share, 0.0, 1.0))
+	return {"weights": result, "conditions": conditions}
