@@ -22,7 +22,8 @@ jobs:
       - name: Сформировать игровые атласы из CC0-исходников
         run: |
           if test -s godot/assets/terrain/terrain_albedo.png &&
-             test -s godot/assets/terrain/terrain_normal_roughness.png; then
+             test -s godot/assets/terrain/terrain_normal_roughness.png &&
+             grep -q '"bake_version": 2' godot/assets/terrain/sources.json; then
             echo "Атласы уже присутствуют в ветке."
             exit 0
           fi

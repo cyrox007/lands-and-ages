@@ -69,11 +69,27 @@ def read_map(archive: zipfile.ZipFile, suffix: str, mode: str) -> Image.Image:
 def fill_tile(atlas: Image.Image, tile: Image.Image, index: int) -> None:
     # Бордюр повторяет противоположную кромку того же тайла.
     # Так билинейная фильтрация не смешивает соседние материалы атласа.
-    origin_x = index % 3 * STRIDE + BORDER
-    origin_y = index // 3 * STRIDE + BORDER
-    for dx in (-INNER, 0, INNER):
-        for dy in (-INNER, 0, INNER):
-            atlas.paste(tile, (origin_x + dx, origin_y + dy))
+    # Вставляем только узкие полосы, а не полную плитку со сдвигом:
+    # иначе соседние слоты атласа будут случайно перезаписаны.
+    padded = Image.new(tile.mode, (STRIDE, STRIDE))
+    padded.paste(tile, (BORDER, BORDER))
+    padded.paste(tile.crop((INNER - BORDER, 0, INNER, INNER)),
+                 (0, BORDER))
+    padded.paste(tile.crop((0, 0, BORDER, INNER)),
+                 (BORDER + INNER, BORDER))
+    padded.paste(tile.crop((0, INNER - BORDER, INNER, INNER)),
+                 (BORDER, 0))
+    padded.paste(tile.crop((0, 0, INNER, BORDER)),
+                 (BORDER, BORDER + INNER))
+    padded.paste(tile.crop((INNER - BORDER, INNER - BORDER, INNER, INNER)),
+                 (0, 0))
+    padded.paste(tile.crop((0, INNER - BORDER, BORDER, INNER)),
+                 (BORDER + INNER, 0))
+    padded.paste(tile.crop((INNER - BORDER, 0, INNER, BORDER)),
+                 (0, BORDER + INNER))
+    padded.paste(tile.crop((0, 0, BORDER, BORDER)),
+                 (BORDER + INNER, BORDER + INNER))
+    atlas.paste(padded, (index % 3 * STRIDE, index // 3 * STRIDE))
 
 
 def main() -> None:
@@ -83,6 +99,7 @@ def main() -> None:
     packed_atlas = Image.new("RGB", size)
     manifest = {
         "license": "CC0 1.0",
+        "bake_version": 2,
         "source": "https://ambientcg.com/",
         "tile": STRIDE,
         "border": BORDER,
