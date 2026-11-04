@@ -12,6 +12,41 @@ const ShoreVisual = preload("res://scripts/shore_visual.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 const WaveShader = preload("res://shaders/natural_water.gdshader")
 
+class FloodHydrology:
+	extends RefCounted
+	const WIDTH := 32
+	const HEIGHT := 32
+	var floods := {}
+	var rivers := {}
+
+	func _init() -> void:
+		# Две смежные клетки по разные стороны чанка и примыкающая река.
+		for cell in [Vector2i(15, 11), Vector2i(16, 11),
+				Vector2i(15, 12), Vector2i(16, 12)]:
+			floods[cell_index(cell)] = 0.35
+		for cell in [Vector2i(14, 11), Vector2i(14, 12)]:
+			rivers[cell_index(cell)] = true
+
+	func cell_index(cell: Vector2i) -> int:
+		if cell.x < 0 or cell.y < 0 or cell.x >= WIDTH or cell.y >= HEIGHT:
+			return -1
+		return cell.y * WIDTH + cell.x
+
+	func has_water(index: int) -> bool:
+		return floods.has(index) or rivers.has(index)
+
+	func flood_depth_at(index: int) -> float:
+		return float(floods.get(index, 0.0))
+
+	func river_at(index: int) -> bool:
+		return rivers.has(index)
+
+	func level_at(index: int) -> float:
+		# Разные уровни двух соседних клеток должны быть сглажены.
+		return 4.0 + float(index % WIDTH) * 0.02
+
+
+
 var errors: Array[String] = []
 
 
@@ -167,65 +202,79 @@ func _test_shared_coastal_mesh() -> void:
 
 
 
-func _test_flood_outlines() -> void:
-	# Разлив не должен образовывать отдельные квадратные плитки.
-	var isolated := Water._flood_outline([false, false, false, false])
-	_check(isolated.size() == 8, "Контур разлива имеет восемь опорных точек")
-	for point in isolated:
-		_check(point.x > 0.0 and point.x < 1.0 and
-			point.y > 0.0 and point.y < 1.0,
-			"Изолированное подтопление не заполняет прямоугольник клетки")
-	# После обрезки очертанием высота каждой вершины остаётся на
-	# физически согласованной плоскости исходного субтреугольника.
-	var clipped: Dictionary = Water._clip_flood_outline(
-		PackedVector2Array([Vector2.ZERO, Vector2(1.0, 0.0),
-			Vector2(0.0, 1.0)]),
-		PackedFloat32Array([0.0, 1.0, 2.0]), isolated)
-	var positions: PackedVector2Array = clipped["points"]
-	var heights: PackedFloat32Array = clipped["heights"]
-	_check(positions.size() == heights.size() and positions.size() >= 3,
-		"Согласованная береговая обрезка сохраняет высоты")
-	for i in range(positions.size()):
-		_check(absf(heights[i] - positions[i].x -
-			2.0 * positions[i].y) < 0.00001,
-			"Контур паводка не пересекает визуальный грунт")
-
-	var east := Water._flood_outline([false, true, false, false])
-	var west := Water._flood_outline([false, false, false, true])
-	_check(east[2] == west[7] + Vector2(1.0, 0.0) and
-		east[3] == west[6] + Vector2(1.0, 0.0),
-		"Смежные участки паводка имеют согласованные края")
-
-	var world := WorldMap.new(Config.new(64, 48, 1729, 16, 32))
-	var hydro := Hydro.new(world)
-	hydro.rebuild()
-	var cell := Vector2i(9, 11)
-	var max_height := -INF
-	for corner in [cell, cell + Vector2i(1, 0),
-			cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
-		max_height = maxf(max_height, world.vertex_at(corner))
-	var level := max_height + 0.6
+func _test_continuous_flood() -> void:
+	var hydro := FloodHydrology.new()
+	var world := WorldMap.new(Config.new(32, 32, 1729, 16, 16))
 	var before: Dictionary = world.to_data()
-	var tool := SurfaceTool.new()
-	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var triangles := Water._flood_cell(
-		tool, world, hydro, cell, level, Color.BLUE, 0.0)
-	_check(triangles >= 8,
-		"Паводок разбит по береговой сетке, а не на целую квадратную плитку")
-	if triangles > 0:
+	_check(ShoreVisual.near_flood(hydro, Vector2i(17, 11)),
+		"Сухая сторона паводка включена в визуальное уточнение")
+	_check(not ShoreVisual.near_flood(hydro, Vector2i(25, 25)),
+		"Дальние сухие клетки не получают лишних полигонов")
+
+	# Внутри связанных ячеек покрытие должно оставаться единым:
+	# прежние отдельные восьмиугольники оставляли квадратные пустоты.
+	for x in range(15, 18):
+		for y in range(11, 13):
+			var point := Vector2(float(x) + 0.5, float(y) + 0.5)
+			var profile := Water._flood_profile(hydro, point)
+			if x <= 16:
+				_check(profile.x >= 0.99,
+					"В центре смежных затопленных клеток нет квадратных дыр")
+			else:
+				_check(profile.x <= 0.000001,
+					"Далёкая сухая клетка не становится затопленной")
+	for j in range(7):
+		var point := Vector2(15.5 + float(j) / 6.0, 11.5)
+		_check(Water._flood_profile(hydro, point).x >= 0.99,
+			"Покрытие не прерывается между гидрологическими центрами")
+
+	# Одинаковая проба на стыке 16-го чанка, без отдельного маскирования.
+	var seam := Vector2(16.0, 11.5)
+	var field := Water._flood_profile(hydro, seam)
+	_check(field.x >= 0.99 and is_finite(field.y),
+		"Общая линия соседних чанков сохраняет уровень и покрытие")
+	var clipped := Water._clip_flood_coverage(PackedVector4Array([
+		Vector4(0.0, 0.0, 4.0, 0.0),
+		Vector4(1.0, 0.0, 4.2, 1.0),
+		Vector4(0.0, 1.0, 4.1, 1.0)]))
+	_check(clipped.size() >= 3,
+		"Маска разлива обрезает треугольник без жёсткой плитки")
+	for point in clipped:
+		_check(point.w >= Water.FLOOD_COVERAGE_THRESHOLD - 0.00001,
+			"Водная кромка построена по единой изолинии")
+
+	var total_vertices := 0
+	for cx in [15, 16, 17]:
+		var cell := Vector2i(cx, 11)
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var added: int = Water._flood_cell(
+			tool, world, hydro, cell, Color.BLUE, 0.0)
+		if added <= 0:
+			continue
 		var mesh: ArrayMesh = tool.commit()
 		var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-		_check(verts.size() == triangles * 3,
-			"Паводковые треугольники формируют полный меш")
-		for corner in [cell, cell + Vector2i(1, 0),
-				cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
-			var square_corner: Vector3 = world.config.to_scene(
-				Vector2(corner), level + Water.WATER_OFFSET)
-			for vertex in verts:
-				_check(vertex.distance_to(square_corner) > 0.00001,
-					"Паводковый меш не содержит углов квадратной плитки")
+		total_vertices += verts.size()
+		_check(verts.size() == added * 3,
+			"Меш объединённого разлива не содержит неполных треугольников")
+		for vertex in verts:
+			var uv := Vector2(vertex.x - float(cell.x),
+				vertex.z - float(cell.y))
+			var terrain := ShoreVisual.height(
+				world.vertex_at(cell),
+				world.vertex_at(cell + Vector2i(1, 0)),
+				world.vertex_at(cell + Vector2i(0, 1)),
+				world.vertex_at(cell + Vector2i(1, 1)),
+				clampf(uv.x, 0.0, 1.0), clampf(uv.y, 0.0, 1.0))
+			_check(vertex.y >= (terrain + Water.WATER_OFFSET - 0.0001) *
+				world.config.height_scale,
+				"Поверхность паводка не проваливается под визуальный грунт")
+	_check(total_vertices > 0,
+		"Непрерывная водная поверхность создаёт видимые треугольники")
 	_check(world.to_data() == before,
-		"Контур паводка не изменяет физические высоты")
+		"Графическое сглаживание не изменяет физические высоты")
+
+
 
 
 func _test_river_curves() -> void:
@@ -311,7 +360,7 @@ func _test_waves() -> void:
 func _initialize() -> void:
 	_test_coast()
 	_test_shared_coastal_mesh()
-	_test_flood_outlines()
+	_test_continuous_flood()
 	_test_river_curves()
 	_test_wetness()
 	_test_waves()
