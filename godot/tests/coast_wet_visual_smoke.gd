@@ -99,6 +99,24 @@ func _test_shared_coastal_mesh() -> void:
 				_check(index >= 0 and index < points.size(),
 					"Индекс новой триангуляции попадает в массив вершин")
 	_check(total_shores > 0, "В контрольном мире есть пересекаемый морской берег")
+	var dry_side_extensions := 0
+	for y in range(world.config.height):
+		for x in range(world.config.width):
+			var cell := Vector2i(x, y)
+			var index: int = hydro.cell_index(cell)
+			if hydro.has_water(index):
+				continue
+			var context: Dictionary = ShoreVisual.water_context(world, hydro, cell)
+			if context.is_empty():
+				continue
+			dry_side_extensions += 1
+			_check(bool(context["extension"]) and
+				(hydro.ocean_at(int(context["index"])) or hydro.lake_at(int(context["index"]))),
+				"Визуальный сухой берег использует только физическое море/озеро")
+			_check(ShoreVisual.is_coastal_cell(world, hydro, cell),
+				"Сухая сторона берега уточнена так же, как сторона воды")
+	_check(dry_side_extensions > 0,
+		"Вода визуально продолжается на сухую сторону клеточного края")
 	_check(world.to_data() == before and hydro.to_snapshot() == water_before,
 		"Уточнение берега не изменяет ни физические высоты, ни воду")
 	# Общие рёбра и пересечения с уровнем воды должны оставаться
