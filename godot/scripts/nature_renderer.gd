@@ -86,24 +86,27 @@ static func _color(kind: String, species: String, state: String) -> Color:
 
 
 static func _push(groups: Dictionary, kind: String, transform: Transform3D,
-        color: Color, phase: float, wind: float = 0.0) -> void:
+        color: Color, phase: float, wind: float = 0.0,
+        foliage: float = 0.0, health: float = 1.0) -> void:
     if not groups.has(kind):
         groups[kind] = []
     groups[kind].append({
         "transform": transform, "color": color,
-        "phase": phase, "wind": wind
+        "phase": phase, "wind": wind,
+        "foliage": foliage, "health": health
     })
 
 
 static func _place_model(groups: Dictionary, key: String, origin: Vector3,
         scale_factor: float, color: Color, phase: float,
         wind: float = 0.0, shape: Vector3 = Vector3.ONE,
-        yaw: float = 0.0) -> bool:
+        yaw: float = 0.0, foliage: float = 0.0,
+        health: float = 1.0) -> bool:
     if Models.info(key).is_empty():
         return false
     _push(groups, "glb_" + key,
         Models.placement(key, origin, scale_factor, shape, yaw),
-        color, phase, wind)
+        color, phase, wind, foliage, health)
     return true
 
 
@@ -130,7 +133,9 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var index: int = nature.hydro.cell_index(cell)
         var wind: float = clampf(nature.climate.wind_at_index(index) / 2.4, 0.0, 1.0)
         var snow: float = nature.surface.snow_at_index(index)
-        var winter: bool = nature.climate.weather_at(cell).get("season") == "зима"
+        var season: String = str(
+            nature.climate.weather_at(cell).get("season", "лето"))
+        var winter: bool = season == "зима"
         if item["kind"] == "дерево":
             if state == "пень":
                 _push(groups, "пень",
@@ -175,8 +180,11 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             if species == "ель":
                 tree_color = tree_color * Color(0.78, 0.89, 0.82)
             var yaw: float = Models.rotation_for(object_id)
+            var seasonal: float = Models.foliage_stage(season, species)
+            var health: float = clampf(
+                float(item["health"]) / 1000.0, 0.0, 1.0)
             if _place_model(groups, selected, origin, scale_factor,
-                    tree_color, phase, wind, shape, yaw):
+                    tree_color, phase, wind, shape, yaw, seasonal, health):
                 continue
             var trunk_base := Basis.IDENTITY.scaled(
                 Vector3(scale_factor, scale_factor, scale_factor))
@@ -268,7 +276,8 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             multi.set_instance_transform(i, entry["transform"])
             multi.set_instance_color(i, entry["color"])
             multi.set_instance_custom_data(i,
-                Color(float(entry["phase"]), float(entry["wind"]), 0, 0))
+                Color(float(entry["phase"]), float(entry["wind"]),
+                    float(entry["foliage"]), float(entry["health"])))
         var node := MultiMeshInstance3D.new()
         node.name = str(kind)
         node.multimesh = multi
