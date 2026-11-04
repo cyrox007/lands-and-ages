@@ -29,6 +29,7 @@ const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
+const NatureFelling = preload("res://scripts/nature_felling_visual.gd")
 
 # Радиус 4 используется только для автономных тестов без камеры.
 const VIEW_RADIUS := 4
@@ -38,6 +39,7 @@ const VIEW_NAMES := [
 	"Перенос наносов", "Вода и паводки"
 ]
 const MAX_BUILDS_PER_FRAME := 2
+const MAX_NATURE_REFRESHES_PER_FRAME := 2
 const MAX_CONCURRENT_CHUNK_JOBS := 2
 const MESH_BUDGET_US := 4200
 const HEIGHT_BOUNDS_CACHE_LIMIT := 512
@@ -51,6 +53,7 @@ var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
 var _nature: RefCounted
+var _nature_dirty: Dictionary = {}
 var _landscape_events: RefCounted
 var _natural_processes: RefCounted
 var _natural_disasters: RefCounted
@@ -146,6 +149,7 @@ func _ready() -> void:
 	_hydro.apply_rainfall_map(_surface.runoff_map())
 	_nature = Nature.new(_world_model, _hydro, _surface, _climate)
 	_nature.generate()
+	_bind_nature_events()
 	_ensure_day_runner()
 	_last_completed_day = _climate.day
 	_last_synchronized_world_revision = _world_model.revision
@@ -263,6 +267,10 @@ func _setup_interface() -> void:
 	benchmark_button.text = "Измерить производительность камеры (8.8)"
 	benchmark_button.pressed.connect(_run_device_benchmark)
 	_debug_details.add_child(benchmark_button)
+	var felling_button := Button.new()
+	felling_button.text = "Демонстрация рубки ближайшего дерева"
+	felling_button.pressed.connect(_debug_fell_nearest_tree)
+	_debug_details.add_child(felling_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -343,6 +351,8 @@ func _process(delta: float) -> void:
 	if (_day_task_id < 0 and _chunk_jobs.is_empty() and
 			not _terrain_dirty.is_empty()):
 		_flush_world_changes()
+	if _day_task_id < 0 and _days_pending == 0:
+		_flush_nature_visuals()
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	if _days_pending == 0 and _day_task_id < 0:
@@ -768,6 +778,96 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
 	_rebuild_pending.erase(coord)
 	_chunk_rebuilds += 1
 
+func _bind_nature_events() -> void:
+	if _nature == null:
+		return
+	if not _nature.objects_changed.is_connected(_on_nature_changed):
+		_nature.objects_changed.connect(_on_nature_changed, CONNECT_DEFERRED)
+	if not _nature.tree_felled.is_connected(_on_tree_felled):
+		_nature.tree_felled.connect(_on_tree_felled, CONNECT_DEFERRED)
+
+
+func _on_nature_changed(chunks: Array[Vector2i], _revision: int) -> void:
+	for chunk in chunks:
+		_nature_dirty[chunk] = true
+
+
+func _refresh_nature_chunk(chunk: Vector2i) -> void:
+	_render_cache.discard(chunk)
+	if _view_mode != 0 or not _active.has(chunk):
+		return
+	var owner: Node3D = _active[chunk]
+	var previous: Node = owner.get_node_or_null("Природные объекты")
+	if previous != null:
+		owner.remove_child(previous)
+		previous.queue_free()
+	owner.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
+		_detail_for_zoom(_camera.size)))
+
+
+func _flush_nature_visuals() -> void:
+	# В кадре обновляем только изменённые чанки, без перестройки грунта.
+	if _day_task_id >= 0 or _nature_dirty.is_empty():
+		return
+	var processed := 0
+	for chunk in _nature_dirty.keys():
+		_refresh_nature_chunk(chunk)
+		_nature_dirty.erase(chunk)
+		processed += 1
+		if processed >= MAX_NATURE_REFRESHES_PER_FRAME:
+			break
+
+
+func _on_tree_felled(previous: Dictionary) -> void:
+	# Для невидимых объектов анимация не создаётся.
+	if _day_task_id >= 0 or _nature == null:
+		return
+	var cell := Vector2i(int(previous["x"]), int(previous["y"]))
+	var chunk: Vector2i = _world_model.config.chunk_of(cell)
+	_nature_dirty.erase(chunk)
+	_refresh_nature_chunk(chunk)
+	if _view_mode != 0 or not _active.has(chunk):
+		return
+	var visual: Node3D = NatureFelling.make_visual(
+		_world_model, previous, _detail_for_zoom(_camera.size))
+	if visual == null:
+		return
+	var owner: Node3D = _active[chunk]
+	owner.add_child(visual)
+	NatureFelling.animate(visual)
+
+
+func _debug_fell_nearest_tree() -> void:
+	# Ручная демонстрация без лесорубов, строительства и экономики.
+	if _nature == null or _benchmark_running or _day_task_id >= 0 \
+			or _days_pending > 0 or _view_mode != 0:
+		_storage_status = "Рубка доступна в природном виде после расчёта дня"
+		return
+	var chosen := -1
+	var distance := INF
+	for chunk in _active.keys():
+		for item in _nature.objects_in_chunk(chunk):
+			if item["kind"] != "дерево" or item["state"] not in [
+					"целое", "сухостой"]:
+				continue
+			var position := Vector2(float(item["x"]) + 0.5,
+				float(item["y"]) + 0.5)
+			var length: float = position.distance_squared_to(_center)
+			if length < distance:
+				chosen = int(item["id"])
+				distance = length
+	if chosen < 0:
+		_storage_status = "В загруженных чанках нет доступных деревьев"
+		return
+	var result: Dictionary = _nature.fell_tree(chosen)
+	if result.is_empty():
+		_storage_status = "Дерево уже повалено"
+		return
+	_storage_status = "Повалено дерево %d · древесина %d ед." % [
+		chosen, int(result["wood_units"])]
+	_update_hud()
+
+
 func _on_world_changed(chunks: Array[Vector2i], revision: int) -> void:
 	# Событие, уже согласованное фоновым расчётом, не запускаем снова.
 	if revision <= _last_synchronized_world_revision:
@@ -852,7 +952,14 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_weather_events = models["weather"]
 	_natural_processes = models["natural"]
 	_natural_disasters = models["disasters"]
+	if _nature != null:
+		if _nature.objects_changed.is_connected(_on_nature_changed):
+			_nature.objects_changed.disconnect(_on_nature_changed)
+		if _nature.tree_felled.is_connected(_on_tree_felled):
+			_nature.tree_felled.disconnect(_on_tree_felled)
 	_nature = models["nature"]
+	_bind_nature_events()
+	_nature_dirty.clear()
 	_landscape_events = models["landscape"]
 	_day_runner = models["runner"]
 	_day_task_id = -1
