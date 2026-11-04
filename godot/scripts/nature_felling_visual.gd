@@ -86,14 +86,14 @@ static func animate_hit(root: Node3D) -> void:
 
 
 static func make_visual(world: RefCounted, previous: Dictionary,
-        detail: float = 1.0) -> Node3D:
+        detail: float = 1.0, winter: bool = false) -> Node3D:
     if previous.get("kind") != "дерево" or previous.get("state") not in [
             "целое", "сухостой"]:
         return null
     var id: int = previous["id"]
+    var species: String = str(previous.get("species", "дуб"))
     var key: String = Models.select_tree(
-        int(previous["age_days"]), id, detail,
-        str(previous.get("species", "дуб")), false,
+        int(previous["age_days"]), id, detail, species, winter,
         str(previous.get("state", "целое")))
     var model: Dictionary = Models.info(key)
     if model.is_empty():
@@ -115,7 +115,8 @@ static func make_visual(world: RefCounted, previous: Dictionary,
     visual.mesh = model["mesh"]
     var growth := clampf(float(previous["age_days"]) /
         (20.0 * 96.0), 0.20, 1.25)
-    visual.transform = Models.placement(key, Vector3.ZERO, growth)
+    visual.transform = Models.placement(key, Vector3.ZERO, growth,
+        Models.shape_for(species), Models.rotation_for(id))
     visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     pivot.add_child(visual)
     return pivot
