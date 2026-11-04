@@ -183,7 +183,96 @@ func take_fallen_wood(id: int, amount: int) -> bool:
     return true
 
 
-func advance_day(day: int) -> int:
+func _spread_seeds(day: int, changed: Dictionary) -> int:
+    # Один сезон расселения за год; выбор места не зависит от камеры.
+    if day % 96 != 1 or _objects.size() >= MAX_OBJECTS:
+        return 0
+    var current_ids: Array = _objects.keys()
+    current_ids.sort()
+    var created := 0
+    var directions: Array[Vector2i] = [
+        Vector2i(GRID_STEP, 0), Vector2i(-GRID_STEP, 0),
+        Vector2i(0, GRID_STEP), Vector2i(0, -GRID_STEP)
+    ]
+    for id in current_ids:
+        var parent: Dictionary = _objects[id]
+        if parent["kind"] != "дерево" or parent["state"] != "целое" \
+                or int(parent["age_days"]) < 12 * 96 \
+                or int(parent["health"]) < 650:
+            continue
+        var x: int = parent["x"]
+        var y: int = parent["y"]
+        var seed: int = world.config.seed + day * 17
+        if _hash(x, y, seed) > 0.16:
+            continue
+        var direction_index := mini(3, int(_hash(x, y, seed + 1) * 4.0))
+        var next: Vector2i = Vector2i(x, y) + directions[direction_index]
+        if not world.config.contains_cell(next):
+            continue
+        var next_id: int = next.y * world.config.width + next.x + 1
+        if _objects.has(next_id):
+            continue
+        var water_index: int = hydro.cell_index(next)
+        if hydro.has_water(water_index) or hydro.flooded_at(water_index):
+            continue
+        if world.normal_at(next).y < 0.75:
+            continue
+        var soil: Dictionary = surface.profile_at(next)
+        if float(soil.get("growth_potential", 0.0)) < 0.20 \
+                or float(soil.get("waterlogging", 0.0)) > 0.72:
+            continue
+        var child: Dictionary = {
+            "id": next_id, "kind": "дерево",
+            "species": parent["species"], "x": next.x, "y": next.y,
+            "age_days": 0, "health": 800, "wood_units": 0,
+            "fallen_wood": 0, "state": "целое", "radius": 0.08
+        }
+        _objects[next_id] = child
+        _index(child)
+        changed[world.config.chunk_of(next)] = true
+        created += 1
+        if _objects.size() >= MAX_OBJECTS:
+            break
+    return created
+
+
+func _damage_from_events(hazards: Array[Dictionary],
+        strikes: Array[Dictionary], changed: Dictionary) -> void:
+    # Природные события поражают реальные деревья около эпицентра.
+    # Удар вне экрана наносит тот же урон, что и видимый.
+    var events: Array[Dictionary] = []
+    for event in hazards:
+        events.append({
+            "cell": event.get("cell"),
+            "radius": 5.0,
+            "damage": roundi(float(event.get("severity", 0.0)) * 350.0)
+        })
+    for strike in strikes:
+        events.append({
+            "cell": strike.get("cell"),
+            "radius": 2.5,
+            "damage": roundi(float(strike.get("ignition_potential", 0.0)) * 700.0)
+        })
+    for event in events:
+        if not (event["cell"] is Vector2i) or int(event["damage"]) <= 0:
+            continue
+        var center: Vector2i = event["cell"]
+        for id in _objects.keys():
+            var item: Dictionary = _objects[id]
+            if item["kind"] != "дерево" or item["state"] != "целое":
+                continue
+            var cell := Vector2i(int(item["x"]), int(item["y"]))
+            if Vector2(cell - center).length() > float(event["radius"]):
+                continue
+            item["health"] = maxi(0, int(item["health"]) - int(event["damage"]))
+            if int(item["health"]) == 0:
+                item["state"] = "сухостой"
+                changed[world.config.chunk_of(cell)] = true
+            _objects[id] = item
+
+
+func advance_day(day: int, hazards: Array[Dictionary] = [],
+        strikes: Array[Dictionary] = []) -> int:
     if not generated or day <= last_day or day != climate.day:
         return 0
     var changed := {}
@@ -225,6 +314,8 @@ func advance_day(day: int) -> int:
         updates += 1
         if old_state != str(item["state"]):
             changed[world.config.chunk_of(cell)] = true
+    updates += _spread_seeds(day, changed)
+    _damage_from_events(hazards, strikes, changed)
     last_day = day
     _mark_changes(changed)
     return updates
