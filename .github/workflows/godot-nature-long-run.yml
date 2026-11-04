@@ -1,0 +1,72 @@
+name: Этап 10.7 — полный год экосистемы и восстановление
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - ".github/workflows/godot-nature-long-run.yml"
+      - "godot/tests/nature_long_run_10_7.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/scripts/nature_registry.gd"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  long-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подготовить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать ресурсы
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then
+            exit 1
+          fi
+      - name: Проверить 96 суток на двух seed
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          timeout 840s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/nature_long_run_10_7.gd -- \
+            --days=96 --samples=2 --seed_start=1729 2>&1 \
+            | tee /tmp/nature-long-run.log
+          grep -q "Этап 10.7: 96 суток на 2 seed, ошибок нет" /tmp/nature-long-run.log
+          test -s godot/tests/world-nature-long-run-10-7.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("godot/tests/world-nature-long-run-10-7.json").read_text(encoding="utf-8"))
+          assert report["samples"] == 2 and report["days_per_seed"] == 96
+          assert not report["hard_errors"]
+          for case in report["cases"]:
+              assert case["days_completed"] == 96
+              print("seed", case["seed"], "суточный p95 (мс):", case["day_ms_p95"],
+                    "объектов:", case["objects_before"], "→", case["objects_after"])
+          PY
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-long-run.log; then
+            exit 1
+          fi
+      - name: Сохранить отчёт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nature-long-run-10-7
+          path: |
+            godot/tests/world-nature-long-run-10-7.json
+            /tmp/nature-long-run.log
+            /tmp/import.log
+          if-no-files-found: ignore
