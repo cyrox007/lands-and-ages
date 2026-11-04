@@ -20,6 +20,7 @@ const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 
+# Радиус 4 используется только для автономных тестов без камеры.
 const VIEW_RADIUS := 4
 const VIEW_NAMES := [
 	"Природная поверхность", "Грунты", "Влажность",
@@ -114,9 +115,16 @@ func _ready() -> void:
 	_camera.size = 66.0
 	_camera.current = true
 	add_child(_camera)
+	_update_material_detail()
 	_update_camera()
 	_setup_interface()
 	_refresh_visible(true)
+	get_viewport().size_changed.connect(_on_viewport_resized)
+
+
+func _on_viewport_resized() -> void:
+	# При смене ориентации экрана пересчитываем зону видимости.
+	_refresh_visible(false)
 
 
 func _setup_environment() -> void:
@@ -303,8 +311,43 @@ func _input(event: InputEvent) -> void:
 		_move_center(Vector2(-event.relative.x, -event.relative.y) * scale_factor)
 
 
+static func _detail_for_zoom(size: float) -> float:
+	# Мелкие GPU-эффекты постепенно исчезают при отдалении камеры.
+	return 1.0 - smoothstep(44.0, 96.0, size)
+
+
+static func _radius_for_zoom(size: float, aspect: float, chunk_size: int) -> int:
+	# Консервативная проекция прямоугольника ортокамеры на X/Z
+	# при её диагональном направлении и наклоне около 45 градусов.
+	var half_span := size * (0.354 * maxf(aspect, 0.5) + 0.502)
+	return clampi(ceili(half_span / float(maxi(chunk_size, 1))) + 1, 2, 32)
+
+
+func _visible_radius() -> int:
+	if _camera == null:
+		return VIEW_RADIUS
+	var aspect := 16.0 / 9.0
+	# В автономных тестах камера может ещё не быть в дереве сцены.
+	if _camera.is_inside_tree():
+		var dimensions: Vector2 = _camera.get_viewport().get_visible_rect().size
+		if dimensions.y > 0.0:
+			aspect = dimensions.x / dimensions.y
+	return _radius_for_zoom(_camera.size, aspect, _world_model.config.chunk_size)
+
+
+func _update_material_detail() -> void:
+	if _camera == null:
+		return
+	var detail := _detail_for_zoom(_camera.size)
+	if _ground_material != null:
+		_ground_material.set_shader_parameter("detail_strength", detail)
+	if _water_material != null:
+		_water_material.set_shader_parameter("ripple_strength", detail)
+
+
 func _change_zoom(multiplier: float) -> void:
 	_camera.size = clampf(_camera.size * multiplier, MIN_ZOOM, MAX_ZOOM)
+	_update_material_detail()
 	_refresh_visible(false)
 
 
@@ -323,9 +366,10 @@ func _refresh_visible(force: bool) -> void:
 	var center_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
 	_chunk_center = center_chunk
+	var radius := _visible_radius()
 	var desired := {}
-	for cy in range(center_chunk.y - VIEW_RADIUS, center_chunk.y + VIEW_RADIUS + 1):
-		for cx in range(center_chunk.x - VIEW_RADIUS, center_chunk.x + VIEW_RADIUS + 1):
+	for cy in range(center_chunk.y - radius, center_chunk.y + radius + 1):
+		for cx in range(center_chunk.x - radius, center_chunk.x + radius + 1):
 			var coord := Vector2i(cx, cy)
 			if _world_model.config.chunk_rect(coord).has_area():
 				desired[coord] = true
@@ -613,6 +657,9 @@ func _update_hud() -> void:
 	_status.text += "GPU: %d мешей · кадр %.1f мс · перерисовок сезонов %d\n" % [
 		_chunk_rebuilds, float(_last_chunk_build_us) / 1000.0,
 		_visual_refreshes]
+	if _camera != null:
+		_status.text += "Масштаб %.0f · радиус чанков %d · детали GPU %.0f%%\n" % [
+			_camera.size, _visible_radius(), _detail_for_zoom(_camera.size) * 100.0]
 	_status.text += "Шаг физики: последний %.1f мс · максимум %.1f мс\n" % [
 		float(_last_day_step_us) / 1000.0,
 		float(_peak_day_step_us) / 1000.0]

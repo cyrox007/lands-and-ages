@@ -1,8 +1,10 @@
 shader_type spatial;
 render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
 
-// Физические высоты и состав грунта остаются в модели мира.
-// Мелкая зернистость и слоистость скал задают лишь освещение материала.
+// Цвет грунта и высота поступают из физической карты.
+// Микрофактура скал отключается вдали без изменения самих мешей.
+uniform float detail_strength : hint_range(0.0, 1.0) = 1.0;
+
 varying vec3 ground_position;
 varying float ground_steepness;
 
@@ -23,16 +25,25 @@ float detail_noise(vec2 position) {
 }
 
 void fragment() {
-	float broad = detail_noise(ground_position.xz * 0.52);
-	float grain = detail_noise(ground_position.xz * 2.4);
 	float cliff = smoothstep(0.12, 0.52, ground_steepness);
-	float strata = sin(ground_position.y * 10.0 + ground_position.x * 0.65 + broad * 2.2);
-	float layered = mix(1.0, 0.91 + 0.075 * strata, cliff);
-	float brightness = (0.97 + (grain - 0.5) * 0.13) * layered;
+	float brightness = 1.0;
+	if (detail_strength > 0.01) {
+		// Геологическая слоистость читается по высоте и направлению склона.
+		float broad = detail_noise(ground_position.xz * 0.52);
+		float grain = detail_noise(ground_position.xz * 2.4);
+		float strata = sin(ground_position.y * 10.0 +
+			ground_position.x * 0.65 + broad * 2.2);
+		float breaks = sin(ground_position.y * 4.2 -
+			ground_position.z * 1.1 + broad * 3.0);
+		float layers = 1.0 - cliff * (0.085 - 0.062 * strata +
+			0.022 * breaks);
+		brightness = mix(1.0, (0.97 + (grain - 0.5) * 0.13) * layers,
+			detail_strength);
+	}
 
-	// На заснеженных склонах темные полосы породы не проявляются.
+	// Снег скрывает мелкие слои породы, в том числе вблизи.
 	float snow = smoothstep(0.71, 0.85, min(COLOR.r, min(COLOR.g, COLOR.b)));
-	brightness = mix(brightness, 0.99 + grain * 0.015, snow);
+	brightness = mix(brightness, 1.0, snow * 0.94);
 	ALBEDO = clamp(COLOR.rgb * brightness, vec3(0.0), vec3(1.0));
 	ROUGHNESS = mix(0.97, 0.88, cliff);
 	METALLIC = 0.0;
