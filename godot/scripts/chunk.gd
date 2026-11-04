@@ -3,6 +3,7 @@ extends RefCounted
 
 const Relief = preload("res://scripts/relief.gd")
 const Appearance = preload("res://scripts/landscape_appearance.gd")
+const MaterialMix = preload("res://scripts/terrain_material_mix.gd")
 
 static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 		surface: RefCounted = null, mode: int = 0,
@@ -22,6 +23,8 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
 	var indices := PackedInt32Array()
 	for j in range(height + 1):
 		for i in range(width + 1):
@@ -35,20 +38,34 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 			var cell := Vector2i(mini(x, world.config.width - 1),
 				mini(y, world.config.height - 1))
 			if mode == 0 and surface != null and hydro != null:
-				colors.push_back(Appearance.color_at(vertex, h, normal,
-					world, surface, hydro))
-			elif mode == 0 or surface == null:
-				colors.push_back(Relief.relief_color(h, normal))
-			elif mode == 5:
-				colors.push_back(surface.snow_color_at(cell))
-			elif mode == 6:
-				colors.push_back(surface.sediment_color_at(cell))
-			elif mode == 7:
-				colors.push_back(surface.water_state_color_at(cell))
-			elif mode <= 2 or climate == null:
-				colors.push_back(surface.color_at(cell, mode - 1))
+				var color := Appearance.color_at(vertex, h, normal,
+					world, surface, hydro)
+				var weights: PackedFloat32Array = MaterialMix.at(
+					vertex, h, normal, world, surface, hydro)
+				# Текстурные веса передаются в UV/UV2 и альфа-канале,
+				# а цвет RGB остаётся доступен прежним диагностическим тестам.
+				color.a = weights[MaterialMix.SNOW]
+				colors.push_back(color)
+				uvs.push_back(Vector2(weights[MaterialMix.SAND],
+					weights[MaterialMix.ROCK]))
+				uv2s.push_back(Vector2(weights[MaterialMix.SOIL],
+					weights[MaterialMix.GRAVEL]))
 			else:
-				colors.push_back(climate.color_at(cell, mode - 3))
+				uvs.push_back(Vector2.ZERO)
+				uv2s.push_back(Vector2.ZERO)
+				if mode == 0 or surface == null:
+					colors.push_back(Relief.relief_color(h, normal))
+				elif mode == 5:
+					colors.push_back(surface.snow_color_at(cell))
+				elif mode == 6:
+					colors.push_back(surface.sediment_color_at(cell))
+				elif mode == 7:
+					colors.push_back(surface.water_state_color_at(cell))
+				elif mode <= 2 or climate == null:
+					colors.push_back(surface.color_at(cell, mode - 1))
+				else:
+					colors.push_back(climate.color_at(cell, mode - 3))
+
 	var stride := width + 1
 	for j in range(height):
 		for i in range(width):
@@ -63,6 +80,8 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

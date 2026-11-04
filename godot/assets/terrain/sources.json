@@ -1,0 +1,58 @@
+{
+  "license": "CC0 1.0",
+  "bake_version": 2,
+  "source": "https://ambientcg.com/",
+  "tile": 384,
+  "border": 8,
+  "columns": 3,
+  "materials": [
+    {
+      "index": 0,
+      "kind": "grass",
+      "asset": "Grass004",
+      "url": "https://ambientcg.com/view?id=Grass004",
+      "archive_sha256": "4b63495f459db8481f4d5144e4e9069345c81cf898cc71f2216f5dd3bb344469",
+      "roughness_source": "Roughness"
+    },
+    {
+      "index": 1,
+      "kind": "soil",
+      "asset": "Ground071",
+      "url": "https://ambientcg.com/view?id=Ground071",
+      "archive_sha256": "1c9a5a27caeb8f71450d8bb4e10b07154787854bf7ca8165d8d2c977892c5d1f",
+      "roughness_source": "Roughness"
+    },
+    {
+      "index": 2,
+      "kind": "sand",
+      "asset": "Ground027",
+      "url": "https://ambientcg.com/view?id=Ground027",
+      "archive_sha256": "0bdebb7dd2ccebaff53831f27dde26fe1027c381761be4c79f2089100a33b74a",
+      "roughness_source": "Roughness"
+    },
+    {
+      "index": 3,
+      "kind": "rock",
+      "asset": "Rock014",
+      "url": "https://ambientcg.com/view?id=Rock014",
+      "archive_sha256": "998615eb214f7f43a7e9d47c32a4aa003b79ac66607af293426b3ae08a78e6b6",
+      "roughness_source": "Roughness"
+    },
+    {
+      "index": 4,
+      "kind": "gravel",
+      "asset": "Gravel001",
+      "url": "https://ambientcg.com/view?id=Gravel001",
+      "archive_sha256": "1a00ed0714502fd4dbc88f91dd46823e170a07e1331e15ff2711d69e9610e53b",
+      "roughness_source": "constant_224"
+    },
+    {
+      "index": 5,
+      "kind": "snow",
+      "asset": "Snow010A",
+      "url": "https://ambientcg.com/view?id=Snow010A",
+      "archive_sha256": "06852017cc69c885b4ee375f4dc8cf16184456b7f6f02de821fb7d2f3cbe8768",
+      "roughness_source": "Roughness"
+    }
+  ]
+}

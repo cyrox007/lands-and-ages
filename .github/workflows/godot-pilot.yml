@@ -312,6 +312,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-final-visual.log; then
             exit 1
           fi
+      - name: Физические PBR-текстуры природного мира — этап 9.1
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_pbr_materials_smoke.gd 2>&1 | tee /tmp/world-pbr-materials.log
+          grep -q "Этап 9.1:.*успешно" /tmp/world-pbr-materials.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|Failed to load|ERROR:" /tmp/world-pbr-materials.log; then
+            exit 1
+          fi
       - name: Загрузка игровой сцены
         timeout-minutes: 2
         run: |

@@ -12,6 +12,8 @@ const ChunkBuildQueue = preload("res://scripts/chunk_build_queue.gd")
 const BenchmarkRoute = preload("res://scripts/world_benchmark_route.gd")
 const BenchmarkRunner = preload("res://scripts/world_benchmark_runner.gd")
 const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
+const TerrainAlbedo = preload("res://assets/terrain/terrain_albedo.png")
+const TerrainNormalRoughness = preload("res://assets/terrain/terrain_normal_roughness.png")
 const NaturalWaterShader = preload("res://shaders/natural_water.gdshader")
 const Hydrology = preload("res://scripts/hydrology.gd")
 const WaterMesh = preload("res://scripts/water_mesh.gd")
@@ -186,6 +188,9 @@ func _setup_materials() -> void:
 	# и диагностические палитры остаются без изменений.
 	_ground_material = ShaderMaterial.new()
 	_ground_material.shader = NaturalGroundShader
+	_ground_material.set_shader_parameter("terrain_albedo", TerrainAlbedo)
+	_ground_material.set_shader_parameter("terrain_normal_roughness",
+		TerrainNormalRoughness)
 	_debug_ground_material = StandardMaterial3D.new()
 	_debug_ground_material.vertex_color_use_as_albedo = true
 	_debug_ground_material.roughness = 1.0
