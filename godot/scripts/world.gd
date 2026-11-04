@@ -30,6 +30,7 @@ const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
 const NatureFelling = preload("res://scripts/nature_felling_visual.gd")
+const NatureCollision = preload("res://scripts/nature_collision.gd")
 
 # Радиус 4 используется только для автономных тестов без камеры.
 const VIEW_RADIUS := 4
@@ -353,6 +354,7 @@ func _process(delta: float) -> void:
 		_flush_world_changes()
 	if _day_task_id < 0 and _days_pending == 0:
 		_flush_nature_visuals()
+		_sync_nature_colliders()
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	if _days_pending == 0 and _day_task_id < 0:
@@ -605,9 +607,9 @@ func _refresh_visible(force: bool) -> void:
 			_rebuild_pending.erase(coord)
 			node.queue_free()
 		elif _terrain_holder != null and node.get_parent() == _terrain_holder:
-			# В кеше остаётся только итоговое состояние, без анимации.
+			# Физика не должна работать у невидимого кешированного чанка.
 			for child in node.get_children():
-				if child.name == "Падение дерева":
+				if child.name in ["Падение дерева", NatureCollision.COLLISION_NAME]:
 					node.remove_child(child)
 					child.queue_free()
 			_render_cache.put(coord, node)
@@ -808,6 +810,38 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 		previous.queue_free()
 	owner.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
 		_detail_for_zoom(_camera.size)))
+	var old_collisions: Node = owner.get_node_or_null(
+		NatureCollision.COLLISION_NAME)
+	if old_collisions != null:
+		owner.remove_child(old_collisions)
+		old_collisions.queue_free()
+	if NatureCollision.near_camera(chunk, _chunk_center):
+		owner.add_child(NatureCollision.create_chunk(
+			_world_model, _nature, chunk))
+
+
+func _sync_nature_colliders() -> void:
+	# Не создаём отдельные физические тела для всех деревьев на карте.
+	# Коллизию поддерживаем только в зоне активной камеры.
+	if _nature == null or _day_task_id >= 0 or _days_pending > 0:
+		return
+	var created := 0
+	for chunk in _active.keys():
+		var owner: Node3D = _active[chunk]
+		var current: Node = owner.get_node_or_null(
+			NatureCollision.COLLISION_NAME)
+		var required: bool = _view_mode == 0 and \
+			NatureCollision.near_camera(chunk, _chunk_center)
+		if not required:
+			if current != null:
+				owner.remove_child(current)
+				current.queue_free()
+			continue
+		if current != null or created >= NatureCollision.MAX_NEW_CHUNKS_PER_FRAME:
+			continue
+		owner.add_child(NatureCollision.create_chunk(
+			_world_model, _nature, chunk))
+		created += 1
 
 
 func _flush_nature_visuals() -> void:
