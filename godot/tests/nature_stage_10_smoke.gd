@@ -242,6 +242,95 @@ func _run() -> void:
     _check(not cache.has(cached_chunk),
         "Изменение природы удаляет только устаревший чанк из кеша")
 
+    # Повторные удары проверяем отдельно от старой прямой валки.
+    var strikes_state := _state(8008)
+    var strike_nature: RefCounted = strikes_state["nature"]
+    var candidate := -1
+    for cy in range(strikes_state["world"].config.chunk_count().y):
+        for cx in range(strikes_state["world"].config.chunk_count().x):
+            for item in strike_nature.objects_in_chunk(Vector2i(cx, cy)):
+                if item["kind"] == "дерево":
+                    candidate = int(item["id"])
+                    break
+            if candidate >= 0:
+                break
+        if candidate >= 0:
+            break
+    _check(candidate >= 0, "Для испытания ударов найдено дерево")
+    if candidate >= 0:
+        var standing: Dictionary = strike_nature.object_at(candidate)
+        var threshold: int = Nature.cutting_resistance(standing)
+        var total_wood: int = strike_nature.wood_total()
+        var old_revision: int = strike_nature.revision
+        var hits: Array[int] = []
+        var felled: Array[Dictionary] = []
+        strike_nature.tree_struck.connect(
+            func(_before: Dictionary, _work: int, progress: int) -> void:
+                hits.append(progress))
+        strike_nature.tree_felled.connect(
+            func(before: Dictionary) -> void: felled.append(before))
+        _check(strike_nature.strike_tree(candidate, 0).is_empty(),
+            "Нулевой удар не изменяет дерево")
+        var first_hit: Dictionary = strike_nature.strike_tree(
+            candidate, threshold - 1)
+        _check(not bool(first_hit.get("fell", true)),
+            "Неполный удар не валит дерево")
+        _check(int(first_hit["progress"]) == threshold - 1,
+            "Прогресс рубки накапливается целочисленно")
+        _check(strike_nature.wood_total() == total_wood,
+            "Удары не создают и не списывают древесину")
+        _check(strike_nature.revision == old_revision,
+            "Промежуточные удары не пересобирают GPU-чанк")
+        _check(hits.size() == 1 and felled.is_empty(),
+            "Неполный удар вызывает только визуальное событие")
+        var chips := Felling.make_hit_effect(
+            strikes_state["world"], standing, threshold - 1)
+        _check(chips != null and chips.get_child_count() == 4,
+            "Визуал удара содержит четыре кратковременные щепки")
+        if chips != null:
+            chips.free()
+
+        var partial_snapshot: Dictionary = Save.capture(strikes_state)
+        _check(partial_snapshot["nature"]["version"] == Nature.FORMAT_VERSION,
+            "Новый формат сохранения содержит состояние ударов")
+        var partial_restore: Dictionary = Save.restore(partial_snapshot)
+        _check(not partial_restore.is_empty(),
+            "Незавершённая рубка восстанавливается из сохранения")
+        if not partial_restore.is_empty():
+            var restored_tree: Dictionary = partial_restore["nature"].object_at(
+                candidate)
+            _check(int(restored_tree["cut_progress"]) == threshold - 1,
+                "Прогресс рубки не теряется после загрузки")
+            var terminal: Dictionary = partial_restore["nature"].strike_tree(
+                candidate, 1)
+            _check(bool(terminal.get("fell", false)),
+                "Оставшийся удар валит дерево после загрузки")
+            _check(partial_restore["nature"].wood_total() == total_wood,
+                "Падение после загрузки сохраняет древесный баланс")
+            _check(partial_restore["nature"].strike_tree(
+                candidate, 1).is_empty(),
+                "Удар по пню не производит новую древесину")
+
+        # Старые файлы с десятью полями продолжают загружаться.
+        var legacy: Dictionary = partial_snapshot.duplicate(true)
+        legacy["nature"]["version"] = 1
+        for raw in legacy["nature"]["objects"]:
+            raw.pop_back()
+        var imported: Dictionary = Save.restore(legacy)
+        _check(not imported.is_empty(),
+            "Прежнее сохранение растительности версии 1 поддерживается")
+        if not imported.is_empty():
+            _check(int(imported["nature"].object_at(
+                candidate)["cut_progress"]) == 0,
+                "Для старого формата прогресс рубки инициализируется нулём")
+        var broken: Dictionary = partial_snapshot.duplicate(true)
+        for raw in broken["nature"]["objects"]:
+            if int(raw[0]) == candidate:
+                raw[10] = 2000
+                break
+        _check(Save.restore(broken).is_empty(),
+            "Повреждённый прогресс рубки отклоняется")
+
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)
     _check(int(capacity["cells"]) == 96 * 80,
