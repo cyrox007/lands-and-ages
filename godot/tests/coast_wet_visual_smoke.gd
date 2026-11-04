@@ -18,6 +18,7 @@ class FloodHydrology:
 	const HEIGHT := 32
 	var floods := {}
 	var rivers := {}
+	var lakes := {}
 
 	func _init() -> void:
 		# Две смежные клетки по разные стороны чанка и примыкающая река.
@@ -26,6 +27,7 @@ class FloodHydrology:
 			floods[cell_index(cell)] = 0.35
 		for cell in [Vector2i(14, 11), Vector2i(14, 12)]:
 			rivers[cell_index(cell)] = true
+		lakes[cell_index(Vector2i(16, 13))] = true
 
 	func cell_index(cell: Vector2i) -> int:
 		if cell.x < 0 or cell.y < 0 or cell.x >= WIDTH or cell.y >= HEIGHT:
@@ -35,14 +37,14 @@ class FloodHydrology:
 	func ensure_ready() -> void:
 		pass
 
-	func lake_at(_index: int) -> bool:
-		return false
+	func lake_at(index: int) -> bool:
+		return lakes.has(index)
 
 	func ocean_at(_index: int) -> bool:
 		return false
 
 	func has_water(index: int) -> bool:
-		return floods.has(index) or rivers.has(index)
+		return floods.has(index) or rivers.has(index) or lakes.has(index)
 
 	func flood_depth_at(index: int) -> float:
 		return float(floods.get(index, 0.0))
@@ -238,6 +240,9 @@ func _test_continuous_flood() -> void:
 			"Покрытие не прерывается между гидрологическими центрами")
 
 	# Одинаковая проба на стыке 16-го чанка, без отдельного маскирования.
+	var lake_profile := Water._flood_profile(hydro, Vector2(16.5, 13.5))
+	_check(lake_profile.x >= 0.99 and lake_profile.y > 4.0,
+		"Озёрная клетка у паводка объединяется с поймой без отдельной плитки")
 	var seam := Vector2(16.0, 11.5)
 	var field := Water._flood_profile(hydro, seam)
 	_check(field.x >= 0.99 and is_finite(field.y),
