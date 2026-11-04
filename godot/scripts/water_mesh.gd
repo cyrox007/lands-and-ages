@@ -246,17 +246,24 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 			Vector2i(0, 1), Vector2i(-1, 0)]:
 		neighbors.append(hydro.has_water(hydro.cell_index(cell + delta)))
 	var outline := _flood_outline(neighbors)
+	var ha: float = world.vertex_at(cell)
+	var hb: float = world.vertex_at(cell + Vector2i(1, 0))
+	var hc: float = world.vertex_at(cell + Vector2i(0, 1))
+	var hd: float = world.vertex_at(cell + Vector2i(1, 1))
 	var center := Vector2(cell) + Vector2(0.5, 0.5)
-	var center_height: float = world.height_at(center)
+	var center_height := _terrain_height(ha, hb, hc, hd, 0.5, 0.5)
 	var added := 0
 	for i in range(outline.size()):
-		var first := Vector2(cell) + outline[i]
-		var second := Vector2(cell) + outline[(i + 1) % outline.size()]
+		var first_uv: Vector2 = outline[i]
+		var second_uv: Vector2 = outline[(i + 1) % outline.size()]
+		var first := Vector2(cell) + first_uv
+		var second := Vector2(cell) + second_uv
 		var polygon := _clip_submerged_triangle(
 			PackedVector2Array([center, first, second]),
 			PackedFloat32Array([
-				center_height, world.height_at(first),
-				world.height_at(second)
+				center_height,
+				_terrain_height(ha, hb, hc, hd, first_uv.x, first_uv.y),
+				_terrain_height(ha, hb, hc, hd, second_uv.x, second_uv.y)
 			]), level)
 		added += _add_polygon(tool, world, polygon, level, tint, ice)
 	return added
