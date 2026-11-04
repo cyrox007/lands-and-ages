@@ -9,6 +9,8 @@ const Chunk = preload("res://scripts/chunk.gd")
 const ChunkVisibility = preload("res://scripts/chunk_visibility.gd")
 const ChunkRenderCache = preload("res://scripts/chunk_render_cache.gd")
 const ChunkBuildQueue = preload("res://scripts/chunk_build_queue.gd")
+const BenchmarkRoute = preload("res://scripts/world_benchmark_route.gd")
+const BenchmarkRunner = preload("res://scripts/world_benchmark_runner.gd")
 const NaturalGroundShader = preload("res://shaders/natural_ground.gdshader")
 const NaturalWaterShader = preload("res://shaders/natural_water.gdshader")
 const Hydrology = preload("res://scripts/hydrology.gd")
@@ -88,6 +90,10 @@ var _frame_samples: Array[float] = []
 var _terrain_dirty := {}
 var _last_chunk_build_us := 0
 var _chunk_rebuilds := 0
+var _visibility_refreshes := 0
+var _visibility_fast_rejects := 0
+var _visibility_precise_checks := 0
+var _last_visibility_us := 0
 var _chunk_center := Vector2i(-1, -1)
 var _visibility_center := Vector2(-1000000.0, -1000000.0)
 var _chunk_height_bounds := {}
@@ -99,6 +105,8 @@ var _summary: Label
 var _debug_details: VBoxContainer
 var _details_toggle: Button
 var _hud_timer := 0.0
+var _benchmark_running := false
+var _benchmark_status := ""
 
 
 func _ready() -> void:
@@ -230,6 +238,10 @@ func _setup_interface() -> void:
 	_status.custom_minimum_size = Vector2(345, 0)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	scroll.add_child(_status)
+	var benchmark_button := Button.new()
+	benchmark_button.text = "Измерить производительность камеры (8.8)"
+	benchmark_button.pressed.connect(_run_device_benchmark)
+	_debug_details.add_child(benchmark_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -266,7 +278,7 @@ func _process(delta: float) -> void:
 		movement.y -= 1.0
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		movement.y += 1.0
-	if movement.length_squared() > 0.0:
+	if not _benchmark_running and movement.length_squared() > 0.0:
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
 	# Год может считаться несколько секунд, но камера и UI работают.
 	# WorkerThreadPool трогает только RefCounted-модели, не сцену.
@@ -328,6 +340,8 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _benchmark_running:
+		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_change_zoom(0.88)
@@ -491,6 +505,7 @@ func _synchronize_render_cache(force: bool) -> void:
 
 
 func _refresh_visible(force: bool) -> void:
+	var refresh_started := Time.get_ticks_usec()
 	_synchronize_render_cache(force)
 	var center_chunk := Vector2i(floori(_center.x / float(_world_model.config.chunk_size)),
 		floori(_center.y / float(_world_model.config.chunk_size)))
@@ -527,10 +542,16 @@ func _refresh_visible(force: bool) -> void:
 			var bounds: Rect2i = _world_model.config.chunk_rect(coord)
 			if not bounds.has_area():
 				continue
-			if cull and not ChunkVisibility.intersects(bounds,
-					_chunk_elevation_bounds(coord), camera_position, right, up,
-					_camera.size, aspect):
-				continue
+			if cull:
+				if not ChunkVisibility.horizontal_intersects(bounds,
+						camera_position, right, _camera.size, aspect):
+					_visibility_fast_rejects += 1
+					continue
+				_visibility_precise_checks += 1
+				if not ChunkVisibility.intersects(bounds,
+						_chunk_elevation_bounds(coord), camera_position, right,
+						up, _camera.size, aspect):
+					continue
 			desired[coord] = true
 	_wanted_chunks = desired
 	if force:
@@ -573,6 +594,8 @@ func _refresh_visible(force: bool) -> void:
 		_pending.append(coord)
 	ChunkBuildQueue.prioritize(_pending, _center, _pan_delta,
 		_world_model.config.chunk_size, _active)
+	_last_visibility_us = Time.get_ticks_usec() - refresh_started
+	_visibility_refreshes += 1
 
 
 func _create_chunk(coord: Vector2i) -> void:
@@ -638,7 +661,7 @@ func _storage_models() -> Dictionary:
 
 
 func _request_storage(action: String) -> void:
-	if action not in ["save", "load"]:
+	if _benchmark_running or action not in ["save", "load"]:
 		return
 	if _day_task_id >= 0 or _days_pending > 0:
 		_storage_request = action
@@ -728,7 +751,7 @@ func _exit_tree() -> void:
 
 
 func _apply_landscape_event(kind: String) -> void:
-	if _day_task_id >= 0:
+	if _day_task_id >= 0 or _benchmark_running:
 		return
 	var result: Dictionary = _landscape_events.apply(kind, _center, 18.0, 3.0)
 	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
@@ -738,6 +761,8 @@ func _apply_landscape_event(kind: String) -> void:
 
 
 func _queue_days(number: int) -> void:
+	if _benchmark_running:
+		return
 	_days_pending = mini(96, _days_pending + number)
 
 
@@ -781,10 +806,73 @@ func _complete_day(result: Dictionary) -> void:
 
 
 func _cycle_view() -> void:
+	if _benchmark_running:
+		return
 	_view_mode = (_view_mode + 1) % 8
 	if _day_task_id < 0:
 		_refresh_visible(true)
 	_update_hud()
+
+
+func _prepare_benchmark_start() -> void:
+	# Холодное начало одинаково для CI, ПК и Android.
+	for coord in _active.keys():
+		var node: Node3D = _active[coord]
+		node.visible = false
+		node.queue_free()
+	_active.clear()
+	_pending.clear()
+	_wanted_chunks.clear()
+	_rebuild_pending.clear()
+	_render_cache.clear()
+	_chunk_height_bounds.clear()
+	_chunk_height_order.clear()
+	_height_bounds_revision = -1
+	_water_bounds_revision = -1
+	_frame_samples.clear()
+	_pan_delta = Vector2.ZERO
+	_pan_pending = false
+	_center = Vector2(_world_model.config.width, _world_model.config.height) * 0.5
+	_camera.size = BenchmarkRoute.INITIAL_ZOOM
+	_update_material_detail()
+	_update_camera()
+	_refresh_visible(true)
+
+
+func _run_device_benchmark() -> void:
+	if _benchmark_running:
+		return
+	if _days_pending > 0 or _day_task_id >= 0 or not _storage_request.is_empty():
+		_benchmark_status = "Испытание доступно после завершения расчёта дней"
+		_update_hud()
+		return
+	_benchmark_running = true
+	_benchmark_status = "Идёт маршрут из 370 кадров; управление заблокировано"
+	var saved_center := _center
+	var saved_zoom := _camera.size
+	var report: Dictionary = await BenchmarkRunner.new().run(self)
+	var path := "user://world-camera-8-8-device.json"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	var saved := file != null
+	if saved:
+		file.store_string(JSON.stringify(report, "\t") + "\n")
+		file.close()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.clipboard_set(JSON.stringify(report))
+	var summary: Dictionary = report["summary"]
+	_benchmark_status = "Маршрут: p95 %.1f мс · мешей %d · попаданий %d. %s" % [
+		float(summary["interval_ms_p95"]), int(summary["chunks_built"]),
+		int(summary["cache_hits"]),
+		"JSON скопирован и сохранён: " + path if saved
+		else "JSON скопирован; сохранение файла не удалось"]
+	_center = saved_center
+	_camera.size = saved_zoom
+	_update_material_detail()
+	_update_camera()
+	_refresh_visible(false)
+	_benchmark_running = false
+	_update_hud()
+
 
 func _update_hud() -> void:
 	if _summary == null:
@@ -856,6 +944,11 @@ func _update_hud() -> void:
 	_status.text += "Очередь GPU %d · обновить %d · бюджет %d мкс · отброшено %d\n" % [
 		_pending.size(), _rebuild_pending.size(),
 		_mesh_build_budget_us, _skipped_stale_jobs]
+	_status.text += "Видимость: %.2f мс · быстрых отсечений %d · точных проверок %d\n" % [
+		float(_last_visibility_us) / 1000.0,
+		_visibility_fast_rejects, _visibility_precise_checks]
+	if not _benchmark_status.is_empty():
+		_status.text += "Замеры: %s\n" % _benchmark_status
 	_status.text += "Кеш мешей: %d/%d · оценка %.2f/%.0f МиБ · попаданий %d · вытеснений %d\n" % [
 		_render_cache.count(), ChunkRenderCache.MAX_CHUNKS,
 		float(_render_cache.estimated_bytes) / 1048576.0,

@@ -6,6 +6,7 @@ const View = preload("res://scripts/world.gd")
 const Route = preload("res://scripts/world_benchmark_route.gd")
 const Metrics = preload("res://scripts/world_benchmark_metrics.gd")
 const RenderCache = preload("res://scripts/chunk_render_cache.gd")
+const Runner = preload("res://scripts/world_benchmark_runner.gd")
 
 var failures: Array[String] = []
 
@@ -75,110 +76,38 @@ func _run() -> void:
 		quit(1)
 		return
 
-	var model_before: Dictionary = scene._world_model.to_data()
 	var config: RefCounted = scene._world_model.config
 	var points: Array[Dictionary] = Route.samples(config.width, config.height)
 	_validate_route(points, config.width, config.height)
-	var recorder := Metrics.new()
-	var phase := ""
-	var phases: Array[Dictionary] = []
-	var frame_intervals: Array[float] = []
-	var last_tick := Time.get_ticks_usec()
+	var report: Dictionary = await Runner.new().run(scene)
+	report["initialization_ms"] = initialization_ms
+	var summary: Dictionary = report["summary"]
+	var phases: Array = report["phases"]
 
-	for point in points:
-		var name: String = point["phase"]
-		if name != phase:
-			if not phase.is_empty():
-				phases.append(recorder.finish(scene))
-			recorder.begin(name, scene)
-			phase = name
-
-		var target: Vector2 = point["center"]
-		var zoom: float = point["zoom"]
-		if not is_equal_approx(scene._camera.size, zoom):
-			scene._change_zoom(zoom / scene._camera.size)
-		if scene._center.distance_squared_to(target) > 0.000001:
-			scene._move_center(target - scene._center)
-
-		await process_frame
-		var current_tick := Time.get_ticks_usec()
-		var interval := float(current_tick - last_tick) / 1000.0
-		last_tick = current_tick
-		frame_intervals.append(interval)
-		recorder.record(scene, interval)
-
-	if not phase.is_empty():
-		phases.append(recorder.finish(scene))
-
-	var total_builds := 0
-	var total_hits := 0
-	var total_evictions := 0
-	var peak_pending := 0
-	var peak_static := 0
-	var peak_cached_bytes := 0
-	for result in phases:
-		_check(result["frames"] > 0, "Каждая фаза содержит реальные кадры")
-		_check(result["cache_limits_valid"], "Кеш мешей не превысил бюджет")
-		total_builds += int(result["chunks_built"])
-		total_hits += int(result["cache_hits"])
-		total_evictions += int(result["cache_evictions"])
-		peak_pending = maxi(peak_pending, int(result["peak_pending_chunks"]))
-		peak_static = maxi(peak_static, int(result["peak_godot_static_bytes"]))
-		peak_cached_bytes = maxi(peak_cached_bytes,
-			int(result["peak_cached_geometry_bytes"]))
-
-	_check(frame_intervals.size() == points.size(),
-		"Каждая точка маршрута получила замер интервала кадра")
+	_check(report["route_frames"] == points.size(),
+		"Количество кадров соответствует версии маршрута")
 	_check(phases.size() == Route.SEGMENTS.size(),
-		"Для каждого этапа сформирована отдельная статистика")
-	_check(total_builds > 0, "Используется реальная генерация GPU-чанков")
-	_check(scene._world_model.to_data() == model_before,
-		"Тест графики не меняет физическую карту или сохранение")
+		"Все девять фаз записаны в отчёт")
+	var reported_frames := 0
+	for result in phases:
+		reported_frames += int(result["frames"])
+		_check(result["frames"] > 0, "Каждая фаза содержит измерения")
+		_check(result["cache_limits_valid"], "Лимит кеша не нарушен")
+	_check(reported_frames == points.size(),
+		"Все кадры распределены по фазам без пропусков")
+	_check(int(summary["chunks_built"]) > 0,
+		"Тест использует реальные GPU-чанки")
+	_check(bool(summary["physics_unchanged"]),
+		"Измерения не изменили физическую карту")
+	_check(int(summary["visibility_fast_rejects"]) > 0,
+		"Быстрое отсечение действительно отсекает кандидатов")
+	_check(int(summary["visibility_precise_checks"]) > 0,
+		"Видимые кандидаты проверяются точно")
 	_check(scene._render_cache.count() <= RenderCache.MAX_CHUNKS,
-		"Кеш после маршрута ограничен по количеству")
-	_check(scene._render_cache.estimated_bytes <=
-		RenderCache.MAX_ESTIMATED_BYTES,
-		"Кеш после маршрута ограничен по оценке памяти")
-
-	var is_headless: bool = DisplayServer.get_name() == "headless"
-	var report := {
-		"schema_version": 1,
-		"stage": "8.7",
-		"route_version": Route.VERSION,
-		"route_frames": points.size(),
-		"engine": Engine.get_version_info().get("string", "unknown"),
-		"platform": OS.get_name(),
-		"render_backend": DisplayServer.get_name(),
-		"headless": is_headless,
-		"units": {
-			"interval_ms": "интервал между кадрами игрового цикла",
-			"build_frame_ms": "время очереди построения мешей на CPU",
-			"peak_cached_geometry_bytes": "оценка буферов вершин/индексов",
-			"peak_godot_static_bytes": "статическая память Godot, не RAM/VRAM"
-		},
-		"map": {
-			"width": config.width,
-			"height": config.height,
-			"seed": config.seed,
-			"chunk_size": config.chunk_size
-		},
-		"initialization_ms": initialization_ms,
-		"summary": {
-			"interval_ms_p50": Metrics.percentile(frame_intervals, 0.50),
-			"interval_ms_p95": Metrics.percentile(frame_intervals, 0.95),
-			"interval_ms_p99": Metrics.percentile(frame_intervals, 0.99),
-			"chunks_built": total_builds,
-			"cache_hits": total_hits,
-			"cache_evictions": total_evictions,
-			"peak_pending_chunks": peak_pending,
-			"peak_cached_geometry_bytes": peak_cached_bytes,
-			"peak_godot_static_bytes": peak_static,
-			"pending_after_route": scene._pending.size(),
-			"physics_unchanged": scene._world_model.to_data() == model_before
-		},
-		"phases": phases
-	}
-	_check(_save_report(report), "JSON-отчёт сохранён в выбранный файл")
+		"Число записей кеша ограничено")
+	_check(scene._render_cache.estimated_bytes <= RenderCache.MAX_ESTIMATED_BYTES,
+		"Оценка памяти кеша ограничена")
+	_check(_save_report(report), "Отчёт JSON сохранён")
 	scene.queue_free()
 
 	if not failures.is_empty():
@@ -188,9 +117,10 @@ func _run() -> void:
 		return
 
 	print("Этап 8.7: ", points.size(), " кадров, ",
-		total_builds, " GPU-построений, ", total_hits,
-		" попаданий кеша; p95 интервала ",
-		"%.2f" % report["summary"]["interval_ms_p95"],
-		" мс; отчёт ", _output_path())
+		summary["chunks_built"], " GPU-построений, ",
+		summary["cache_hits"], " попаданий кеша; p95 интервала ",
+		"%.2f" % summary["interval_ms_p95"],
+		" мс; быстро отсечено ", summary["visibility_fast_rejects"],
+		"; отчёт ", _output_path())
 	print("Этап 8.7: воспроизводимый маршрут и JSON-метрики — успешно.")
 	quit(0)

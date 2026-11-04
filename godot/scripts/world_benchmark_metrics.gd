@@ -12,6 +12,11 @@ var _last_build_count := 0
 var _hits_before := 0
 var _evictions_before := 0
 var _skipped_before := 0
+var _visibility_before := 0
+var _fast_rejects_before := 0
+var _precise_checks_before := 0
+var _last_visibility_count := 0
+var _peak_visibility_ms := 0.0
 var _peak_active := 0
 var _peak_pending := 0
 var _peak_cache_bytes := 0
@@ -38,6 +43,11 @@ func begin(name: String, view: Node3D) -> void:
 	_hits_before = view._render_cache.hits
 	_evictions_before = view._render_cache.evictions
 	_skipped_before = view._skipped_stale_jobs
+	_visibility_before = view._visibility_refreshes
+	_fast_rejects_before = view._visibility_fast_rejects
+	_precise_checks_before = view._visibility_precise_checks
+	_last_visibility_count = _visibility_before
+	_peak_visibility_ms = 0.0
 	_peak_active = 0
 	_peak_pending = 0
 	_peak_cache_bytes = 0
@@ -50,6 +60,10 @@ func record(view: Node3D, frame_interval_ms: float) -> void:
 	if view._chunk_rebuilds > _last_build_count:
 		_build_frames.append(float(view._last_chunk_build_us) / 1000.0)
 	_last_build_count = view._chunk_rebuilds
+	if view._visibility_refreshes > _last_visibility_count:
+		_peak_visibility_ms = maxf(_peak_visibility_ms,
+			float(view._last_visibility_us) / 1000.0)
+	_last_visibility_count = view._visibility_refreshes
 	_peak_active = maxi(_peak_active, view._active.size())
 	_peak_pending = maxi(_peak_pending, view._pending.size())
 	_peak_cache_bytes = maxi(_peak_cache_bytes, view._render_cache.estimated_bytes)
@@ -80,6 +94,10 @@ func finish(view: Node3D) -> Dictionary:
 		"cache_hits": view._render_cache.hits - _hits_before,
 		"cache_evictions": view._render_cache.evictions - _evictions_before,
 		"stale_jobs_skipped": view._skipped_stale_jobs - _skipped_before,
+		"visibility_refreshes": view._visibility_refreshes - _visibility_before,
+		"visibility_fast_rejects": view._visibility_fast_rejects - _fast_rejects_before,
+		"visibility_precise_checks": view._visibility_precise_checks - _precise_checks_before,
+		"peak_visibility_ms": _peak_visibility_ms,
 		"peak_visible_chunks": _peak_active,
 		"peak_pending_chunks": _peak_pending,
 		"peak_cached_geometry_bytes": _peak_cache_bytes,
