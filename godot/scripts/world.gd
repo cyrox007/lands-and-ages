@@ -430,11 +430,14 @@ func _update_material_detail() -> void:
 
 
 func _change_zoom(multiplier: float) -> void:
+	var previous_lod := _detail_for_zoom(_camera.size) < 0.28
 	_camera.size = clampf(_camera.size * multiplier, MIN_ZOOM, MAX_ZOOM)
+	var next_lod := _detail_for_zoom(_camera.size) < 0.28
 	_pan_delta = Vector2.ZERO
 	_pan_pending = true
 	_update_material_detail()
-	_refresh_visible(false)
+	# Пересобираем видимые модели только при смене уровня детализации.
+	_refresh_visible(previous_lod != next_lod)
 
 
 func _move_center(amount: Vector2) -> void:
@@ -756,7 +759,8 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh) -> void:
 		water_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(water_node)
 	if _view_mode == 0 and _nature != null:
-		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord))
+		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord,
+			_detail_for_zoom(_camera.size)))
 	_terrain_holder.add_child(node)
 	if old_node != null:
 		old_node.queue_free()
