@@ -104,6 +104,10 @@ func _run() -> void:
             "Невалидный индекс столкновения отклоняется")
         standing.free()
 
+        _check(is_equal_approx(Geometry.angle_for(id, world.config.seed),
+            preload("res://scripts/nature_felling_visual.gd").angle_for(
+                id, world.config.seed)),
+            "Направление лежащего бревна совпадает с анимацией")
         var result: Dictionary = nature.fell_tree(id)
         _check(not result.is_empty() and int(result["wood_units"]) > 0,
             "Рубка создаёт конечный остаток древесины")
@@ -119,6 +123,7 @@ func _run() -> void:
             _check(nature.intersects_solid(center),
                 "Логическая проходимость учитывает лежащее бревно")
         var fallen := Collisions.create_chunk(world, nature, chunk)
+        get_root().add_child(fallen)
         _check(_parts_for(fallen, id) == ["бревно", "пень"],
             "После рубки ствол заменяется пнём и бревном")
         _check(int(Collisions.object_from_shape(
