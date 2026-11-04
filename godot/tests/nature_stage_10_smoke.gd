@@ -107,6 +107,58 @@ func _check_natural_deadwood(tree_id: int) -> void:
     _check(int(nature.object_at(tree_id)["fallen_wood"]) ==
         maxi(0, stock_before - expected_rot - 1),
         "Лежащая древесина постепенно разлагается вне кадра")
+    var profile: Dictionary = nature.resource_stock(tree_id)
+    var wood: Dictionary = profile["resources"]["wood"]
+    var remaining: int = nature.object_at(tree_id)["fallen_wood"]
+    _check(int(wood["available"]) == remaining and
+        int(wood["standing"]) == 0,
+        "Ресурсный контракт различает ствол и лежащую древесину")
+    _check(not nature.take_raw_resource(tree_id, "stone", 1),
+        "Неизвестное сырьё нельзя добывать без физического контракта")
+    if remaining > 0:
+        _check(nature.take_raw_resource(tree_id, "wood", remaining),
+            "Контракт сырья изымает ровно существующий запас")
+    var disappearance_day: int = fall_day + Nature.STUMP_DECAY_DAYS
+    disappearance_day += posmod(tree_id - disappearance_day, 8)
+    simulation["climate"].set_day(disappearance_day)
+    nature.advance_day(disappearance_day)
+    _check(nature.object_at(tree_id).is_empty(),
+        "Пустой старый пень исчезает и освобождает место")
+    var cell := Vector2i(int(fallen["x"]), int(fallen["y"]))
+    var chunk: Vector2i = world.config.chunk_of(cell)
+    var stale := false
+    for item in nature.objects_in_chunk(chunk):
+        if int(item["id"]) == tree_id:
+            stale = true
+    _check(not stale, "Пропавший пень удалён из индекса чанка")
+
+
+func _check_shrub_recovery() -> void:
+    # Отмерший куст не должен занимать вечный слот в природном реестре.
+    var simulation := _state()
+    var nature: RefCounted = simulation["nature"]
+    var snapshot: Dictionary = nature.to_data()
+    var shrub_id := -1
+    for record in snapshot["objects"]:
+        if record[1] != "кустарник":
+            continue
+        shrub_id = int(record[0])
+        record[6] = 0
+        record[9] = "сухостой"
+        record[11] = 1
+        break
+    _check(shrub_id > 0 and nature.load_data(snapshot),
+        "Снимок отмершего кустарника корректен")
+    if shrub_id < 0:
+        return
+    var day: int = 1 + Nature.SHRUB_DECAY_DAYS
+    day += posmod(shrub_id - day, 8)
+    simulation["climate"].set_day(day)
+    nature.advance_day(day)
+    _check(nature.object_at(shrub_id).is_empty(),
+        "Отмерший куст освобождает пространство после разложения")
+    _check(nature.to_data()["objects"].size() == nature.count(),
+        "После удаления куста реестр и сериализация согласованы")
 
 
 func _run() -> void:
@@ -186,6 +238,7 @@ func _run() -> void:
     _check(nature.to_data() == repeated["nature"].to_data(),
         "Заселение не зависит от порядка вычисления")
     _check(not nature.generate(), "Повторная генерация не удваивает объекты")
+    _check_shrub_recovery()
 
     var ids := {}
     var tree_id := -1

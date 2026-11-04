@@ -11,6 +11,8 @@ const FORMAT_VERSION := 3
 const DEADWOOD_FALL_DAYS := 2 * 96
 const DEADWOOD_VARIATION_DAYS := 96
 const LOG_DECAY_INTERVAL_DAYS := 96
+const SHRUB_DECAY_DAYS := 96
+const STUMP_DECAY_DAYS := 6 * 96
 const CUT_THRESHOLD := 1000
 const GRID_STEP := 3
 const MAX_OBJECTS := 200000
@@ -47,6 +49,20 @@ func _index(object: Dictionary) -> void:
     if not _chunks.has(chunk):
         _chunks[chunk] = []
     _chunks[chunk].append(int(object["id"]))
+
+
+func _remove_object(id: int, item: Dictionary,
+        changed: Dictionary) -> void:
+    var cell := Vector2i(int(item["x"]), int(item["y"]))
+    var chunk: Vector2i = world.config.chunk_of(cell)
+    var ids: Array = _chunks.get(chunk, [])
+    ids.erase(id)
+    if ids.is_empty():
+        _chunks.erase(chunk)
+    else:
+        _chunks[chunk] = ids
+    _objects.erase(id)
+    changed[chunk] = true
 
 
 func _mark_changes(changed: Dictionary) -> void:
@@ -280,6 +296,35 @@ func wood_total() -> int:
     return total
 
 
+func resource_stock(id: int) -> Dictionary:
+    # Единый интерфейс запасов без искусственных ресурсов камней и грунта.
+    # Другие типы сырья смогут добавлять свои записи в resources.
+    var item: Dictionary = object_at(id)
+    if item.is_empty():
+        return {}
+    var resources := {}
+    if item["kind"] == "дерево":
+        resources["wood"] = {
+            "standing": int(item["wood_units"]),
+            "fallen": int(item["fallen_wood"]),
+            "available": int(item["fallen_wood"]),
+            "unit": "условные единицы"
+        }
+    return {
+        "object_id": id,
+        "kind": str(item["kind"]),
+        "state": str(item["state"]),
+        "resources": resources
+    }
+
+
+func take_raw_resource(id: int, resource: String, amount: int) -> bool:
+    # Только физически лежащая древесина доступна для будущего вывоза.
+    if resource != "wood":
+        return false
+    return take_fallen_wood(id, amount)
+
+
 func _modify(id: int, item: Dictionary) -> void:
     _objects[id] = item
     var changed := {world.config.chunk_of(
@@ -451,7 +496,7 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
         if item["kind"] == "валун":
             continue
         if item["kind"] == "дерево" and item["state"] == "пень":
-            # Лежащие брёвна медленно теряют запас независимо от камеры.
+            # Старые брёвна разлагаются, а пустой пень со временем исчезает.
             var fallen_day: int = int(item.get("fallen_since_day", day))
             if day >= fallen_day + LOG_DECAY_INTERVAL_DAYS \
                     and posmod(day - int(id), LOG_DECAY_INTERVAL_DAYS) == 0 \
@@ -461,8 +506,17 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
                 changed[world.config.chunk_of(Vector2i(
                     int(item["x"]), int(item["y"])))] = true
                 updates += 1
+            if day >= fallen_day + STUMP_DECAY_DAYS \
+                    and int(item["fallen_wood"]) == 0:
+                _remove_object(int(id), item, changed)
+                updates += 1
             continue
         var cell := Vector2i(int(item["x"]), int(item["y"]))
+        if item["kind"] == "кустарник" and item["state"] == "сухостой" \
+                and day - int(item.get("dead_since_day", day)) >= SHRUB_DECAY_DAYS:
+            _remove_object(int(id), item, changed)
+            updates += 1
+            continue
         var index: int = hydro.cell_index(cell)
         if index < 0:
             continue
