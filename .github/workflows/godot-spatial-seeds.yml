@@ -1,0 +1,69 @@
+name: Этап 10.0 — многосидовый аудит ёмкости
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Количество seed, для полной проверки не менее 100 (1–500)"
+        required: true
+        default: "100"
+      width:
+        description: "Ширина проверяемой карты (64–1024)"
+        required: true
+        default: "256"
+      height:
+        description: "Высота проверяемой карты (64–768)"
+        required: true
+        default: "192"
+      radius:
+        description: "Гипотетический радиус зрелого поселения (6–40)"
+        required: true
+        default: "12"
+      seed_start:
+        description: "Начальный seed"
+        required: true
+        default: "1729"
+
+jobs:
+  spatial-seeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SAMPLES: ${{ inputs.samples }}
+      MAP_WIDTH: ${{ inputs.width }}
+      MAP_HEIGHT: ${{ inputs.height }}
+      RADIUS: ${{ inputs.radius }}
+      START_SEED: ${{ inputs.seed_start }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт ресурсов проекта
+        run: |
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit
+      - name: Проверить географическую ёмкость
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples="$SAMPLES" --width="$MAP_WIDTH" \
+            --height="$MAP_HEIGHT" --radius="$RADIUS" \
+            --seed_start="$START_SEED" 2>&1 | tee /tmp/spatial-seeds.log
+          grep -q "Этап 10.0: проверено" /tmp/spatial-seeds.log
+          test -s godot/tests/world-spatial-seeds-10.json
+      - name: Сохранить результаты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-spatial-10-seed-matrix
+          path: |
+            godot/tests/world-spatial-seeds-10.json
+            /tmp/spatial-seeds.log
+          if-no-files-found: warn
