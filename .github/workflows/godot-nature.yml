@@ -1,14 +1,47 @@
 name: Этап 10 — природные объекты и ресурсный баланс
 
 on:
+  workflow_dispatch:
   push:
+    branches: [develop]
     paths:
-      - "godot/**"
+      - "godot/scripts/nature_*.gd"
+      - "godot/shaders/nature_*.gdshader"
+      - "godot/scripts/world_capacity_audit.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/scripts/hydrology.gd"
+      - "godot/scripts/surface.gd"
+      - "godot/scripts/climate.gd"
+      - "godot/scripts/weather_events.gd"
+      - "godot/scripts/natural_disasters.gd"
+      - "godot/tests/nature_stage_10_smoke.gd"
+      - "godot/tests/world_capacity_report_10.gd"
       - ".github/workflows/godot-nature.yml"
   pull_request:
+    branches: [develop]
     paths:
-      - "godot/**"
+      - "godot/scripts/nature_*.gd"
+      - "godot/shaders/nature_*.gdshader"
+      - "godot/scripts/world_capacity_audit.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/scripts/hydrology.gd"
+      - "godot/scripts/surface.gd"
+      - "godot/scripts/climate.gd"
+      - "godot/scripts/weather_events.gd"
+      - "godot/scripts/natural_disasters.gd"
+      - "godot/tests/nature_stage_10_smoke.gd"
+      - "godot/tests/world_capacity_report_10.gd"
       - ".github/workflows/godot-nature.yml"
+
+concurrency:
+  group: nature-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   nature-smoke:

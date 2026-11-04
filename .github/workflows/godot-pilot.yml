@@ -1,14 +1,7 @@
 name: Godot GPU world pilot
 
 on:
-  push:
-    paths:
-      - "godot/**"
-      - ".github/workflows/godot-pilot.yml"
-  pull_request:
-    paths:
-      - "godot/**"
-      - ".github/workflows/godot-pilot.yml"
+  workflow_dispatch:
 
 jobs:
   world-smoke:

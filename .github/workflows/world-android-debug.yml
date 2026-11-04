@@ -1,14 +1,6 @@
 name: Отладочный Android APK природного мира — этап 9.4
 
 on:
-  push:
-    paths:
-      - "godot/**"
-      - ".github/workflows/world-android-debug.yml"
-  pull_request:
-    paths:
-      - "godot/**"
-      - ".github/workflows/world-android-debug.yml"
   workflow_dispatch:
 
 permissions:
