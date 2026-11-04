@@ -123,6 +123,99 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 	return added
 
 
+const RIVER_SEGMENTS := 4
+
+
+static func _river_direction(hydro: RefCounted, cell: Vector2i) -> Vector2:
+	var index: int = hydro.cell_index(cell)
+	if index < 0:
+		return Vector2(0.0, 1.0)
+	var downstream: int = hydro.downstream_of(index)
+	var outgoing := Vector2.ZERO
+	if downstream >= 0:
+		var target: Vector2i = hydro.cell_from_index(downstream)
+		outgoing = Vector2(target - cell).normalized()
+	var upstream := Vector2.ZERO
+	var greatest := -1.0
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var upstream_cell := cell + Vector2i(dx, dy)
+			var candidate: int = hydro.cell_index(upstream_cell)
+			if candidate < 0 or hydro.downstream_of(candidate) != index:
+				continue
+			var flow: float = hydro.discharge_at_index(candidate)
+			if flow > greatest:
+				greatest = flow
+				upstream = Vector2(cell - upstream_cell).normalized()
+	if outgoing == Vector2.ZERO:
+		return upstream if upstream != Vector2.ZERO else Vector2(0.0, 1.0)
+	if upstream == Vector2.ZERO:
+		return outgoing
+	var average := upstream + outgoing
+	return average.normalized() if average.length_squared() > 0.0001 else outgoing
+
+
+static func _river_curve(p0: Vector2, p1: Vector2,
+		p2: Vector2, p3: Vector2, t: float) -> Vector2:
+	var it := 1.0 - t
+	return p0 * (it * it * it) + p1 * (3.0 * it * it * t) \
+		+ p2 * (3.0 * it * t * t) + p3 * (t * t * t)
+
+
+static func _river_curve_direction(p0: Vector2, p1: Vector2,
+		p2: Vector2, p3: Vector2, t: float) -> Vector2:
+	var it := 1.0 - t
+	var derivative := (p1 - p0) * (it * it) \
+		+ (p2 - p1) * (2.0 * it * t) + (p3 - p2) * (t * t)
+	return derivative.normalized() if derivative.length_squared() > 0.000001 \
+		else (p3 - p0).normalized()
+
+
+static func _render_river(tool: SurfaceTool, world: RefCounted,
+		hydro: RefCounted, cell: Vector2i, index: int,
+		level: float, tint: Color, ice: float) -> int:
+	var start := Vector2(cell) + Vector2(0.5, 0.5)
+	var next: int = hydro.downstream_of(index)
+	var finish := start + Vector2(0.0, 0.18)
+	var end_level := level + WATER_OFFSET
+	if next >= 0:
+		var target: Vector2i = hydro.cell_from_index(next)
+		finish = Vector2(target) + Vector2(0.5, 0.5)
+		if hydro.has_water(next):
+			end_level = hydro.level_at(next) + WATER_OFFSET
+		else:
+			end_level = world.height_at(finish) + 0.06
+	var span: float = start.distance_to(finish)
+	if span < 0.00001:
+		return 0
+	var direction_start := _river_direction(hydro, cell)
+	var direction_end := direction_start
+	if next >= 0:
+		direction_end = _river_direction(hydro, hydro.cell_from_index(next))
+	var control0 := start + direction_start * span * 0.35
+	var control1 := finish - direction_end * span * 0.35
+	var last_dir := _river_curve_direction(start, control0, control1, finish, 0.0)
+	var last_side := Vector2(-last_dir.y, last_dir.x) * 0.24
+	var last_center := start
+	var last_level := level + WATER_OFFSET
+	for segment in range(1, RIVER_SEGMENTS + 1):
+		var t := float(segment) / float(RIVER_SEGMENTS)
+		var center := _river_curve(start, control0, control1, finish, t)
+		var direction := _river_curve_direction(start, control0, control1, finish, t)
+		var side := Vector2(-direction.y, direction.x) * 0.24
+		var altitude := lerpf(level + WATER_OFFSET, end_level, t)
+		_quad(tool, world.config.to_scene(last_center - last_side, last_level),
+			world.config.to_scene(last_center + last_side, last_level),
+			world.config.to_scene(center + side, altitude),
+			world.config.to_scene(center - side, altitude), tint, ice)
+		last_center = center
+		last_side = side
+		last_level = altitude
+	return RIVER_SEGMENTS * 2
+
+
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 		surface: RefCounted = null) -> ArrayMesh:
 	hydro.ensure_ready()
@@ -162,27 +255,10 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 				added += _water_cell(tool, world, cell, level, color, ice)
 				continue
 
-			# Русло сохраняет прежнюю физически связанную ленту.
-			var next: int = hydro.downstream_of(index)
-			var start := Vector2(float(x) + 0.5, float(y) + 0.5)
-			var finish := start
-			var end_level := level + WATER_OFFSET
-			if next >= 0:
-				var target: Vector2i = hydro.cell_from_index(next)
-				finish = Vector2(float(target.x) + 0.5, float(target.y) + 0.5)
-				if hydro.has_water(next):
-					end_level = hydro.level_at(next) + WATER_OFFSET
-				else:
-					end_level = world.height_at(finish) + 0.06
-			else:
-				finish += Vector2(0.0, 0.18)
-			var direction := (finish - start).normalized()
-			var side := Vector2(-direction.y, direction.x) * 0.24
-			_quad(tool, world.config.to_scene(start - side, level + WATER_OFFSET),
-				world.config.to_scene(start + side, level + WATER_OFFSET),
-				world.config.to_scene(finish + side, end_level),
-				world.config.to_scene(finish - side, end_level), color, ice)
-			added += 2
+			# Геометрия — плавная кривая, физический сток остаётся дискретным.
+			# Непрерывное направление концов для соседних русловых звеньев.
+			added += _render_river(tool, world, hydro, cell, index,
+				level, color, ice)
 	if added > 0:
 		tool.commit(result)
 	return result
