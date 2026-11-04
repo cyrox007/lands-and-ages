@@ -7,6 +7,7 @@ const Hydro = preload("res://scripts/hydrology.gd")
 const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
+const Renderer = preload("res://scripts/nature_renderer.gd")
 const Capacity = preload("res://scripts/world_capacity_audit.gd")
 const Weather = preload("res://scripts/weather_events.gd")
 const Natural = preload("res://scripts/natural_processes.gd")
@@ -145,6 +146,26 @@ func _run() -> void:
             if saplings_a["hydro"].has_water(index):
                 _check(first == 0.0,
                     "Трава не генерируется в водоёме")
+
+    var rendered_objects := 0
+    var rendered_grass := 0
+    var chunk_count: Vector2i = original["world"].config.chunk_count()
+    for cy in range(chunk_count.y):
+        for cx in range(chunk_count.x):
+            var visible_chunk := Renderer.create_chunk(
+                original["world"], nature, Vector2i(cx, cy))
+            for child in visible_chunk.get_children():
+                if not (child is MultiMeshInstance3D):
+                    continue
+                var instance: MultiMeshInstance3D = child
+                _check(instance.multimesh.instance_count > 0,
+                    "Пустой MultiMesh не расходует GPU-ресурсы")
+                rendered_objects += instance.multimesh.instance_count
+                if instance.name == "трава":
+                    rendered_grass += instance.multimesh.instance_count
+            visible_chunk.free()
+    _check(rendered_objects > 0 and rendered_grass > 0,
+        "Трава и природные объекты создаются в видимых чанках")
 
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)
