@@ -67,9 +67,29 @@ jobs:
           set -o pipefail
           /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit 2>&1 | tee /tmp/nature-import.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/nature-import.log; then
+          # Встроенные текстуры не должны давать предупреждения о старых UID.
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script|invalid UID|using text path instead" /tmp/nature-import.log; then
             exit 1
           fi
+      - name: Проверить настройки текстур GLB
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          folder = Path("godot/assets/nature/quaternius_stylized")
+          assets = sorted(folder.glob("*.glb"))
+          assert len(assets) == 9, "Число стилизованных GLB изменилось"
+          for asset in assets:
+              path = Path(str(asset) + ".import")
+              assert path.exists(), f"Отсутствуют параметры импорта: {asset.name}"
+              settings = path.read_text(encoding="utf-8")
+              assert 'gltf/embedded_image_handling=3' in settings, asset.name
+              assert "Extract Textures" not in settings, asset.name
+          # Встроенные текстуры не должны появляться как новые ресурсы в каталоге.
+          unexpected = [path.name for path in folder.iterdir()
+                        if path.is_file() and path.suffix.lower() in (".jpg", ".jpeg", ".png")]
+          assert not unexpected, f"Зависимые внешние текстуры: {unexpected}"
+          print("9 GLB используют внутренние текстуры, внешних файлов нет")
+          PY
       - name: Тест этапа 10
         timeout-minutes: 5
         run: |
@@ -78,7 +98,7 @@ jobs:
             --headless --path godot --quit-after 240 --script res://tests/nature_stage_10_smoke.gd 2>&1 \
             | tee /tmp/nature-smoke.log
           grep -q "Этап 10:.*успешно" /tmp/nature-smoke.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-smoke.log; then
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:|invalid UID|using text path instead" /tmp/nature-smoke.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
