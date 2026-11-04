@@ -56,6 +56,8 @@ func _test_physical_weights() -> void:
 	hydro.rebuild()
 	var surface := Surface.new(world, hydro)
 	surface.rebuild()
+	# Снимок гидрологии допускается только после подготовки карты стока.
+	hydro.apply_rainfall_map(surface.runoff_map())
 	var climate := Climate.new(world, hydro)
 	climate.rebuild()
 	var before_world: Dictionary = world.to_data()
