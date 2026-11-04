@@ -61,9 +61,9 @@ func apply(kind: String, center: Vector2, radius: float, strength: float) -> Dic
 	var deltas := PackedFloat32Array()
 	deltas.resize(points.size())
 	if kind == "поднятие" or kind == "просадка":
-		var sign := 1.0 if kind == "поднятие" else -1.0
+		var direction_sign := 1.0 if kind == "поднятие" else -1.0
 		for i in range(points.size()):
-			deltas[i] = sign * strength * weights[i]
+			deltas[i] = direction_sign * strength * weights[i]
 	elif kind == "эрозия":
 		_plan_erosion(points, weights, strength, deltas)
 	else:

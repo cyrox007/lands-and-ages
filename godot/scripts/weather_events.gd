@@ -54,14 +54,14 @@ func advance_day(day: int) -> Array[Dictionary]:
 			for sy in range(4):
 				for sx in range(4):
 					var cell := Vector2i(x0 + mini(span_x - 1,
-						(sx * 2 + 1) * span_x / 8),
-						y0 + mini(span_y - 1, (sy * 2 + 1) * span_y / 8))
-					var i: int = hydro.cell_index(cell)
-					var storm: float = climate.storm_at_index(i)
+						floori(float((sx * 2 + 1) * span_x) / 8.0)),
+						y0 + mini(span_y - 1, floori(float((sy * 2 + 1) * span_y) / 8.0)))
+					var sample_index: int = hydro.cell_index(cell)
+					var storm: float = climate.storm_at_index(sample_index)
 					if storm > strength:
 						strength = storm
 						chosen = cell
-					if not hydro.has_water(i) and storm > land_strength:
+					if not hydro.has_water(sample_index) and storm > land_strength:
 						land_strength = storm
 						land_cell = cell
 			if strength < MIN_STORM:
@@ -80,7 +80,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 				strength = land_strength
 			var profile: Dictionary = surface.profile_at(chosen)
 			var weather: Dictionary = climate.weather_at(chosen)
-			var i: int = hydro.cell_index(chosen)
+			var strike_index: int = hydro.cell_index(chosen)
 			# Грозовой дождь не всегда успевает промочить древесину.
 			# Ливень резко подавляет возможное загорание.
 			var dryness := clampf((0.95 - float(profile["moisture"])) / 0.95,
@@ -89,7 +89,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 				1.0 - float(weather["rainfall"]) / 1.4, 0.0, 1.0)
 			var ignition := strength * dryness * dry_strike * dry_strike \
 				* (1.0 - float(profile["snow"]))
-			if hydro.has_water(i):
+			if hydro.has_water(strike_index):
 				ignition = 0.0
 			var event: Dictionary = {
 				"day": day, "cell": chosen, "cause": "молния",

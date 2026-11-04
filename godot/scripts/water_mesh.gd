@@ -80,17 +80,20 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint, ice)
 		return 2
 
-	# Для прибрежной клетки используем непрерывную билинейную
-	# интерполяцию высот четырёх физических вершин. Делим только
-	# береговые полигоны: в открытой воде стоимость остаётся прежней.
+	# Высоты прибрежной воды совпадают с двумя треугольниками земли.
+	# Делим только береговые полигоны: открытая вода не усложняется.
 	# Соседние клетки получают одинаковые точки на общей границе.
 	return _subdivided_shore(tool, world, cell, level, tint, ice,
 		ha, hb, hc, hd)
 
 
-static func _bilinear_height(ha: float, hb: float, hc: float,
+static func _terrain_height(ha: float, hb: float, hc: float,
 		hd: float, u: float, v: float) -> float:
-	return lerpf(lerpf(ha, hb, u), lerpf(hc, hd, u), v)
+	# Диагональ B–C: такие же треугольники, как у Chunk.
+	# Билинейная высота на неровном рельефе пересекала меш земли.
+	if u + v <= 1.0:
+		return ha + (hb - ha) * u + (hc - ha) * v
+	return hd + (hc - hd) * (1.0 - u) + (hb - hd) * (1.0 - v)
 
 
 static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
@@ -107,10 +110,10 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 			var b := Vector2(cell) + Vector2(u1, v0)
 			var c := Vector2(cell) + Vector2(u0, v1)
 			var d := Vector2(cell) + Vector2(u1, v1)
-			var h00 := _bilinear_height(ha, hb, hc, hd, u0, v0)
-			var h10 := _bilinear_height(ha, hb, hc, hd, u1, v0)
-			var h01 := _bilinear_height(ha, hb, hc, hd, u0, v1)
-			var h11 := _bilinear_height(ha, hb, hc, hd, u1, v1)
+			var h00 := _terrain_height(ha, hb, hc, hd, u0, v0)
+			var h10 := _terrain_height(ha, hb, hc, hd, u1, v0)
+			var h01 := _terrain_height(ha, hb, hc, hd, u0, v1)
+			var h11 := _terrain_height(ha, hb, hc, hd, u1, v1)
 			var first := _clip_submerged_triangle(
 				PackedVector2Array([a, c, b]),
 				PackedFloat32Array([h00, h01, h10]), level)

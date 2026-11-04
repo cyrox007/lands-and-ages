@@ -21,15 +21,28 @@ func _check(value: bool, reason: String) -> void:
 func _test_coast() -> void:
 	_check(Water.SHORE_SUBDIVISIONS >= 2,
 		"Берег делится на несколько субклеточных треугольников")
-	var a := Water._bilinear_height(-1.0, 1.0, 0.0, 2.0, 0.5, 0.0)
-	var b := Water._bilinear_height(-1.0, 1.0, 0.0, 2.0, 0.5, 1.0)
+	var a := Water._terrain_height(-1.0, 1.0, 0.0, 2.0, 0.5, 0.0)
+	var b := Water._terrain_height(-1.0, 1.0, 0.0, 2.0, 0.5, 1.0)
 	_check(is_equal_approx(a, 0.0) and is_equal_approx(b, 1.0),
 		"Интерполяция согласована с высотами физической сетки")
+	# На седловине билинейная поверхность давала ноль,
+	# хотя фактические треугольники земли в центре имеют высоту 1.
+	var diagonal: float = Water._terrain_height(-1.0, 1.0, 1.0,
+		-1.0, 0.5, 0.5)
+	_check(is_equal_approx(diagonal, 1.0),
+		"Седловина у воды повторяет фактическую диагональ меша")
+	var first: float = Water._terrain_height(0.0, 1.0, 2.0,
+		6.0, 0.2, 0.3)
+	var second: float = Water._terrain_height(0.0, 1.0, 2.0,
+		6.0, 0.8, 0.7)
+	_check(is_equal_approx(first, 0.8) and
+		is_equal_approx(second, 3.7),
+		"Интерполяция использует обе треугольные плоскости")
 	# Общая сторона соседних ячеек не может разойтись.
 	for j in range(4):
 		var v := float(j) / 3.0
-		var left := Water._bilinear_height(-2, 1, 2, 3, 1.0, v)
-		var right := Water._bilinear_height(1, 4, 3, 5, 0.0, v)
+		var left := Water._terrain_height(-2, 1, 2, 3, 1.0, v)
+		var right := Water._terrain_height(1, 4, 3, 5, 0.0, v)
 		_check(is_equal_approx(left, right),
 			"Соседние прибрежные клетки имеют непрерывную общую высоту")
 	var world := WorldMap.new(Config.new(32, 32, 1729, 16, 16))

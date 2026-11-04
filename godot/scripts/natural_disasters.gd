@@ -47,7 +47,8 @@ func _init(map: RefCounted, water: RefCounted,
 	for i in range(count):
 		# Накопление тектонического напряжения не зависит от осадков.
 		_strain[i] = Terrain.hash2(i % region_count.x,
-			i / region_count.x, world.config.seed + 7513) * 0.65
+			floori(float(i) / float(region_count.x)),
+			world.config.seed + 7513) * 0.65
 	# Координаты выборки неизменны для данного размера карты.
 	for ry in range(region_count.y):
 		for rx in range(region_count.x):
@@ -58,9 +59,11 @@ func _init(map: RefCounted, water: RefCounted,
 				for sx in range(SAMPLE_AXIS):
 					cells.append(Vector2i(
 						rect.position.x + mini(rect.size.x - 1,
-							(sx * 2 + 1) * rect.size.x / (2 * SAMPLE_AXIS)),
+							floori(float((sx * 2 + 1) * rect.size.x) /
+								float(2 * SAMPLE_AXIS))),
 						rect.position.y + mini(rect.size.y - 1,
-							(sy * 2 + 1) * rect.size.y / (2 * SAMPLE_AXIS))))
+							floori(float((sy * 2 + 1) * rect.size.y) /
+								float(2 * SAMPLE_AXIS)))))
 			_region_samples[region] = cells
 
 
