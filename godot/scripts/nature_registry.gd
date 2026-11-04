@@ -5,6 +5,7 @@ signal objects_changed(chunks: Array[Vector2i], revision: int)
 signal tree_felled(previous: Dictionary)
 
 const Terrain = preload("res://scripts/terrain.gd")
+const Geometry = preload("res://scripts/nature_geometry.gd")
 const FORMAT_VERSION := 1
 const GRID_STEP := 3
 const MAX_OBJECTS := 200000
@@ -178,6 +179,8 @@ func intersects_solid(point: Vector2, radius: float = 0.0,
                 if id == ignored_id:
                     continue
                 var item: Dictionary = _objects[id]
+                if Geometry.hits_log(point, radius, item, world.config):
+                    return true
                 var support := footprint_radius(item)
                 if support <= 0.0:
                     continue
