@@ -3,6 +3,7 @@ extends RefCounted
 ## Вне видимых чанков узлы/анимация не создаются.
 
 const Wind = preload("res://shaders/nature_wind.gdshader")
+const Terrain = preload("res://scripts/terrain.gd")
 
 static var _meshes: Dictionary = {}
 static var _materials: Dictionary = {}
@@ -12,7 +13,14 @@ static func _mesh(kind: String) -> Mesh:
     if _meshes.has(kind):
         return _meshes[kind]
     var mesh: PrimitiveMesh
-    if kind in ["ствол", "пень"]:
+    if kind == "трава":
+        var blade := CylinderMesh.new()
+        blade.top_radius = 0.0
+        blade.bottom_radius = 0.035
+        blade.height = 0.36
+        blade.radial_segments = 3
+        mesh = blade
+    elif kind in ["ствол", "пень"]:
         var cylinder := CylinderMesh.new()
         cylinder.top_radius = 0.10 if kind == "ствол" else 0.16
         cylinder.bottom_radius = 0.17 if kind == "ствол" else 0.19
@@ -35,7 +43,7 @@ static func _mesh(kind: String) -> Mesh:
         sphere.radial_segments = 10
         sphere.rings = 5
         mesh = sphere
-    if kind in ["хвоя", "листва", "куст"]:
+    if kind in ["хвоя", "листва", "куст", "трава"]:
         var wind := ShaderMaterial.new()
         wind.shader = Wind
         mesh.material = wind
@@ -51,6 +59,8 @@ static func _mesh(kind: String) -> Mesh:
 static func _color(kind: String, species: String, state: String) -> Color:
     if kind in ["ствол", "пень"]:
         return Color(0.30, 0.22, 0.14) if state != "сухостой" else Color(0.44, 0.40, 0.32)
+    if kind == "трава":
+        return Color(0.22, 0.38, 0.13)
     if kind == "камень":
         return Color(0.46, 0.48, 0.43)
     if kind == "куст":
@@ -131,6 +141,40 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             _push(groups, "камень",
                 Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.26, 0)),
                 _color("камень", species, state), phase)
+
+    # Трава — дешёвый геометрический покров, а не отдельные сущности.
+    # Около 64 пробных точек на чанк; результат зависит от физики мира.
+    var area: Rect2i = world.config.chunk_rect(coord)
+    for y in range(area.position.y, area.end.y, 2):
+        for x in range(area.position.x, area.end.x, 2):
+            var cell := Vector2i(x, y)
+            var cover: float = nature.ground_cover_at(cell)
+            if cover < 0.16:
+                continue
+            var seed: int = world.config.seed
+            var amount: float = Terrain.hash2(x, y, seed + 804)
+            if amount > cover:
+                continue
+            var jx: float = Terrain.hash2(x, y, seed + 805) - 0.5
+            var jy: float = Terrain.hash2(x, y, seed + 806) - 0.5
+            var position := Vector2(float(x) + 0.5 + jx,
+                float(y) + 0.5 + jy)
+            var terrain_height: float = world.height_at(position)
+            if not is_finite(terrain_height):
+                continue
+            var origin: Vector3 = world.config.to_scene(position, terrain_height)
+            var height_scale := 0.60 + cover
+            var basis := Basis.IDENTITY.scaled(
+                Vector3(1.0, height_scale, 1.0))
+            var wind_index: int = nature.hydro.cell_index(cell)
+            var wind: float = clampf(
+                nature.climate.wind_at_index(wind_index) / 2.4, 0.0, 1.0)
+            var phase: float = amount
+            _push(groups, "трава",
+                Transform3D(basis, origin +
+                    Vector3(0.0, 0.18 * height_scale, 0.0)),
+                _color("трава", "", "").lerp(
+                    Color(0.34, 0.42, 0.15), 0.40 * amount), phase, wind)
 
     for kind in groups.keys():
         var instances: Array = groups[kind]

@@ -7,6 +7,7 @@ const Hydro = preload("res://scripts/hydrology.gd")
 const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
+const Renderer = preload("res://scripts/nature_renderer.gd")
 const Capacity = preload("res://scripts/world_capacity_audit.gd")
 const Weather = preload("res://scripts/weather_events.gd")
 const Natural = preload("res://scripts/natural_processes.gd")
@@ -84,12 +85,19 @@ func _run() -> void:
             "Ствол занимает физический участок, а не всю клетку")
         _check(not nature.interaction_points(tree_id).is_empty(),
             "У дерева есть физические точки подхода")
+        var canopy_before: float = nature.canopy_pressure_at(
+            Vector2i(int(tree["x"]), int(tree["y"])))
+        _check(canopy_before > 0.0,
+            "Взрослое дерево создаёт физическое затенение")
         var stock: int = nature.wood_total()
         var hit: Dictionary = nature.fell_tree(tree_id)
         _check(not hit.is_empty() and int(hit["wood_units"]) > 0,
             "Физическая валка переводит дерево в пень")
         _check(nature.wood_total() == stock,
             "Древесина не возникает и не исчезает при валке")
+        _check(nature.canopy_pressure_at(
+            Vector2i(int(tree["x"]), int(tree["y"]))) < canopy_before,
+            "Валка освобождает свет для молодняка")
         _check(nature.fell_tree(tree_id).is_empty(),
             "Повторная рубка не дублирует древесину")
         var extracted: int = maxi(1, int(hit["wood_units"]) / 2)
@@ -124,6 +132,40 @@ func _run() -> void:
         saplings_b["nature"].advance_day(day)
     _check(saplings_a["nature"].to_data() == saplings_b["nature"].to_data(),
         "Годовой цикл семян и роста воспроизводится без рендера")
+
+    for y in range(4, 48, 4):
+        for x in range(4, 48, 4):
+            var cell := Vector2i(x, y)
+            var first: float = saplings_a["nature"].ground_cover_at(cell)
+            var second: float = saplings_b["nature"].ground_cover_at(cell)
+            _check(first >= 0.0 and first <= 1.0,
+                "Плотность травы остаётся в физических границах")
+            _check(is_equal_approx(first, second),
+                "Покров не зависит от камеры и FPS")
+            var index: int = saplings_a["hydro"].cell_index(cell)
+            if saplings_a["hydro"].has_water(index):
+                _check(first == 0.0,
+                    "Трава не генерируется в водоёме")
+
+    var rendered_objects := 0
+    var rendered_grass := 0
+    var chunk_count: Vector2i = original["world"].config.chunk_count()
+    for cy in range(chunk_count.y):
+        for cx in range(chunk_count.x):
+            var visible_chunk := Renderer.create_chunk(
+                original["world"], nature, Vector2i(cx, cy))
+            for child in visible_chunk.get_children():
+                if not (child is MultiMeshInstance3D):
+                    continue
+                var instance: MultiMeshInstance3D = child
+                _check(instance.multimesh.instance_count > 0,
+                    "Пустой MultiMesh не расходует GPU-ресурсы")
+                rendered_objects += instance.multimesh.instance_count
+                if instance.name == "трава":
+                    rendered_grass += instance.multimesh.instance_count
+            visible_chunk.free()
+    _check(rendered_objects > 0 and rendered_grass > 0,
+        "Трава и природные объекты создаются в видимых чанках")
 
     var capacity: Dictionary = Capacity.report(original["world"],
         original["hydro"], original["surface"], nature, 9)

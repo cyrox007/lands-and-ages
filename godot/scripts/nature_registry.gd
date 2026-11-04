@@ -210,6 +210,59 @@ func interaction_points(id: int, clearance: float = 0.28) -> Array[Vector2]:
     return points
 
 
+func canopy_pressure_at(cell: Vector2i, ignored_id: int = -1) -> float:
+    # Затенение рассчитывается по соседним чанкам, а не по всей карте.
+    if not world.config.contains_cell(cell):
+        return 0.0
+    var chunk: Vector2i = world.config.chunk_of(cell)
+    var size: int = world.config.chunk_size
+    var range_chunks: int = ceili(5.0 / float(size)) + 1
+    var pressure := 0.0
+    for cy in range(chunk.y - range_chunks, chunk.y + range_chunks + 1):
+        for cx in range(chunk.x - range_chunks, chunk.x + range_chunks + 1):
+            for id in _chunks.get(Vector2i(cx, cy), []):
+                if int(id) == ignored_id:
+                    continue
+                var item: Dictionary = _objects[id]
+                if item["kind"] != "дерево" or item["state"] != "целое":
+                    continue
+                var location := Vector2(float(item["x"]), float(item["y"]))
+                var distance: float = location.distance_to(Vector2(cell))
+                if distance >= 5.0:
+                    continue
+                var crown: float = clampf(
+                    float(item["age_days"]) / (20.0 * 96.0), 0.10, 1.0)
+                pressure += (1.0 - distance / 5.0) * crown \
+                    * float(item["health"]) / 1000.0
+    return minf(3.0, pressure)
+
+
+func ground_cover_at(cell: Vector2i) -> float:
+    # Массовая трава не получает миллион отдельных ID.
+    # Её плотность определяется сохранёнными почвой, погодой и деревьями.
+    if not world.config.contains_cell(cell):
+        return 0.0
+    var index: int = hydro.cell_index(cell)
+    if hydro.has_water(index) or hydro.flooded_at(index):
+        return 0.0
+    var soil: Dictionary = surface.profile_at(cell)
+    if soil.is_empty():
+        return 0.0
+    var moisture: float = float(soil.get("moisture", 0.0))
+    var fertility: float = float(soil.get("fertility", 0.0))
+    var snow: float = float(soil.get("snow", 0.0))
+    var temperature: float = climate.temperature_at_index(index)
+    var climate_factor := clampf((temperature + 3.0) / 11.0, 0.0, 1.0)
+    climate_factor *= clampf((42.0 - temperature) / 12.0, 0.0, 1.0)
+    var moisture_factor := clampf((moisture - 0.10) * 1.9, 0.0, 1.0)
+    var substrate_factor := 0.18 if soil.get("substrate") == "скала" else 1.0
+    var shade := canopy_pressure_at(cell)
+    return clampf((0.22 + fertility * 0.78) * moisture_factor
+        * climate_factor * (1.0 - snow * 0.90)
+        * (1.0 - clampf(shade * 0.36, 0.0, 0.80))
+        * substrate_factor, 0.0, 1.0)
+
+
 func wood_total() -> int:
     var total := 0
     for item in _objects.values():
@@ -279,6 +332,9 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
         if hydro.has_water(water_index) or hydro.flooded_at(water_index):
             continue
         if world.normal_at(next).y < 0.75:
+            continue
+        # Под плотной взрослой кроной молодняку не хватает света.
+        if canopy_pressure_at(next) >= 1.10:
             continue
         var soil: Dictionary = surface.profile_at(next)
         if float(soil.get("growth_potential", 0.0)) < 0.20 \
@@ -361,6 +417,12 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
             stress += 12
         if flood:
             stress += 24
+        var competition := 0.0
+        if item["kind"] == "дерево" and item["state"] == "целое":
+            competition = canopy_pressure_at(cell, int(id))
+            var young: bool = int(item["age_days"]) < 7 * 96
+            stress += roundi(maxf(0.0, competition - 0.25)
+                * (18.0 if young else 5.0))
         if stress > 0:
             item["health"] = maxi(0, int(item["health"]) - stress)
         elif int(item["health"]) < 1000:
@@ -369,8 +431,10 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
             item["state"] = "сухостой"
         if item["kind"] == "дерево":
             if item["state"] == "целое" and item["age_days"] % 96 < 8:
-                item["wood_units"] = int(item["wood_units"]) + (
-                    3 if int(item["age_days"]) < 60 * 96 else 1)
+                var annual_increment := 3 if int(item["age_days"]) < 60 * 96 else 1
+                if competition > 0.75:
+                    annual_increment = maxi(0, annual_increment - 2)
+                item["wood_units"] = int(item["wood_units"]) + annual_increment
             elif item["state"] == "сухостой" and day % 96 < 8:
                 item["wood_units"] = maxi(0, int(item["wood_units"]) - 1)
         _objects[id] = item
