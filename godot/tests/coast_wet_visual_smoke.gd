@@ -217,6 +217,12 @@ func _test_shared_coastal_mesh() -> void:
 
 
 func _test_continuous_flood() -> void:
+	_check(Water._flood_tint(0.0).is_equal_approx(
+		Color(0.17, 0.34, 0.38, 0.90)),
+		"Связная пойма имеет единый оттенок независимо от типа клетки")
+	_check(Water._flood_tint(1.0).is_equal_approx(
+		Color(0.77, 0.86, 0.89, 0.96)),
+		"Промёрзшая пойма сохраняет общий ледяной материал")
 	var hydro := FloodHydrology.new()
 	var world := WorldMap.new(Config.new(32, 32, 1729, 16, 16))
 	var before: Dictionary = world.to_data()
