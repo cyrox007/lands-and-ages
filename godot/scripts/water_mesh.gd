@@ -372,7 +372,7 @@ static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
 			var context: Dictionary = ShoreVisual.water_context(world, hydro, cell)
 			if not physical_water and context.is_empty() and not flood_near:
 				continue
-			var level: float = hydro.level_at(index) if physical_water else float(context["level"])
+			var level: float = hydro.level_at(index) if physical_water else float(context.get("level", 0.0))
 			var lake: bool = hydro.lake_at(index) if physical_water else bool(context["lake"])
 			var ocean: bool = hydro.ocean_at(index) if physical_water else bool(context["ocean"])
 			var river: bool = hydro.river_at(index) if physical_water else false
