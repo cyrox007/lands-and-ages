@@ -805,20 +805,20 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 	_render_cache.discard(chunk)
 	if _view_mode != 0 or not _active.has(chunk):
 		return
-	var owner: Node3D = _active[chunk]
-	var previous: Node = owner.get_node_or_null("Природные объекты")
+	var chunk_root: Node3D = _active[chunk]
+	var previous: Node = chunk_root.get_node_or_null("Природные объекты")
 	if previous != null:
-		owner.remove_child(previous)
+		chunk_root.remove_child(previous)
 		previous.queue_free()
-	owner.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
+	chunk_root.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
 		_detail_for_zoom(_camera.size)))
-	var old_collisions: Node = owner.get_node_or_null(
+	var old_collisions: Node = chunk_root.get_node_or_null(
 		NatureCollision.COLLISION_NAME)
 	if old_collisions != null:
-		owner.remove_child(old_collisions)
+		chunk_root.remove_child(old_collisions)
 		old_collisions.queue_free()
 	if NatureCollision.near_camera(chunk, _chunk_center):
-		owner.add_child(NatureCollision.create_chunk(
+		chunk_root.add_child(NatureCollision.create_chunk(
 			_world_model, _nature, chunk))
 
 
@@ -828,19 +828,19 @@ func _sync_nature_colliders() -> void:
 		return
 	var created := 0
 	for chunk in _active.keys():
-		var owner: Node3D = _active[chunk]
-		var current: Node = owner.get_node_or_null(
+		var chunk_root: Node3D = _active[chunk]
+		var current: Node = chunk_root.get_node_or_null(
 			NatureCollision.COLLISION_NAME)
 		var required: bool = _view_mode == 0 and \
 			NatureCollision.near_camera(chunk, _chunk_center)
 		if not required:
 			if current != null:
-				owner.remove_child(current)
+				chunk_root.remove_child(current)
 				current.queue_free()
 			continue
 		if current != null or created >= NatureCollision.MAX_NEW_CHUNKS_PER_FRAME:
 			continue
-		owner.add_child(NatureCollision.create_chunk(
+		chunk_root.add_child(NatureCollision.create_chunk(
 			_world_model, _nature, chunk))
 		created += 1
 
@@ -894,8 +894,8 @@ func _on_tree_felled(previous: Dictionary) -> void:
 		_world_model, previous, _detail_for_zoom(_camera.size))
 	if visual == null:
 		return
-	var owner: Node3D = _active[chunk]
-	owner.add_child(visual)
+	var chunk_root: Node3D = _active[chunk]
+	chunk_root.add_child(visual)
 	NatureFelling.animate(visual)
 
 
@@ -912,9 +912,9 @@ func _debug_fell_nearest_tree() -> void:
 			if item["kind"] != "дерево" or item["state"] not in [
 					"целое", "сухостой"]:
 				continue
-			var position := Vector2(float(item["x"]) + 0.5,
+			var object_position := Vector2(float(item["x"]) + 0.5,
 				float(item["y"]) + 0.5)
-			var length: float = position.distance_squared_to(_center)
+			var length: float = object_position.distance_squared_to(_center)
 			if length < distance:
 				chosen = int(item["id"])
 				distance = length
