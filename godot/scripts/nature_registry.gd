@@ -147,6 +147,62 @@ func objects_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
     return result
 
 
+static func footprint_radius(item: Dictionary) -> float:
+    # Крона не является коллизией; только ствол, пень или валун.
+    if item.get("kind") == "валун":
+        return 0.35
+    if item.get("kind") == "кустарник":
+        return 0.0
+    if item.get("state") == "пень":
+        return 0.15
+    return 0.17 * clampf(float(item.get("age_days", 0)) /
+        (20.0 * 96.0), 0.20, 1.25)
+
+
+func intersects_solid(point: Vector2, radius: float = 0.0,
+        ignored_id: int = -1) -> bool:
+    if not world.config.contains_point(point) or radius < 0.0:
+        return true
+    # Пространственный поиск ограничен соседними чанками, а не всей картой.
+    var size: int = world.config.chunk_size
+    var near: int = ceili((radius + 1.0) / float(size)) + 1
+    var center: Vector2i = world.config.chunk_of(world.config.cell_at(point))
+    for cy in range(center.y - near, center.y + near + 1):
+        for cx in range(center.x - near, center.x + near + 1):
+            for id in _chunks.get(Vector2i(cx, cy), []):
+                if id == ignored_id:
+                    continue
+                var item: Dictionary = _objects[id]
+                var support := footprint_radius(item)
+                if support <= 0.0:
+                    continue
+                var origin := Vector2(float(item["x"]) + 0.5,
+                    float(item["y"]) + 0.5)
+                if origin.distance_to(point) < support + radius:
+                    return true
+    return false
+
+
+func interaction_points(id: int, clearance: float = 0.28) -> Array[Vector2]:
+    # Будущие лесорубы используют физические точки подхода, не спрайт.
+    var points: Array[Vector2] = []
+    var item: Dictionary = object_at(id)
+    if item.is_empty() or item["kind"] not in ["дерево", "валун"]:
+        return points
+    var origin := Vector2(float(item["x"]) + 0.5,
+        float(item["y"]) + 0.5)
+    var offset := footprint_radius(item) + clearance
+    for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+        var point := origin + direction * offset
+        if not world.config.contains_point(point):
+            continue
+        var index: int = hydro.cell_index(world.config.cell_at(point))
+        if hydro.has_water(index) or intersects_solid(point, 0.08, id):
+            continue
+        points.append(point)
+    return points
+
+
 func wood_total() -> int:
     var total := 0
     for item in _objects.values():
