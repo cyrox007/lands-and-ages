@@ -191,6 +191,7 @@ func _setup_materials() -> void:
 	_ground_material.set_shader_parameter("terrain_albedo", TerrainAlbedo)
 	_ground_material.set_shader_parameter("terrain_normal_roughness",
 		TerrainNormalRoughness)
+	_ground_material.set_shader_parameter("macro_strength", 1.0)
 	_debug_ground_material = StandardMaterial3D.new()
 	_debug_ground_material.vertex_color_use_as_albedo = true
 	_debug_ground_material.roughness = 1.0
@@ -408,6 +409,8 @@ func _update_material_detail() -> void:
 	var detail := _detail_for_zoom(_camera.size)
 	if _ground_material != null:
 		_ground_material.set_shader_parameter("detail_strength", detail)
+		# Дальние планы обходятся без дополнительного шума и изгиба UV.
+		_ground_material.set_shader_parameter("macro_strength", detail)
 	if _water_material != null:
 		_water_material.set_shader_parameter("ripple_strength", detail)
 
