@@ -65,11 +65,11 @@ static func report(world: RefCounted, hydro: RefCounted,
             var cx := current % width
             var cy := current / width
             for offset in DIRECTIONS:
-                var nx := cx + offset.x
-                var ny := cy + offset.y
+                var nx: int = cx + offset.x
+                var ny: int = cy + offset.y
                 if nx < 0 or ny < 0 or nx >= width or ny >= height:
                     continue
-                var next := ny * width + nx
+                var next: int = ny * width + nx
                 if suitable[next] != 0 and visited[next] == 0:
                     visited[next] = 1
                     pending.append(next)

@@ -36,7 +36,7 @@ jobs:
         run: |
           set -o pipefail
           timeout 260s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
-            --headless --path godot --script res://tests/nature_stage_10_smoke.gd 2>&1 \
+            --headless --path godot --quit-after 240 --script res://tests/nature_stage_10_smoke.gd 2>&1 \
             | tee /tmp/nature-smoke.log
           grep -q "Этап 10:.*успешно" /tmp/nature-smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-smoke.log; then
