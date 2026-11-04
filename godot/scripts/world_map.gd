@@ -169,7 +169,7 @@ func to_data() -> Dictionary:
 	for key in keys:
 		var index: int = int(key)
 		changes.append([index % (config.width + 1),
-			index / (config.width + 1), roundi(float(_heights[key]) * HEIGHT_UNITS)])
+			floori(float(index) / float(config.width + 1)), roundi(float(_heights[key]) * HEIGHT_UNITS)])
 	return {
 		"version": SAVE_VERSION,
 		"config": config.to_data(),
