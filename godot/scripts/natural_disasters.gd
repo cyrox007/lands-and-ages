@@ -14,7 +14,7 @@ const DIRECTIONS := [
 	Vector2i(-1, 0), Vector2i(1, 0),
 	Vector2i(0, -1), Vector2i(0, 1)
 ]
-const KINDS := ["шторм", "шквал", "ураган", "паводок", "засуха", "лавина",
+const KINDS := ["шторм", "шквал", "ураган", "смерч", "паводок", "засуха", "лавина",
 	"сель", "оползень", "землетрясение"]
 
 var world: RefCounted
@@ -138,6 +138,13 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 	# по уже сохраняемой серии штормовых суток, без новой версии JSON.
 	var hurricane_risk := clampf((wind - 19.0) / 10.0, 0.0, 1.0) * \
 		clampf((storm - 0.52) / 0.45, 0.0, 1.0)
+	# Смерч — редкий короткий вихрь на суше под мощным
+	# конвективным фронтом. Порог не измерен в реальных м/с:
+	# здесь используется условная физическая шкала Climate.
+	var tornado_risk := clampf((wind - 20.0) / 10.0, 0.0, 1.0) * \
+		clampf((storm - 0.65) / 0.30, 0.0, 1.0)
+	if covered:
+		tornado_risk = 0.0
 	var flood_risk := clampf(hydro.flood_depth_at(i) / 0.45, 0.0, 1.0)
 	var drought_risk := clampf((0.32 - moisture) / 0.32, 0.0, 1.0) \
 		* clampf((air - 15.0) / 17.0, 0.0, 1.0) \
@@ -157,7 +164,7 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 		slide_risk = 0.0
 	return {
 		"шторм": storm_risk, "шквал": squall_risk,
-		"ураган": hurricane_risk,
+		"ураган": hurricane_risk, "смерч": tornado_risk,
 		"паводок": flood_risk,
 		"засуха": drought_risk, "лавина": avalanche_risk,
 		"сель": mudflow_risk, "оползень": slide_risk,
@@ -256,6 +263,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 			var storm: Dictionary = found["шторм"]
 			var squall: Dictionary = found["шквал"]
 			var hurricane: Dictionary = found["ураган"]
+			var tornado: Dictionary = found["смерч"]
 			var flood: Dictionary = found["паводок"]
 			var drought: Dictionary = found["засуха"]
 			_storms[index] = _streak(_storms[index], storm["score"], 0.34)
@@ -276,6 +284,12 @@ func advance_day(day: int) -> Array[Dictionary]:
 			if _storms[index] == 5 and float(hurricane["score"]) >= 0.65:
 				_record("ураган", hurricane["cell"],
 					float(hurricane["score"]), _storms[index])
+			# На суше отдельный вихрь может возникнуть в первые
+			# сутки фронта. Шанс редкий, seed-детерминированный;
+			# один event описывает весь след за один физический день.
+			if float(tornado["score"]) >= 0.72 and Terrain.hash2(rx, ry,
+					world.config.world_seed + day * 83 + 6137) < 0.18:
+				_record("смерч", tornado["cell"], float(tornado["score"]), 1)
 			# Один короткий шквал допускается при резком физическом порыве.
 			# Отбор по seed/дню не расходует состояние генератора случайных
 			# чисел, поэтому сохранение и повторный прогон согласованы.
