@@ -2,6 +2,10 @@ name: Отладочный Android APK природного мира — што�
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - ".github/workflows/world-android-debug.yml"
   push:
     branches: [develop]
     paths:
