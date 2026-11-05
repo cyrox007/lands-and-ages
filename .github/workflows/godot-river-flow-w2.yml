@@ -1,4 +1,4 @@
-name: Этап 11.6 — течение рек и ветровые волны
+name: Этап 11.6 — течение рек, волны и береговая пена
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - "godot/shaders/natural_water.gdshader"
       - "godot/tests/water_flow_w2_smoke.gd"
       - "godot/tests/water_wind_w3_smoke.gd"
+      - "godot/tests/water_shore_w4_smoke.gd"
       - "godot/scripts/world.gd"
       - "godot/scripts/weather_visual_state.gd"
       - "godot/scripts/weather_fx_controller.gd"
@@ -19,6 +20,7 @@ on:
       - "godot/shaders/natural_water.gdshader"
       - "godot/tests/water_flow_w2_smoke.gd"
       - "godot/tests/water_wind_w3_smoke.gd"
+      - "godot/tests/water_shore_w4_smoke.gd"
       - "godot/scripts/world.gd"
       - "godot/scripts/weather_visual_state.gd"
       - "godot/scripts/weather_fx_controller.gd"
@@ -68,6 +70,16 @@ jobs:
             2>&1 | tee /tmp/river-w3.log
           grep -q "Этап 11.6/W3: ветровые волны озёр и моря — успешно" /tmp/river-w3.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/river-w3.log; then
+            exit 1
+          fi
+      - name: "W4: береговая пена, блики и неизменность физики"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/water_shore_w4_smoke.gd \
+            2>&1 | tee /tmp/river-w4.log
+          grep -q "Этап 11.6/W4: береговая пена и блики — успешно" /tmp/river-w4.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/river-w4.log; then
             exit 1
           fi
       - name: Регрессия берегов, паводка и исходной водной ряби
