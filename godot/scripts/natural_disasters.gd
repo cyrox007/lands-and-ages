@@ -14,7 +14,7 @@ const DIRECTIONS := [
 	Vector2i(-1, 0), Vector2i(1, 0),
 	Vector2i(0, -1), Vector2i(0, 1)
 ]
-const KINDS := ["шторм", "шквал", "паводок", "засуха", "лавина",
+const KINDS := ["шторм", "шквал", "ураган", "паводок", "засуха", "лавина",
 	"сель", "оползень", "землетрясение"]
 
 var world: RefCounted
@@ -133,6 +133,11 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 	# трёхсуточная выдержка обычного шторма, но нужен высокий порыв.
 	var squall_risk := clampf((wind - 16.0) / 13.0, 0.0, 1.0) * \
 		clampf(0.55 + storm * 0.65, 0.0, 1.0)
+	# Ураган требует одновременно сильного порывистого потока
+	# и развитого грозового фронта. Продолжительность сверяем
+	# по уже сохраняемой серии штормовых суток, без новой версии JSON.
+	var hurricane_risk := clampf((wind - 19.0) / 10.0, 0.0, 1.0) * \
+		clampf((storm - 0.52) / 0.45, 0.0, 1.0)
 	var flood_risk := clampf(hydro.flood_depth_at(i) / 0.45, 0.0, 1.0)
 	var drought_risk := clampf((0.32 - moisture) / 0.32, 0.0, 1.0) \
 		* clampf((air - 15.0) / 17.0, 0.0, 1.0) \
@@ -152,6 +157,7 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 		slide_risk = 0.0
 	return {
 		"шторм": storm_risk, "шквал": squall_risk,
+		"ураган": hurricane_risk,
 		"паводок": flood_risk,
 		"засуха": drought_risk, "лавина": avalanche_risk,
 		"сель": mudflow_risk, "оползень": slide_risk,
@@ -249,6 +255,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 			var found := _candidates(Vector2i(rx, ry), check_slopes)
 			var storm: Dictionary = found["шторм"]
 			var squall: Dictionary = found["шквал"]
+			var hurricane: Dictionary = found["ураган"]
 			var flood: Dictionary = found["паводок"]
 			var drought: Dictionary = found["засуха"]
 			_storms[index] = _streak(_storms[index], storm["score"], 0.34)
@@ -263,6 +270,12 @@ func advance_day(day: int) -> Array[Dictionary]:
 
 			if _storms[index] == 3:
 				_record("шторм", storm["cell"], storm["score"], _storms[index])
+			# На пятые подряд штормовые сутки проверяем переход
+			# фронта в ураган. Ровно одно событие на серию:
+			# возобновление после JSON использует прежний _storms.
+			if _storms[index] == 5 and float(hurricane["score"]) >= 0.65:
+				_record("ураган", hurricane["cell"],
+					float(hurricane["score"]), _storms[index])
 			# Один короткий шквал допускается при резком физическом порыве.
 			# Отбор по seed/дню не расходует состояние генератора случайных
 			# чисел, поэтому сохранение и повторный прогон согласованы.

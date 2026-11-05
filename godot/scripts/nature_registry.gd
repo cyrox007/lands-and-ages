@@ -462,6 +462,22 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
     return created
 
 
+static func hurricane_direction(offset: Vector2,
+        prevailing: Vector2, clockwise: bool) -> Vector2:
+    # В центре потоку не хватает радиуса вращения — берём
+    # направление фронта. На периферии преобладает касательный
+    # ветер, плавно смешанный с переносом всего урагана.
+    var front := prevailing.normalized()
+    if front.length_squared() < 0.000001:
+        front = Vector2.RIGHT
+    if offset.length_squared() < 1.0:
+        return front
+    var tangent := Vector2(-offset.y, offset.x).normalized()
+    if clockwise:
+        tangent = -tangent
+    return (tangent * 0.83 + front * 0.17).normalized()
+
+
 static func squall_reaches(offset: Vector2, direction: Vector2) -> bool:
     # Смещение относительно эпицентра проецируем по ветру и поперёк.
     # Порыв повреждает длинную узкую полосу, включая небольшой тыл,
@@ -478,15 +494,19 @@ func _damage_from_events(hazards: Array[Dictionary],
     # всех объектов для каждого события не масштабируется на большой карте.
     var events: Array[Dictionary] = []
     for event in hazards:
-        var squall := str(event.get("kind", "")) == "шквал"
+        var kind := str(event.get("kind", ""))
+        var squall := kind == "шквал"
+        var hurricane := kind == "ураган"
         var force := clampf(float(event.get("severity", 0.0)), 0.0, 1.0)
         events.append({
-            "kind": str(event.get("kind", "")),
+            "kind": kind,
             "cell": event.get("cell"),
-            # Шквал длиннее по ветру, но существенно уже обычного шторма.
-            "radius": 9.0 if squall else 5.0,
+            # Большой ураган охватывает несколько природных чанков.
+            # Шквал, наоборот, остаётся вытянутой узкой полосой.
+            "radius": 14.0 if hurricane else (9.0 if squall else 5.0),
             "severity": force,
-            "damage": roundi(force * (500.0 if squall else 350.0))
+            "damage": roundi(force * (720.0 if hurricane else
+                (500.0 if squall else 350.0)))
         })
     for strike in strikes:
         events.append({
@@ -505,6 +525,16 @@ func _damage_from_events(hazards: Array[Dictionary],
             continue
         var radius: float = float(event["radius"])
         var is_squall := str(event["kind"]) == "шквал"
+        var is_hurricane := str(event["kind"]) == "ураган"
+        var hurricane_front := Vector2.RIGHT
+        var hurricane_clockwise := false
+        if is_hurricane:
+            # Одинаковая сторона вращения для всех клеток данного
+            # события определяется координатами центра, днём и seed.
+            hurricane_front = climate.wind_direction_at_index(
+                hydro.cell_index(center))
+            hurricane_clockwise = Terrain.hash2(center.x, center.y,
+                world.config.world_seed + climate.day * 41 + 9421) < 0.5
         var squall_direction := Vector2.RIGHT
         if is_squall:
             # Направление берём в эпицентре из физического климата.
@@ -525,7 +555,8 @@ func _damage_from_events(hazards: Array[Dictionary],
                 continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
             var offset := Vector2(cell - center)
-            if offset.length() > radius:
+            var distance := offset.length()
+            if distance > radius:
                 continue
             if is_squall and not squall_reaches(offset, squall_direction):
                 # Соседние деревья вне полосы порыва не повреждаются.
@@ -534,11 +565,20 @@ func _damage_from_events(hazards: Array[Dictionary],
             # Выбор упавших деревьев по seed и суткам не зависит
             # от камеры, FPS и порядка обработки чанков.
             var severity: float = float(event["severity"])
-            var windfall := (str(event["kind"]) == "шторм" or is_squall) \
-                and severity >= (0.45 if is_squall else 0.55)
+            var damage: int = int(event["damage"])
+            if is_hurricane:
+                # Максимальный ущерб внутри урагана и постепенное
+                # затухание у внешней границы — без резкого кольца.
+                var falloff := 0.15 + 0.85 * (1.0 - distance / radius)
+                severity *= falloff
+                damage = roundi(float(damage) * falloff)
+            var windfall := str(event["kind"]) in ["шторм", "шквал", "ураган"]
+            var threshold := 0.28 if is_hurricane else (0.45 if is_squall else 0.55)
+            windfall = windfall and severity >= threshold
             if windfall:
-                var chance := clampf((severity - 0.45) * 2.2, 0.0, 0.95) \
-                    if is_squall else clampf((severity - 0.55) * 2.0, 0.0, 0.85)
+                var chance := clampf((severity - threshold) *
+                    (1.4 if is_hurricane else (2.2 if is_squall else 2.0)),
+                    0.0, 0.98 if is_hurricane else (0.95 if is_squall else 0.85))
                 windfall = Terrain.hash2(cell.x, cell.y,
                     world.config.world_seed + climate.day * 31 + 3173) < chance
 
@@ -546,7 +586,7 @@ func _damage_from_events(hazards: Array[Dictionary],
             # видно перед падением. Визуализация получит его после
             # завершения рабочего потока, но не изменит физический лес.
             var before: Dictionary = item.duplicate(true) if windfall else {}
-            item["health"] = maxi(0, int(item["health"]) - int(event["damage"]))
+            item["health"] = maxi(0, int(item["health"]) - damage)
             if windfall:
                 # Древесина переходит из стоящего ствола в лежащий ресурс.
                 # Дата падения и коллизии следуют за состоянием, не за FX.
@@ -561,6 +601,11 @@ func _damage_from_events(hazards: Array[Dictionary],
                 # потока воздуха в своей клетке, а не по случайному ID.
                 var wind_index: int = hydro.cell_index(cell)
                 var direction: Vector2 = climate.wind_direction_at_index(wind_index)
+                if is_hurricane:
+                    # При урагане направление ствола определяется
+                    # касательным ветром вокруг центра, не случайным ID.
+                    direction = hurricane_direction(offset,
+                        hurricane_front, hurricane_clockwise)
                 item["fall_angle_deg"] = posmod(roundi(rad_to_deg(
                     atan2(-direction.y, direction.x))), 360)
                 if last_windfalls.size() < MAX_VISIBLE_WINDFALL_RECORDS:
