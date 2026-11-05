@@ -5,6 +5,9 @@ on:
     branches: [develop]
     paths:
       - "godot/scripts/weather_visual_state.gd"
+      - "godot/scripts/weather_lighting_state.gd"
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/tests/world_weather_l4_smoke.gd"
       - "godot/scripts/weather_fx_controller.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
@@ -13,6 +16,9 @@ on:
     branches: [develop]
     paths:
       - "godot/scripts/weather_visual_state.gd"
+      - "godot/scripts/weather_lighting_state.gd"
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/tests/world_weather_l4_smoke.gd"
       - "godot/scripts/weather_fx_controller.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
@@ -53,6 +59,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/weather-visual-test.log; then
             exit 1
           fi
+      - name: "L4: физическая облачность и грозовой свет"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_weather_l4_smoke.gd \
+            2>&1 | tee /tmp/weather-l4.log
+          grep -q "Этап 11.2/L4: свет и облачность по реальному климату — успешно" /tmp/weather-l4.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-l4.log; then
+            exit 1
+          fi
       - name: Проверить физику гроз и паводков
         run: |
           set -o pipefail
@@ -71,4 +87,5 @@ jobs:
             /tmp/weather-import.log
             /tmp/weather-visual-test.log
             /tmp/weather-physics-test.log
+            /tmp/weather-l4.log
           if-no-files-found: ignore

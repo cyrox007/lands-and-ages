@@ -26,6 +26,7 @@ const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WeatherFX = preload("res://scripts/weather_fx_controller.gd")
+const WeatherLighting = preload("res://scripts/weather_lighting_state.gd")
 const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
@@ -65,6 +66,7 @@ var _weather_events: RefCounted
 var _weather_status := "Молний пока не было"
 var _lightning_light: OmniLight3D
 var _world_light: DirectionalLight3D
+var _sky_environment: Environment
 var _shadow_center_chunk := Vector2i(-100000, -100000)
 var _shadow_active := false
 var _lightning_life := 0.0
@@ -217,6 +219,7 @@ func _setup_environment() -> void:
 	options.ambient_light_color = Color(0.74, 0.81, 0.85)
 	options.ambient_light_energy = 0.61
 	sky.environment = options
+	_sky_environment = options
 	add_child(sky)
 
 
@@ -480,6 +483,32 @@ func _advance_water_animation(delta: float) -> void:
 	# Ни климат, ни гидрология, ни сохранения при этом не меняются.
 	_water_animation_time += delta
 	_water_material.set_shader_parameter("wave_time", _water_animation_time)
+	# Пятна облаков используют тот же счётчик кадров, что и волны.
+	if _ground_material != null:
+		_ground_material.set_shader_parameter("cloud_time",
+			_water_animation_time)
+
+
+func _apply_weather_lighting(snapshot: Dictionary) -> void:
+	## Единое освещение всех видимых чанков из неизменяемого снимка.
+	## Контроллер не меняет Climate и не создаёт новых погодных событий.
+	if _world_light == null:
+		return
+	var lighting: Dictionary = WeatherLighting.from_snapshot(snapshot)
+	# Диагностические режимы оставляем без погодного затемнения.
+	if _view_mode != 0:
+		lighting = WeatherLighting.from_snapshot({})
+	_world_light.light_energy = float(lighting["sun_energy"])
+	_world_light.light_color = lighting["sun_color"]
+	if _sky_environment != null:
+		_sky_environment.ambient_light_energy = float(lighting["ambient_energy"])
+		_sky_environment.background_color = lighting["sky_color"]
+	if _ground_material != null:
+		# Облачные пятна влияют только на ALBEDO PBR, но не на рельеф.
+		_ground_material.set_shader_parameter("cloud_coverage",
+			float(lighting["cloud_coverage"]))
+		_ground_material.set_shader_parameter("cloud_wind",
+			float(lighting["wind"]))
 
 
 func _sync_water_weather() -> void:
@@ -493,6 +522,7 @@ func _sync_water_weather() -> void:
 		float(snapshot.get("wind", 0.0)))
 	_water_material.set_shader_parameter("storm_strength",
 		float(snapshot.get("storm", 0.0)))
+	_apply_weather_lighting(snapshot)
 
 
 func _update_material_detail() -> void:
