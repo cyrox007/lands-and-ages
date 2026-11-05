@@ -9,6 +9,9 @@ uniform float macro_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float texture_density : hint_range(0.05, 2.0) = 0.35;
 // Контраст формы действует даже издалека; выключение не меняет физические высоты.
 uniform float relief_contrast : hint_range(0.0, 1.0) = 0.72;
+// L3: направление существующего солнца, без дополнительных карт теней.
+// Крупные формы берутся из физической нормали и признаков WorldMap.
+uniform vec3 far_light_direction = vec3(0.0, 1.0, 0.0);
 
 varying vec3 ground_position;
 varying vec3 ground_world_normal;
@@ -198,7 +201,21 @@ void fragment() {
 	float escarpment = smoothstep(0.15, 0.57, ground_steepness);
 	float relief_light = clamp(1.0 + relief_contrast * (
 		0.15 * ridge - 0.27 * ravine - 0.09 * escarpment), 0.65, 1.14);
-	ALBEDO = clamp(base_albedo * relief_light * mix(1.0, 0.67, wet_material),
+	// L3: дешёвая панорамная светотень использует настоящую
+	// геометрическую нормаль и направление DirectionalLight3D.
+	// При приближении вклад плавно исчезает, не дублируя ближние тени.
+	float far_blend = clamp(1.0 - detail_strength, 0.0, 1.0);
+	float sun_facing = dot(normalize(ground_world_normal),
+		normalize(far_light_direction));
+	float slope_light = smoothstep(-0.30, 0.70, sun_facing);
+	// Дополнительное чтение физического гребня и врезанного оврага
+	// не создаёт собственных высот, ландшафта и новых источников света.
+	float far_relief = mix(0.84, 1.06, slope_light) +
+		0.035 * ridge - 0.075 * ravine - 0.060 * escarpment;
+	float far_light = mix(1.0, clamp(far_relief, 0.76, 1.12),
+		far_blend * relief_contrast);
+	ALBEDO = clamp(base_albedo * relief_light * far_light *
+		mix(1.0, 0.67, wet_material),
 		vec3(0.0), vec3(1.0));
 	ROUGHNESS = clamp(mix(roughness_sum, 0.34, wet_material * 0.72),
 		0.25, 1.0);
