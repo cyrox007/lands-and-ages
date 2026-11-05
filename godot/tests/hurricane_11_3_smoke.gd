@@ -85,9 +85,16 @@ func _test_automatic_hurricane() -> void:
     var saved: Dictionary = JSON.parse_string(JSON.stringify(
         disasters.to_data()))
     var restored := Disasters.new(world, hydro, surface, climate)
-    _check(restored.load_data(saved)
-        and restored.to_data() == disasters.to_data(),
-        "Ураган и штормовая выдержка переживают сохранение")
+    var loaded_ok: bool = restored.load_data(saved)
+    _check(loaded_ok, "Сохранение бедствий с ураганом принимается")
+    if loaded_ok:
+        _check(restored.last_day == disasters.last_day
+            and restored.total_events == disasters.total_events,
+            "После JSON совпадают счётчики и дата бедствий")
+        _check(restored._storms == disasters._storms,
+            "Серия штормовых суток восстановлена без потери истории")
+        _check(restored.last_events == disasters.last_events,
+            "События урагана восстановлены без изменения вида и клеток")
     _check(restored.advance_day(3).is_empty(),
         "Повторное применение того же дня не создаёт второй ураган")
     climate.set_day(4)
