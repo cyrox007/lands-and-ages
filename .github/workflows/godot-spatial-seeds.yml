@@ -1,6 +1,15 @@
 name: Этап 10.0 — многосидовый аудит ёмкости
 
 on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_settlement_envelope.gd"
+      - "godot/scripts/world_mature_capacity_audit.gd"
+      - "godot/scripts/world_spatial_scenario.gd"
+      - "godot/tests/world_spatial_seeds_10.gd"
+      - "godot/tests/world_spatial_envelope_smoke.gd"
+      - ".github/workflows/godot-spatial-seeds.yml"
   workflow_dispatch:
     inputs:
       samples:
@@ -19,6 +28,10 @@ on:
         description: "Гипотетический радиус зрелого поселения (6–40)"
         required: true
         default: "12"
+      profile:
+        description: "Сценарий: compact, balanced, spacious; пусто — радиус"
+        required: false
+        default: "compact"
       seed_start:
         description: "Начальный seed"
         required: true
@@ -29,11 +42,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SAMPLES: ${{ inputs.samples }}
-      MAP_WIDTH: ${{ inputs.width }}
-      MAP_HEIGHT: ${{ inputs.height }}
-      RADIUS: ${{ inputs.radius }}
-      START_SEED: ${{ inputs.seed_start }}
+      SAMPLES: ${{ github.event_name == 'pull_request' && '100' || inputs.samples }}
+      MAP_WIDTH: ${{ github.event_name == 'pull_request' && '96' || inputs.width }}
+      MAP_HEIGHT: ${{ github.event_name == 'pull_request' && '80' || inputs.height }}
+      RADIUS: ${{ inputs.radius || '12' }}
+      PROFILE: ${{ github.event_name == 'pull_request' && 'compact' || inputs.profile }}
+      START_SEED: ${{ inputs.seed_start || '1729' }}
     steps:
       - uses: actions/checkout@v4
       - name: Скачать Godot 4.7.2
@@ -47,7 +61,7 @@ jobs:
         run: |
           /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit
-      - name: Проверить географическую ёмкость
+      - name: Проверить 100 seed в PR или ручную матрицу кандидатов
         run: |
           set -o pipefail
           /tmp/Godot_v4.7.2-stable_linux.x86_64 \
@@ -55,6 +69,7 @@ jobs:
             --script res://tests/world_spatial_seeds_10.gd -- \
             --samples="$SAMPLES" --width="$MAP_WIDTH" \
             --height="$MAP_HEIGHT" --radius="$RADIUS" \
+            --profile="$PROFILE" \
             --seed_start="$START_SEED" 2>&1 | tee /tmp/spatial-seeds.log
           grep -q "Этап 10.0: проверено" /tmp/spatial-seeds.log
           test -s godot/tests/world-spatial-seeds-10.json

@@ -10,6 +10,8 @@ on:
       - "godot/shaders/nature_*.gdshader"
       - "godot/scripts/world_capacity_audit.gd"
       - "godot/scripts/world_spatial_scenario.gd"
+      - "godot/scripts/world_settlement_envelope.gd"
+      - "godot/scripts/world_mature_capacity_audit.gd"
       - "godot/scripts/world_day_runner.gd"
       - "godot/scripts/world_save.gd"
       - "godot/scripts/world.gd"
@@ -24,6 +26,7 @@ on:
       - "godot/tests/nature_seed_audit.gd"
       - "godot/tests/world_capacity_report_10.gd"
       - "godot/tests/world_spatial_seeds_10.gd"
+      - "godot/tests/world_spatial_envelope_smoke.gd"
       - ".github/workflows/godot-nature.yml"
   pull_request:
     branches: [develop]
@@ -33,6 +36,8 @@ on:
       - "godot/shaders/nature_*.gdshader"
       - "godot/scripts/world_capacity_audit.gd"
       - "godot/scripts/world_spatial_scenario.gd"
+      - "godot/scripts/world_settlement_envelope.gd"
+      - "godot/scripts/world_mature_capacity_audit.gd"
       - "godot/scripts/world_day_runner.gd"
       - "godot/scripts/world_save.gd"
       - "godot/scripts/world.gd"
@@ -47,6 +52,7 @@ on:
       - "godot/tests/nature_seed_audit.gd"
       - "godot/tests/world_capacity_report_10.gd"
       - "godot/tests/world_spatial_seeds_10.gd"
+      - "godot/tests/world_spatial_envelope_smoke.gd"
       - ".github/workflows/godot-nature.yml"
 
 concurrency:
@@ -115,6 +121,18 @@ jobs:
             | tee /tmp/nature-collision.log
           grep -q "Этап 10.6: природные коллизии проверены успешно" /tmp/nature-collision.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-collision.log; then
+            exit 1
+          fi
+      - name: Проверить профили развитого поселения
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          timeout 90s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_envelope_smoke.gd 2>&1 \
+            | tee /tmp/world-envelope-smoke.log
+          grep -q "Этап 10.0: профили и территории проверены успешно" /tmp/world-envelope-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/world-envelope-smoke.log; then
             exit 1
           fi
       - name: Измерить вместимость демонстрационной карты
@@ -213,4 +231,5 @@ jobs:
             /tmp/nature-seeds-smoke.log
             /tmp/world-capacity-10.log
             /tmp/world-spatial-seeds-10.log
+            /tmp/world-envelope-smoke.log
           if-no-files-found: ignore
