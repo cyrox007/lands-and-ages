@@ -65,15 +65,17 @@ func _run() -> void:
 	controller.apply_snapshot(rain, Vector2(16.0, 12.0), 4.0, 44.0, 1729)
 	_check(controller.debug_state() == rain,
 		"Графический узел принимает неизменяемый снимок")
-	_check(controller._rain != null and controller._snow != null,
+	var rain_emitter: GPUParticles3D = controller.get("_rain")
+	var snow_emitter: GPUParticles3D = controller.get("_snow")
+	_check(rain_emitter != null and snow_emitter != null,
 		"Оба эмиттера создаются один раз")
-	_check(controller._rain.emitting and not controller._snow.emitting,
+	_check(rain_emitter.emitting and not snow_emitter.emitting,
 		"Дождь не запускает снежный эмиттер")
 	controller.apply_snapshot(snow, Vector2(16.0, 12.0), 4.0, 44.0, 1729)
-	_check(not controller._rain.emitting and controller._snow.emitting,
+	_check(not rain_emitter.emitting and snow_emitter.emitting,
 		"Смена физического типа осадков отключает старый эмиттер")
 	controller.set_effects_enabled(false)
-	_check(not controller._rain.emitting and not controller._snow.emitting,
+	_check(not rain_emitter.emitting and not snow_emitter.emitting,
 		"Отключение эффектов не создаёт осадки")
 
 	# Для карты с короткими сторонами проверяем и середину, и её края.
