@@ -109,8 +109,8 @@ func _run() -> void:
     var colliders := Collisions.create_chunk(world, nature, chunk)
     var parts: Array[String] = []
     for node in colliders.get_children():
-        if node is CollisionShape3D and
-                int(node.get_meta("nature_id", -1)) == id:
+        if node is CollisionShape3D \
+                and int(node.get_meta("nature_id", -1)) == id:
             parts.append(str(node.get_meta("nature_part", "")))
     parts.sort()
     _check(parts == ["бревно", "пень"],
