@@ -87,6 +87,7 @@ var _storage_request := ""
 var _storage_status := "Сохранений ещё нет"
 var _save_path: String = WorldSave.SAVE_PATH
 var _water_material: ShaderMaterial
+var _water_animation_time := 0.0
 var _center := Vector2.ZERO
 var _camera: Camera3D
 var _terrain_holder: Node3D
@@ -311,6 +312,7 @@ func _update_camera() -> void:
 
 func _process(delta: float) -> void:
 	_record_frame(delta)
+	_advance_water_animation(delta)
 	if _lightning_life > 0.0:
 		_lightning_life -= delta
 		if _lightning_life <= 0.0:
@@ -456,6 +458,20 @@ func _visible_radius() -> int:
 	return _radius_for_zoom(_camera.size, aspect, _world_model.config.chunk_size)
 
 
+func _advance_water_animation(delta: float) -> void:
+	## Шейдер читает только часы видимой сцены, не создавая событий.
+	## Godot передаёт delta с учётом Engine.time_scale; при паузе
+	## _process остановлен, а ручной вызов дополнительно защищён.
+	if _water_material == null or not is_finite(delta) or delta <= 0.0:
+		return
+	if is_inside_tree() and get_tree().paused:
+		return
+	# Одна запись uniform на кадр для всех водных чанков.
+	# Ни климат, ни гидрология, ни сохранения при этом не меняются.
+	_water_animation_time += delta
+	_water_material.set_shader_parameter("wave_time", _water_animation_time)
+
+
 func _sync_water_weather() -> void:
 	## Передаём ветру и шторму один проверенный снимок камеры.
 	## Климат не читается, пока фоновый расчёт дня меняет физические массивы.
@@ -478,7 +494,10 @@ func _update_material_detail() -> void:
 		# Дальние планы обходятся без дополнительного шума и изгиба UV.
 		_ground_material.set_shader_parameter("macro_strength", detail)
 	if _water_material != null:
+		# Два непрерывных уровня: мелкая рябь исчезает вдали,
+		# но широкие недорогие блики продолжают движение.
 		_water_material.set_shader_parameter("ripple_strength", detail)
+		_water_material.set_shader_parameter("far_glint_strength", 1.0 - detail)
 	# При отдалении прекращаем дорогие тени, но оставляем R2
 	# (светотеневые маски реального рельефа) и обычное освещение.
 	_update_shadow_lod()
