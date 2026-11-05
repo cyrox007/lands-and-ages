@@ -2,7 +2,8 @@ shader_type spatial;
 render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_ggx;
 
 // UV.x — реальная глубина у берега, UV.y — доля льда из Surface.
-// UV2 — речной сток (длина <= 1), озеро (0, 2) либо море (2, 0).
+// UV2 — речной сток (длина <= 1), озеро (0, 2), море (2, 0)
+// или паводок (-2, интенсивность из реальной глубины и давления).
 // Волны и бегущие блики не смещают геометрию и не меняют уровень воды.
 uniform float ripple_strength : hint_range(0.0, 1.0) = 1.0;
 // Значения берутся из климатического снимка камеры, не создают погоду.
@@ -23,11 +24,15 @@ void fragment() {
 	float ripple = 0.0;
 	float river_highlight = 0.0;
 	float wind_highlight = 0.0;
+	float flood_highlight = 0.0;
+	float flood_marker = 1.0 - step(-1.5, UV2.x);
+	float flood_intensity = clamp(UV2.y, 0.0, 1.0) *
+		flood_marker * liquid;
 	float ocean = step(1.5, UV2.x);
 	float lake = step(1.5, UV2.y);
 	float standing = clamp(ocean + lake, 0.0, 1.0);
 	float river_strength = clamp(length(UV2), 0.0, 1.0) *
-		(1.0 - standing) * liquid;
+		(1.0 - standing) * (1.0 - flood_marker) * liquid;
 
 	// Сумма разнонаправленных волн вместо произведения двух синусов:
 	// произведение давало отчётливую шахматную сетку на поверхности.
@@ -65,6 +70,25 @@ void fragment() {
 				river_strength * river_fade;
 			slopes += flow_direction * cos(river_phase) *
 				0.38 * river_strength * river_fade;
+		}
+		if (flood_intensity > 0.01) {
+			// W5: турбулентность живёт только на пойме из Hydrology.
+			// Скорость рисунка — визуальный отклик, не расчёт м/с.
+			// Расход и глубина задают интенсивность, лёд её гасит.
+			float flood_phase_a = dot(water_position, vec2(2.13, -0.91)) -
+				TIME * (0.70 + flood_intensity * 4.4);
+			float flood_phase_b = dot(water_position, vec2(-1.47, 2.26)) +
+				TIME * (0.48 + flood_intensity * 2.9);
+			float flood_fade = 1.0 - smoothstep(0.55, 1.80,
+				max(fwidth(flood_phase_a), fwidth(flood_phase_b)));
+			float flood_waves = sin(flood_phase_a) * 0.60 +
+				sin(flood_phase_b) * 0.40;
+			ripple += flood_waves * flood_intensity * flood_fade * 0.55;
+			slopes += (vec2(2.13, -0.91) * cos(flood_phase_a) * 0.60 +
+				vec2(-1.47, 2.26) * cos(flood_phase_b) * 0.40) *
+				flood_intensity * flood_fade * 0.42;
+			flood_highlight = smoothstep(0.40, 0.87, flood_waves) *
+				flood_intensity * flood_fade;
 		}
 		// Климат пока даёт скорость и преобладающий западный ветер.
 		// Океан получает длинные волны, озеро — более короткую рябь.
@@ -147,6 +171,9 @@ void fragment() {
 		river_highlight * ripple_strength;
 	liquid_color += vec3(0.036, 0.050, 0.052) *
 		wind_highlight * ripple_strength * liquid;
+	// Светлые участки появляются только при действительном паводке.
+	liquid_color += vec3(0.032, 0.046, 0.048) *
+		flood_highlight * ripple_strength * liquid;
 	// Белёсая кромка и блики движутся согласованно со штормовым фронтом.
 	liquid_color += vec3(0.045, 0.061, 0.060) * shoreline_glint +
 		vec3(0.012, 0.019, 0.021) * shoreline_wash;
