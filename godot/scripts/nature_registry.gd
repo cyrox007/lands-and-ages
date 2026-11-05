@@ -462,6 +462,15 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
     return created
 
 
+static func squall_reaches(offset: Vector2, direction: Vector2) -> bool:
+    # Смещение относительно эпицентра проецируем по ветру и поперёк.
+    # Порыв повреждает длинную узкую полосу, включая небольшой тыл,
+    # но не соседний лес за её боковой границей.
+    var along := offset.dot(direction)
+    var across := absf(offset.cross(direction))
+    return along >= -2.0 and along <= 9.0 and across <= 2.5
+
+
 func _damage_from_events(hazards: Array[Dictionary],
         strikes: Array[Dictionary], changed: Dictionary) -> void:
     # Природные события изменяют физический лес независимо от камеры.
@@ -518,13 +527,9 @@ func _damage_from_events(hazards: Array[Dictionary],
             var offset := Vector2(cell - center)
             if offset.length() > radius:
                 continue
-            if is_squall:
-                # Полоса ущерба тянется ПО ветру от эпицентра,
-                # а не расходится одинаковым кругом во все стороны.
-                var along := offset.dot(squall_direction)
-                var across := absf(offset.cross(squall_direction))
-                if along < -2.0 or along > 9.0 or across > 2.5:
-                    continue
+            if is_squall and not squall_reaches(offset, squall_direction):
+                # Соседние деревья вне полосы порыва не повреждаются.
+                continue
 
             # Выбор упавших деревьев по seed и суткам не зависит
             # от камеры, FPS и порядка обработки чанков.
