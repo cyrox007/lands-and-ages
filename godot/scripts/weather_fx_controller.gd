@@ -13,6 +13,7 @@ var _event_life := 0.0
 var _event_severity := 0.0
 var _event_direction := Vector2.ZERO
 var _event_squall := false
+var _event_hurricane := false
 var _enabled := true
 var _last_state: Dictionary = {}
 var _quality := 1
@@ -46,6 +47,7 @@ func _process(delta: float) -> void:
 	if _event_life == 0.0 and _gusts != null:
 		_gusts.emitting = false
 		_event_squall = false
+		_event_hurricane = false
 
 
 func show_storm_event(severity: float, direction: Vector2,
@@ -54,6 +56,7 @@ func show_storm_event(severity: float, direction: Vector2,
 	# не создаём новую грозу и не передаём силу назад в Climate.
 	_event_life = maxf(0.0, duration)
 	_event_squall = false
+	_event_hurricane = false
 	_event_severity = clampf(severity, 0.0, 1.0)
 	_event_direction = direction.normalized() if direction.length_squared() > 0.0 		else Vector2.RIGHT
 
@@ -64,6 +67,14 @@ func show_squall_event(severity: float, direction: Vector2,
 	# Метод меняет только один визуальный эмиттер, не сам климат.
 	show_storm_event(severity, direction, duration)
 	_event_squall = true
+
+
+func show_hurricane_event(severity: float, direction: Vector2,
+		duration: float = 6.5) -> void:
+	# Ураган оставляет широкий и более продолжительный след
+	# над камерой. Это только отклик на уже случившуюся физику.
+	show_storm_event(severity, direction, duration)
+	_event_hurricane = true
 
 
 func _make_emitter(title: String, color: Color, size: Vector2,
@@ -168,12 +179,19 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 			# У шквала плотная узкая полоса и высокая скорость; у
 			# продолжительной грозы — широкая зона порывов над картой.
 			var visible_squall := _event_squall and _event_life > 0.0
+			var visible_hurricane := _event_hurricane and _event_life > 0.0
+			# Шквал вытянут узкой полосой; ураган покрывает большую
+			# площадь, но использует всё тот же один GPU-эмиттер.
 			material.emission_box_extents = Vector3(
-				distance * (0.65 if visible_squall else 1.0),
+				distance * (1.20 if visible_hurricane else
+					(0.65 if visible_squall else 1.0)),
 				3.0 if visible_squall else 5.0,
-				distance * (0.30 if visible_squall else 1.0))
-			material.initial_velocity_min = 14.0 if visible_squall else 9.0
-			material.initial_velocity_max = 26.0 if visible_squall else 18.0
+				distance * (1.20 if visible_hurricane else
+					(0.30 if visible_squall else 1.0)))
+			material.initial_velocity_min = 20.0 if visible_hurricane else \
+				(14.0 if visible_squall else 9.0)
+			material.initial_velocity_max = 34.0 if visible_hurricane else \
+				(26.0 if visible_squall else 18.0)
 			material.direction = Vector3(airflow.x, 0.0, airflow.y)
 		else:
 			# Снежинки сносит сильнее, чем капли дождя.
@@ -190,8 +208,8 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	# На обычном ветре штормовые полосы не возникают.
 	_gusts.amount_ratio = clampf(
 		storm * smoothstep(0.15, 0.65, gust) * quality_factor, 0.0, 1.0)
-	if _event_squall and _event_life > 0.0:
-		# На пике отдельного шквала кратковременно усиливаем полосы,
+	if (_event_squall or _event_hurricane) and _event_life > 0.0:
+		# На пике шквала и урагана усиливаем видимые порывы,
 		# сохраняя установленный пользователем уровень качества.
 		_gusts.amount_ratio = maxf(_gusts.amount_ratio,
 			_event_severity * quality_factor)
