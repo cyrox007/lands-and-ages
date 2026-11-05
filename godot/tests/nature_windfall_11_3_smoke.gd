@@ -8,6 +8,7 @@ const Surface = preload("res://scripts/surface.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const Geometry = preload("res://scripts/nature_geometry.gd")
 const Collisions = preload("res://scripts/nature_collision.gd")
 
 var failures: Array[String] = []
@@ -54,6 +55,9 @@ func _run() -> void:
         var x: int = int(record[3])
         var y: int = int(record[4])
         if record[1] != "дерево" or record[9] != "целое" or int(record[7]) <= 0:
+            continue
+        # Возле краёв физический ствол может обрезаться границей.
+        if x < 4 or y < 4 or x >= 92 or y >= 76:
             continue
         if posmod(2 - id, 8) == 0 or posmod(3 - id, 8) == 0:
             continue
@@ -108,6 +112,24 @@ func _run() -> void:
     _check(int(fallen["fallen_since_day"]) == 3
         and int(fallen["dead_since_day"]) == -1,
         "Дата ветровала сохранена как состояние природы")
+    # Ствол ложится по реальному локальному ветру, а не по хэшу ID.
+    # Угол квантован до градуса: JSON не меняет направление коллизий.
+    var direction: Vector2 = climate.wind_direction_at_index(
+        hydro.cell_index(cell))
+    var footprint: Dictionary = Geometry.log_footprint(fallen, world.config)
+    var axis: Vector2 = footprint["axis"]
+    var expected_angle := posmod(roundi(rad_to_deg(
+        atan2(-direction.y, direction.x))), 360)
+    _check(int(fallen.get("fall_angle_deg", -1)) == expected_angle,
+        "Ветровал сохраняет угол физического ветра")
+    _check(axis.dot(direction) > 0.999,
+        "Физическая ось лежащего бревна совпадает с направлением ветра")
+    var base := Vector2(float(cell.x) + 0.5, float(cell.y) + 0.5)
+    var offset: Vector2 = Vector2(footprint["center"]) - base
+    _check(offset.dot(direction) > 0.65,
+        "Центр поваленного дерева смещён по ветру")
+    _check(nature.intersects_solid(footprint["center"], 0.04),
+        "Лежащий ствол реально перекрывает путь по ветру")
     _check(chunk in refreshed, "Ветровал инвалидирует рендер и коллизии")
     _check(nature.hit_tree(tree_id, 250).is_empty(),
         "Поваленное дерево нельзя повторно рубить")
@@ -115,6 +137,17 @@ func _run() -> void:
     var new_collisions := Collisions.create_chunk(world, nature, chunk)
     _check(_parts(new_collisions, tree_id) == ["бревно", "пень"],
         "Коллизии дерева заменены физическими бревном и пнём")
+    var oriented := false
+    for shape in new_collisions.get_children():
+        if not (shape is CollisionShape3D) or \
+                int(shape.get_meta("nature_id", -1)) != tree_id or \
+                shape.get_meta("nature_part", "") != "бревно":
+            continue
+        var body_axis: Vector3 = shape.transform.basis.y.normalized()
+        var physical_axis := Vector3(axis.x, 0.0, axis.y)
+        oriented = absf(body_axis.dot(physical_axis)) > 0.999
+        break
+    _check(oriented, "Коллизия бревна повторяет физический угол ветровала")
     new_collisions.free()
 
     # Повторная обработка дня не даёт дополнительного ветровала.
@@ -128,6 +161,37 @@ func _run() -> void:
     _check(restored.load_data(saved), "Ветровал восстанавливается из JSON")
     _check(restored.to_data() == nature.to_data(),
         "После загрузки совпадают деревья, ресурсы и даты")
+
+    # Версия 3 хранила даты, но не знала направление. Старые карты
+    # продолжают открываться с прежней геометрией лежащих брёвен.
+    var old_snapshot: Dictionary = saved.duplicate(true)
+    old_snapshot["version"] = 3
+    for record in old_snapshot["objects"]:
+        record.resize(13)
+    var old_nature := Nature.new(world, hydro, surface, climate)
+    _check(old_nature.load_data(old_snapshot),
+        "Сохранение природы v3 загружается без изменения дат")
+    var old_tree: Dictionary = old_nature.object_at(tree_id)
+    var old_footprint: Dictionary = Geometry.log_footprint(
+        old_tree, world.config)
+    _check(int(old_tree.get("fall_angle_deg", 0)) == -1
+        and int(old_tree["fallen_since_day"]) == 3,
+        "Старый формат не изобретает направление ветровала")
+    _check(absf(float(old_footprint["angle"]) -
+        Geometry.angle_for(tree_id, seed)) < 0.000001,
+        "Геометрия legacy-бревна остаётся прежней")
+
+    # Отклоняем испорченные углы, не изменяя уже загруженный реестр.
+    for wrong in [-2, 360, 1.25]:
+        var corrupt: Dictionary = saved.duplicate(true)
+        for record in corrupt["objects"]:
+            if int(record[0]) == tree_id:
+                record[13] = wrong
+                break
+        _check(not restored.load_data(corrupt),
+            "Недопустимый угол ветровала должен отклоняться")
+        _check(restored.to_data() == nature.to_data(),
+            "Ошибочный снимок не повреждает действующий мир")
     climate.set_day(4)
     nature.advance_day(4)
     restored.advance_day(4)
