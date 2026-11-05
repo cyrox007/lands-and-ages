@@ -142,8 +142,9 @@ func _test_physics_and_render() -> void:
 	# локальные маски рендера не подменяют уровень настоящей воды.
 	hydro.rebuild()
 	surface.rebuild()
-	_check(is_finite(hydro.level_at(hydro.cell_index(Vector2i(24, 24)))),
-		"Гидрология поддерживает физически деформированную поверхность")
+	var water: Dictionary = hydro.water_at(Vector2i(24, 24))
+	_check(not water.is_empty() and is_finite(float(water["ground"])),
+		"Гидрология пересчитала высоту грунта на деформированном участке")
 
 
 func _initialize() -> void:
