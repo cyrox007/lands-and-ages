@@ -30,9 +30,35 @@ static func _test_profiles() -> bool:
     if not Envelope.profile("unknown").is_empty():
         return false
     var sizes: Dictionary = Envelope.scale_candidates(0.9)
-    return not sizes["meters_per_cell_approved"] \
-        and not sizes["mature_settlement_profile_approved"] \
-        and sizes["alternatives"].size() == 3
+    if sizes["meters_per_cell_approved"] \
+            or sizes["mature_settlement_profile_approved"] \
+            or sizes["alternatives"].size() != 3:
+        return false
+    var previous_area := 0.0
+    for alternative in sizes["alternatives"]:
+        var meters: float = alternative["meters_per_cell"]
+        var profiles: Array = alternative["mature_settlement_areas"]
+        var maps: Array = alternative["map_dimensions"]
+        if profiles.size() != 3 or maps.size() != 4:
+            return false
+        for measured in profiles:
+            var source: Dictionary = Envelope.profile(measured["profile"])
+            var cell_area := meters * meters
+            if not is_equal_approx(float(measured["required_buildable_m2"]),
+                    int(source["required_buildable_cells"]) * cell_area):
+                return false
+            if not is_equal_approx(float(measured["required_walkable_m2"]),
+                    int(source["required_walkable_cells"]) * cell_area):
+                return false
+            if not is_equal_approx(float(measured["thirty_influence_hectares"]),
+                    snappedf(int(source["diamond_influence_cells"])
+                    * cell_area * 30.0 / 10000.0, 0.0001)):
+                return false
+        var area: float = maps[2]["area_km2"]
+        if area <= previous_area or maps[2]["cells"] != [768, 576]:
+            return false
+        previous_area = area
+    return true
 
 
 static func _test_foundations() -> bool:
