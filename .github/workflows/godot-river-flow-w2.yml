@@ -1,0 +1,72 @@
+name: Этап 11.6 — течение рек и водные маски
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/water_mesh.gd"
+      - "godot/shaders/natural_water.gdshader"
+      - "godot/tests/water_flow_w2_smoke.gd"
+      - ".github/workflows/godot-river-flow-w2.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/water_mesh.gd"
+      - "godot/shaders/natural_water.gdshader"
+      - "godot/tests/water_flow_w2_smoke.gd"
+      - ".github/workflows/godot-river-flow-w2.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: river-flow-w2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  river:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подготовить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-river.zip
+          unzip -q /tmp/godot-river.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт и компиляция шейдера
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/river-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/river-import.log; then
+            exit 1
+          fi
+      - name: "Направление реки и независимость гидрологии"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/water_flow_w2_smoke.gd \
+            2>&1 | tee /tmp/river-w2.log
+          grep -q "Этап 11.6/W2: речное течение по физическому стоку — успешно" /tmp/river-w2.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/river-w2.log; then
+            exit 1
+          fi
+      - name: Регрессия берегов, паводка и исходной водной ряби
+        run: |
+          set -o pipefail
+          for test in coast_wet_visual_smoke natural_shoreline_visual_smoke weather_flood_smoke; do
+            timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+              --headless --path godot --script res://tests/"$test".gd \
+              2>&1 | tee "/tmp/river-$test.log"
+            if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" "/tmp/river-$test.log"; then
+              exit 1
+            fi
+          done
+      - name: Логи речной графики
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: river-flow-w2
+          path: /tmp/river-*.log
+          if-no-files-found: ignore
