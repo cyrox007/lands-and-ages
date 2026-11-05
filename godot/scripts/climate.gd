@@ -270,7 +270,7 @@ func wind_direction_at_index(i: int) -> Vector2:
 	if i < 0 or i >= _wind.size() or _width <= 0:
 		return Vector2.ZERO
 	var x := float(i % _width)
-	var y := float(i) / float(_width)
+	var y := float(floori(float(i) / float(_width)))
 	var moving := _smooth_noise((x + float(day) * 1.1) / 72.0,
 		(y - float(day) * 0.5) / 64.0, world.config.world_seed + 14141)
 	var seasonal := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
@@ -285,7 +285,7 @@ func wind_gust_at_index(i: int) -> float:
 	if i < 0 or i >= _wind.size() or _width <= 0:
 		return 0.0
 	var x := float(i % _width)
-	var y := float(i) / float(_width)
+	var y := float(floori(float(i) / float(_width)))
 	var turbulence := absf(_smooth_noise((x - float(day) * 1.7) / 28.0,
 		(y + float(day) * 0.9) / 28.0, world.config.world_seed + 14142))
 	var extra := (0.8 + 3.2 * _storm[i]) * (0.45 + turbulence)
