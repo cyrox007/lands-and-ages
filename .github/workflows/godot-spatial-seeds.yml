@@ -7,7 +7,10 @@ on:
       - "godot/scripts/world_settlement_envelope.gd"
       - "godot/scripts/world_mature_capacity_audit.gd"
       - "godot/scripts/world_spatial_scenario.gd"
+      - "godot/scripts/world_geography_audit.gd"
+      - "godot/scripts/world_seed_selection.gd"
       - "godot/tests/world_spatial_seeds_10.gd"
+      - "godot/tests/world_geography_seed_smoke.gd"
       - "godot/tests/world_spatial_envelope_smoke.gd"
       - ".github/workflows/godot-spatial-seeds.yml"
   workflow_dispatch:
@@ -32,10 +35,18 @@ on:
         description: "Сценарий: compact, balanced, spacious; пусто — радиус"
         required: false
         default: "compact"
+      archetype:
+        description: "Целевой архетип (пусто — любой; материк/полуостров/архипелаг/внутреннее море)"
+        required: false
+        default: ""
       seed_start:
         description: "Начальный seed"
         required: true
         default: "1729"
+
+concurrency:
+  group: spatial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   spatial-seeds:
@@ -47,6 +58,7 @@ jobs:
       MAP_HEIGHT: ${{ github.event_name == 'pull_request' && '80' || inputs.height }}
       RADIUS: ${{ inputs.radius || '12' }}
       PROFILE: ${{ github.event_name == 'pull_request' && 'compact' || inputs.profile }}
+      ARCHETYPE: ${{ inputs.archetype || '' }}
       START_SEED: ${{ inputs.seed_start || '1729' }}
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +73,11 @@ jobs:
         run: |
           /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit
+      - name: Проверить искусственные географические формы
+        run: |
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_geography_seed_smoke.gd
       - name: Проверить 100 seed в PR или ручную матрицу кандидатов
         run: |
           set -o pipefail
@@ -70,9 +87,62 @@ jobs:
             --samples="$SAMPLES" --width="$MAP_WIDTH" \
             --height="$MAP_HEIGHT" --radius="$RADIUS" \
             --profile="$PROFILE" \
+            --archetype="$ARCHETYPE" \
             --seed_start="$START_SEED" 2>&1 | tee /tmp/spatial-seeds.log
           grep -q "Этап 10.0: проверено" /tmp/spatial-seeds.log
           test -s godot/tests/world-spatial-seeds-10.json
+      - name: Сравнить пилотную и промежуточную карты в PR
+        if: github.event_name == 'pull_request'
+        run: |
+          set -o pipefail
+          # Валидация модели не требует 100 больших карт при каждом коммите.
+          timeout 480s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples=4 --width=256 --height=192 \
+            --profile=balanced --seed_start=1729 \
+            2>&1 | tee /tmp/spatial-256.log
+          cp godot/tests/world-spatial-seeds-10.json \
+            godot/tests/world-spatial-256-pr.json
+          timeout 480s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples=1 --width=512 --height=384 \
+            --profile=balanced --seed_start=1729 \
+            2>&1 | tee /tmp/spatial-512.log
+          cp godot/tests/world-spatial-seeds-10.json \
+            godot/tests/world-spatial-512-pr.json
+          # Одна увеличенная карта: проверка геометрии без 100 тяжёлых прогонов.
+          timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples=1 --width=768 --height=576 \
+            --profile=balanced --seed_start=1729 \
+            2>&1 | tee /tmp/spatial-768.log
+          cp godot/tests/world-spatial-seeds-10.json \
+            godot/tests/world-spatial-768-pr.json
+          test -s godot/tests/world-spatial-256-pr.json
+          test -s godot/tests/world-spatial-512-pr.json
+          test -s godot/tests/world-spatial-768-pr.json
+      - name: Показать измеренную вместимость карт
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path("godot/tests").glob("world-spatial-*-pr.json")):
+              report = json.loads(path.read_text(encoding="utf-8"))
+              options = report["options"]
+              timing = report["generation_duration"]
+              print(f"Карта {options['width']}×{options['height']}, "
+                    f"seed: {report['samples']}, "
+                    f"30 геометрических: {report['thirty_geometric_sites_found']}, "
+                    f"6×5 условно зрелых: "
+                    f"{report['six_territories_with_five_hypothetical_mature_sites']}, "
+                    f"строго пригодных: {report['seed_selection']['eligible']}, "
+                    f"p95 CPU, мс: {timing['p95_ms']}")
+              print("Типы географии:", report["seed_selection"]["missing_eligible_archetypes"])
+          PY
       - name: Сохранить результаты
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,5 +150,11 @@ jobs:
           name: world-spatial-10-seed-matrix
           path: |
             godot/tests/world-spatial-seeds-10.json
+            godot/tests/world-spatial-256-pr.json
+            godot/tests/world-spatial-512-pr.json
+            godot/tests/world-spatial-768-pr.json
             /tmp/spatial-seeds.log
+            /tmp/spatial-256.log
+            /tmp/spatial-512.log
+            /tmp/spatial-768.log
           if-no-files-found: warn
