@@ -126,6 +126,15 @@ jobs:
             2>&1 | tee /tmp/spatial-768.log
           cp godot/tests/world-spatial-seeds-10.json \
             godot/tests/world-spatial-768-pr.json
+          # Зафиксированные отказы: 2532 (29 центров), 2824 (нет камня).
+          timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples=2 --seed_start=2532 --seed_step=292 \
+            --width=768 --height=576 --profile=balanced \
+            2>&1 | tee /tmp/spatial-768-regression.log
+          cp godot/tests/world-spatial-seeds-10.json \
+            godot/tests/world-spatial-768-regression-pr.json
           test -s godot/tests/world-spatial-256-pr.json
           test -s godot/tests/world-spatial-512-pr.json
           test -s godot/tests/world-spatial-768-pr.json
@@ -159,10 +168,12 @@ jobs:
             godot/tests/world-spatial-256-pr.json
             godot/tests/world-spatial-512-pr.json
             godot/tests/world-spatial-768-pr.json
+            godot/tests/world-spatial-768-regression-pr.json
             /tmp/spatial-seeds.log
             /tmp/spatial-256.log
             /tmp/spatial-512.log
             /tmp/spatial-768.log
+            /tmp/spatial-768-regression.log
           if-no-files-found: warn
 
   spatial-large-batch:
