@@ -469,12 +469,17 @@ func _damage_from_events(hazards: Array[Dictionary],
     # всех объектов для каждого события не масштабируется на большой карте.
     var events: Array[Dictionary] = []
     for event in hazards:
+        var kind := str(event.get("kind", ""))
+        var squall := kind == "шквал"
+        # Шквал локальнее шторма, но сильнее в самом эпицентре.
+        # Значения используются только физикой суточного урона.
         events.append({
-            "kind": str(event.get("kind", "")),
+            "kind": kind,
             "cell": event.get("cell"),
-            "radius": 5.0,
+            "radius": 3.5 if squall else 5.0,
             "severity": clampf(float(event.get("severity", 0.0)), 0.0, 1.0),
-            "damage": roundi(float(event.get("severity", 0.0)) * 350.0)
+            "damage": roundi(float(event.get("severity", 0.0)) *
+                (480.0 if squall else 350.0))
         })
     for strike in strikes:
         events.append({
@@ -506,15 +511,30 @@ func _damage_from_events(hazards: Array[Dictionary],
             if item["kind"] != "дерево" or item["state"] != "целое":
                 continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
-            if Vector2(cell - center).length() > radius:
+            var distance := Vector2(cell - center).length()
+            if distance > radius:
                 continue
 
-            # Сильный шторм может сразу повалить дерево. Выбор по seed,
-            # суткам и координатам не зависит от рендера или порядка чанков.
+            # Шквал теряет силу к границе узкого фронта. Обычный
+            # шторм не меняет прежнюю формулу урона и вероятность.
             var severity: float = float(event["severity"])
-            var windfall := str(event["kind"]) == "шторм" and severity >= 0.55
+            var damage: int = int(event["damage"])
+            var squall := str(event["kind"]) == "шквал"
+            if squall:
+                var falloff := 0.30 + 0.70 * (1.0 - distance / radius)
+                severity *= falloff
+                damage = roundi(float(damage) * falloff)
+
+            # Шквал валит ближние деревья при локальном порыве,
+            # шторм — при долгой непогоде. Решение одинаково для
+            # одного seed и дня, независимо от камеры и FPS.
+            var threshold := 0.40 if squall else 0.55
+            var windfall := str(event["kind"]) in ["шторм", "шквал"] \
+                and severity >= threshold
             if windfall:
-                var chance := clampf((severity - 0.55) * 2.0, 0.0, 0.85)
+                var chance := clampf((severity - threshold) *
+                    (1.25 if squall else 2.0), 0.0,
+                    0.75 if squall else 0.85)
                 windfall = Terrain.hash2(cell.x, cell.y,
                     world.config.world_seed + climate.day * 31 + 3173) < chance
 
@@ -522,7 +542,7 @@ func _damage_from_events(hazards: Array[Dictionary],
             # видно перед падением. Визуализация получит его после
             # завершения рабочего потока, но не изменит физический лес.
             var before: Dictionary = item.duplicate(true) if windfall else {}
-            item["health"] = maxi(0, int(item["health"]) - int(event["damage"]))
+            item["health"] = maxi(0, int(item["health"]) - damage)
             if windfall:
                 # Древесина переходит из стоящего ствола в лежащий ресурс.
                 # Дата падения и коллизии следуют за состоянием, не за FX.
