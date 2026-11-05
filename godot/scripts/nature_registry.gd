@@ -213,9 +213,12 @@ func intersects_solid(point: Vector2, radius: float = 0.0,
     return false
 
 
+# Будущие рабочие получают точки подхода из физики, а не из рендера.
+# Наличие точки не доказывает существование маршрута к ней.
 func interaction_points(id: int, clearance: float = 0.28) -> Array[Vector2]:
-    # Будущие лесорубы используют физические точки подхода, не спрайт.
     var points: Array[Vector2] = []
+    if not is_finite(clearance) or clearance < 0.08:
+        return points
     var item: Dictionary = object_at(id)
     if item.is_empty() or item["kind"] not in ["дерево", "валун"]:
         return points
@@ -229,8 +232,14 @@ func interaction_points(id: int, clearance: float = 0.28) -> Array[Vector2]:
         var point: Vector2 = origin + direction * offset
         if not world.config.contains_point(point):
             continue
-        var index: int = hydro.cell_index(world.config.cell_at(point))
-        if hydro.has_water(index) or intersects_solid(point, 0.08, id):
+        var cell: Vector2i = world.config.cell_at(point)
+        var index: int = hydro.cell_index(cell)
+        if hydro.has_water(index) or hydro.flooded_at(index):
+            continue
+        if world.normal_at(cell).y < 0.76 \
+                or surface.waterlogging_at_index(index) > 0.85:
+            continue
+        if intersects_solid(point, 0.08, id):
             continue
         points.append(point)
     return points
