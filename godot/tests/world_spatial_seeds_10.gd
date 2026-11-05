@@ -69,6 +69,7 @@ static func _sample(world_seed: int, width: int,
     var world := Map.new(Config.new(width, height, world_seed))
     var hydro := Hydro.new(world)
     hydro.rebuild()
+    var after_hydrology := Time.get_ticks_usec()
     var surface := Surface.new(world, hydro)
     surface.rebuild()
     var climate := Climate.new(world, hydro)
@@ -76,12 +77,15 @@ static func _sample(world_seed: int, width: int,
     climate.set_day(1)
     surface.advance_climate_day(climate)
     hydro.apply_rainfall_map(surface.runoff_map())
+    var after_surface_climate := Time.get_ticks_usec()
     var nature := Nature.new(world, hydro, surface, climate)
     nature.generate()
+    var after_nature := Time.get_ticks_usec()
 
     var geographic: Dictionary = Geography.report(world, hydro)
     var scenario: Dictionary = Scenario.report(
         world, hydro, surface, nature, radius)
+    var after_spatial := Time.get_ticks_usec()
     var trial: Dictionary = scenario["trial"]
     var centers := 0
     var complete_groups := 0
@@ -146,6 +150,7 @@ static func _sample(world_seed: int, width: int,
             else:
                 min_state_buildable = mini(
                     min_state_buildable, int(state["buildable_cells"]))
+    var after_mature := Time.get_ticks_usec()
     var components: Array = scenario["largest_walkable_components"]
     var largest := 0
     if not components.is_empty():
@@ -190,6 +195,19 @@ static func _sample(world_seed: int, width: int,
         "states_with_both_territory_resources": states_with_both_resources,
         "minimum_state_buildable_cells": min_state_buildable,
         "invariants_valid": valid,
+        "phase_duration_ms": {
+            "map_hydrology": snappedf(
+                float(after_hydrology - started) / 1000.0, 0.001),
+            "surface_climate": snappedf(
+                float(after_surface_climate - after_hydrology)
+                / 1000.0, 0.001),
+            "nature": snappedf(
+                float(after_nature - after_surface_climate) / 1000.0, 0.001),
+            "spatial": snappedf(
+                float(after_spatial - after_nature) / 1000.0, 0.001),
+            "mature": snappedf(
+                float(after_mature - after_spatial) / 1000.0, 0.001)
+        },
         "duration_ms": snappedf(
             float(Time.get_ticks_usec() - started) / 1000.0, 0.001)
     }
@@ -280,6 +298,7 @@ func _run() -> void:
         print("Пространственный аудит: завершено ", index + 1,
             " / ", count, ", seed=", world_seed,
             ", CPU=", row["duration_ms"], " мс",
+            ", этапы=", row["phase_duration_ms"],
             ", подходит=", row["eligibility_reasons"].is_empty())
         if not _checkpoint(rows, count, batch_started):
             push_error("Не удалось сохранить промежуточный отчёт")
