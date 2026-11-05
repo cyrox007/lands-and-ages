@@ -44,7 +44,7 @@ static func _reachable(buildable: PackedByteArray,
         if step_count >= radius * 4:
             continue
         for direction in DIRECTIONS:
-            var neighbor := cell + direction
+            var neighbor: Vector2i = cell + direction
             if neighbor.x < 0 or neighbor.y < 0 \
                     or neighbor.x >= width or neighbor.y >= height:
                 continue
