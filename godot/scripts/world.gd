@@ -556,10 +556,18 @@ func _sync_water_weather() -> void:
 	var snapshot: Dictionary = _weather_fx.debug_state()
 	# Видимая растительность следует за физическим направлением фронта.
 	# Обновляем только шейдеры, без CPU-анимации каждого дерева.
-	NatureRenderer.set_wind_direction(Vector2(
-		float(snapshot.get("wind_x", 1.0)),
-		float(snapshot.get("wind_y", 0.0))))
-	# Эти параметры влияют только на шейдер, не на объём или уровень воды.
+	var airflow := Vector2(float(snapshot.get("wind_x", 1.0)),
+		float(snapshot.get("wind_y", 0.0)))
+	# На границе встречных фронтов среднее направление может обнулиться.
+	# Не передаём нулевой вектор в шейдер: сохраняем западный базис.
+	if airflow.length_squared() < 0.000001:
+		airflow = Vector2.RIGHT
+	else:
+		airflow = airflow.normalized()
+	NatureRenderer.set_wind_direction(airflow)
+	# Волны озёр и моря теперь смотрят туда же, куда кроны и осадки.
+	# Параметры меняют только рендер, не уровень физической воды.
+	_water_material.set_shader_parameter("wind_direction", airflow)
 	_water_material.set_shader_parameter("wind_strength",
 		float(snapshot.get("wind", 0.0)))
 	_water_material.set_shader_parameter("storm_strength",
