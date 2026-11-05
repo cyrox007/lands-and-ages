@@ -182,24 +182,39 @@ func _test_game_tornado() -> void:
     _check(left.dot(right) < 0.0,
         "Противоположное вращение меняет локальный ветер")
 
-    var offtrack_safe := false
-    for other_id in before.keys():
-        var old: Dictionary = before[other_id]
-        if posmod(2 - int(other_id), 8) == 0:
-            continue
-        var offset := Vector2(int(old["x"]) - cell.x,
-            int(old["y"]) - cell.y)
-        if offset.length() > 13.0 or offset.length() < 2.0:
-            continue
-        var current: Dictionary = nature.object_at(int(other_id))
-        if current.is_empty():
-            continue
-        if not Nature.tornado_reaches(offset, wind):
-            if current["state"] == "целое" and \
-                    int(current["health"]) == int(old["health"]):
-                offtrack_safe = true
-            continue
-    _check(offtrack_safe, "Дерево рядом со следом не получает урон")
+    # Подбираем второй, боковой центр для того же дерева.
+    # Так мы проверяем отсутствие урона вне следа без требования
+    # случайно встретить в лесу дополнительное дерево на нужной клетке.
+    var safe_center := Vector2i(-1, -1)
+    for dy in range(-5, 6):
+        if safe_center.x >= 0:
+            break
+        for dx in range(-5, 6):
+            var candidate := cell + Vector2i(dx, dy)
+            if not world.config.contains_cell(candidate):
+                continue
+            var candidate_offset := Vector2(cell - candidate)
+            if candidate_offset.length() < 3.0 \
+                    or candidate_offset.length() > 9.0:
+                continue
+            var candidate_direction: Vector2 = climate.wind_direction_at_index(
+                hydro.cell_index(candidate))
+            if Nature.tornado_reaches(candidate_offset, candidate_direction):
+                continue
+            safe_center = candidate
+            break
+    _check(safe_center.x >= 0, "Для дерева найдена точка вне следа")
+    if safe_center.x >= 0:
+        var safe_forest := Nature.new(world, hydro, surface, climate)
+        _check(safe_forest.load_data(initial),
+            "Проверка соседнего леса стартует с исходного состояния")
+        safe_forest.advance_day(2, [{
+            "kind": "смерч", "cell": safe_center, "severity": 1.0
+        }])
+        var untouched: Dictionary = safe_forest.object_at(id)
+        _check(untouched["state"] == original["state"] and
+            int(untouched["health"]) == int(original["health"]),
+            "Дерево рядом с трассой остаётся неповреждённым")
 
     # В редком лесу нельзя требовать, чтобы случайно стояло второе
     # дерево на полосе. Вместо этого подбираем центр вихря так,
