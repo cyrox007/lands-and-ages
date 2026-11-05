@@ -174,7 +174,7 @@ func _check_shaders() -> void:
 		water.contains("foam") and water.contains("liquid"),
 		"Береговая пена и лёд зависят от глубины и промерзания")
 	_check(water.contains("ripple_strength >") and
-		water.contains("liquid >") and water.contains("TIME"),
+		water.contains("liquid >") and water.contains("wave_time"),
 		"Сильный мороз или отдаление подавляют рябь")
 	_check(not land.contains("VERTEX =") and not water.contains("VERTEX ="),
 		"Художественные эффекты не меняют физическую геометрию")
