@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/godot-ecology-100.yml"
       - "godot/tests/nature_collision_profile.gd"
+      - "godot/tests/nature_integration_10_7.gd"
   workflow_dispatch:
 
 permissions:
