@@ -44,7 +44,7 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/relief-import.log; then
             exit 1
           fi
-      - name: Рельеф: гребни, овраги и стыки
+      - name: "Рельеф: гребни, овраги и стыки"
         run: |
           set -o pipefail
           timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
