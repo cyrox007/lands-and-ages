@@ -9,6 +9,8 @@ const HEIGHT := Config.DEFAULT_HEIGHT
 const SEED := Config.DEFAULT_SEED
 const HEIGHT_SCALE := Config.DEFAULT_HEIGHT_SCALE
 const FEATURE_STEP := 72.0
+const RELIEF_LEGACY := 1
+const RELIEF_SHARP := 2
 const FORM_NAMES := [
 	"равнина", "низина", "холмы", "плоскогорье",
 	"горы", "долина", "овраг"
@@ -37,7 +39,8 @@ static func _form_index(gx: int, gy: int, world_seed: int) -> int:
 	return posmod(gx * 3 + gy * 5 + world_seed, FORM_NAMES.size())
 
 
-static func _feature(x: float, y: float, gx: int, gy: int, world_seed: int) -> Vector3:
+static func _feature(x: float, y: float, gx: int, gy: int,
+		world_seed: int, relief_version: int = RELIEF_SHARP) -> Vector3:
 	var jitter_x := (hash2(gx, gy, world_seed + 11) - 0.5) * 0.32
 	var jitter_y := (hash2(gx, gy, world_seed + 12) - 0.5) * 0.32
 	var cx := (float(gx) + 0.5 + jitter_x) * FEATURE_STEP
@@ -70,23 +73,40 @@ static func _feature(x: float, y: float, gx: int, gy: int, world_seed: int) -> V
 			height_change = 5.3 * top + detail * 0.1 * top
 			flatten = 0.68 * top
 		4:
-			# Гребни гор создаются связными полосами, а не клеточными пиками.
-			var ridge := 0.78 + 0.22 * pow(sin(along * 7.0 + across * 3.7), 2.0)
-			height_change = 9.0 * envelope * ridge + detail * 0.7 * envelope
+			# Старые сохранения используют исходную плавную физическую форму.
+			# Новые миры получают узкую непрерывную скальную ось с плечами.
+			if relief_version == RELIEF_LEGACY:
+				var ridge := 0.78 + 0.22 * pow(sin(along * 7.0 + across * 3.7), 2.0)
+				height_change = 9.0 * envelope * ridge + detail * 0.7 * envelope
+			else:
+				# Плавная извилистость не создаёт зубчатых одиночных пиков.
+				var axis := across + 0.11 * sin(along * 3.5 + angle)
+				var crest := 1.0 - smoothstep(0.07, 0.43, absf(axis))
+				var rockiness := pow(absf(sin(along * 6.2 + across * 2.4)), 2.0)
+				var relief := 0.43 + crest * (0.66 + 0.12 * rockiness)
+				height_change = 9.0 * envelope * relief + detail * 0.35 * envelope
 		5:
 			# Долина продолжается вдоль оси и мягко расширяется на выходе.
 			var axis := across + 0.16 * sin(along * 3.4 + angle)
 			var reach := 1.0 - smoothstep(0.78, 1.45, absf(along))
 			height_change = -3.1 * exp(-1.6 * axis * axis) * reach
 		6:
-			# Овраг уже долины и имеет более крутые стенки.
+			# Вдоль оси оврага остаётся связный водосбор, а не цепь ям.
 			var axis := across + 0.16 * sin(along * 4.3 + angle)
 			var reach := 1.0 - smoothstep(0.81, 1.50, absf(along))
-			height_change = -4.7 * exp(-22.0 * axis * axis) * reach
+			if relief_version == RELIEF_LEGACY:
+				height_change = -4.7 * exp(-22.0 * axis * axis) * reach
+			else:
+				# Узкое дно и физические бровки читаются в самой сетке
+				# высот; Surface и Hydrology увидят ту же форму.
+				var trench := 1.0 - smoothstep(0.10, 0.28, absf(axis))
+				var shoulder := exp(-8.0 * axis * axis)
+				height_change = -5.0 * (0.82 * trench + 0.18 * shoulder) * reach
 	return Vector3(height_change, flatten, envelope)
 
 
-static func sample(x: float, y: float, world_seed: int) -> Dictionary:
+static func sample(x: float, y: float, world_seed: int,
+		relief_version: int = RELIEF_SHARP) -> Dictionary:
 	# Крупные и мелкие шумы не зависят от размеров карты.
 	var coarse := 0.85 * _noise(x / 92.0, y / 92.0, world_seed + 1001)
 	var medium := 0.29 * _noise(x / 24.0, y / 24.0, world_seed + 1002)
@@ -99,7 +119,7 @@ static func sample(x: float, y: float, world_seed: int) -> Dictionary:
 	var home_y := floori(y / FEATURE_STEP)
 	for gy in range(home_y - 1, home_y + 2):
 		for gx in range(home_x - 1, home_x + 2):
-			var effect := _feature(x, y, gx, gy, world_seed)
+			var effect := _feature(x, y, gx, gy, world_seed, relief_version)
 			sum_features += effect.x
 			flatten = maxf(flatten, effect.y)
 			if effect.z > strongest:
@@ -113,16 +133,20 @@ static func sample(x: float, y: float, world_seed: int) -> Dictionary:
 	}
 
 
-static func height_at(x: float, y: float, world_seed: int) -> float:
-	return float(sample(x, y, world_seed)["height"])
+static func height_at(x: float, y: float, world_seed: int,
+		relief_version: int = RELIEF_SHARP) -> float:
+	return float(sample(x, y, world_seed, relief_version)["height"])
 
 
 static func form_at(x: float, y: float, world_seed: int) -> String:
 	return str(sample(x, y, world_seed)["form"])
 
 
-static func vertex_height_on_map(x: int, y: int, width: int, height: int, world_seed: int) -> float:
-	var base := height_at(float(x), float(y), world_seed)
+static func vertex_height_on_map(x: int, y: int, width: int, height: int,
+		world_seed: int, relief_version: int = RELIEF_SHARP) -> float:
+	# Географический край рассчитывается после физического профиля:
+	# побережья и барьеры остаются частью общей высотной карты.
+	var base := height_at(float(x), float(y), world_seed, relief_version)
 	return Boundary.height_at(float(x), float(y), width, height, world_seed, base)
 
 
