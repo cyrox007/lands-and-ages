@@ -262,6 +262,37 @@ func storm_at_index(i: int) -> float:
 	return _storm[i] if i >= 0 and i < _storm.size() else 0.0
 
 
+func wind_direction_at_index(i: int) -> Vector2:
+	# Направление — текущий суточный поток В СТОРОНУ движения воздуха,
+	# а не направление, откуда дует ветер. Оси совпадают с X/Y карты.
+	# Макроклиматическая западная роза ветров остаётся базовой;
+	# проходящие фронты плавно отклоняют поток даже до встречного.
+	if i < 0 or i >= _wind.size() or _width <= 0:
+		return Vector2.ZERO
+	var x := float(i % _width)
+	var y := float(i / _width)
+	var moving := _smooth_noise((x + float(day) * 1.1) / 72.0,
+		(y - float(day) * 0.5) / 64.0, world.config.world_seed + 14141)
+	var seasonal := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
+	var angle := moving * 1.70 + seasonal * 0.42
+	return Vector2(cos(angle), sin(angle))
+
+
+func wind_gust_at_index(i: int) -> float:
+	# Порыв вычисляется из того же климатического дня, что и скорость:
+	# у рендера нет собственного генератора ветра и собственного RNG.
+	# Мелкая неоднородность фронта даёт порывы и вне сильной грозы.
+	if i < 0 or i >= _wind.size() or _width <= 0:
+		return 0.0
+	var x := float(i % _width)
+	var y := float(i / _width)
+	var turbulence := absf(_smooth_noise((x - float(day) * 1.7) / 28.0,
+		(y + float(day) * 0.9) / 28.0, world.config.world_seed + 14142))
+	var extra := (0.8 + 3.2 * _storm[i]) * (0.45 + turbulence)
+	return clampf(_wind[i] + extra, _wind[i], 36.0)
+
+
+
 func rainfall_map() -> PackedFloat32Array:
 	return _rain.duplicate()
 
@@ -274,11 +305,14 @@ func weather_at(cell: Vector2i) -> Dictionary:
 	var temp: float = _temperature[i]
 	var rain: float = _rain[i]
 	var snow_share := snowfall_fraction(temp)
+	var direction := wind_direction_at_index(i)
 	return {
 		"temperature": temp,
 		"annual_temperature": _mean[i],
 		"humidity": _humidity[i],
 		"precipitation": rain, "wind_speed": _wind[i],
+		"wind_gust": wind_gust_at_index(i),
+		"wind_direction_x": direction.x, "wind_direction_y": direction.y,
 		"storm_intensity": _storm[i], "downpour": rain >= 1.6,
 		"rainfall": rain * (1.0 - snow_share),
 		"snowfall": rain * snow_share,
