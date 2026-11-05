@@ -110,6 +110,25 @@ jobs:
             godot/tests/world-spatial-512-pr.json
           test -s godot/tests/world-spatial-256-pr.json
           test -s godot/tests/world-spatial-512-pr.json
+      - name: Показать измеренную вместимость карт
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path("godot/tests").glob("world-spatial-*-pr.json")):
+              report = json.loads(path.read_text(encoding="utf-8"))
+              options = report["options"]
+              timing = report["generation_duration"]
+              print(f"Карта {options['width']}×{options['height']}, "
+                    f"seed: {report['samples']}, "
+                    f"30 геометрических: {report['thirty_geometric_sites_found']}, "
+                    f"6×5 условно зрелых: "
+                    f"{report['six_territories_with_five_hypothetical_mature_sites']}, "
+                    f"строго пригодных: {report['seed_selection']['eligible']}, "
+                    f"p95 CPU, мс: {timing['p95_ms']}")
+              print("Типы географии:", report["seed_selection"]["missing_eligible_archetypes"])
+          PY
       - name: Сохранить результаты
         if: always()
         uses: actions/upload-artifact@v4
