@@ -106,8 +106,8 @@ jobs:
         timeout-minutes: 9
         run: |
           set -o pipefail
-          timeout 490s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
-            --headless --path godot \
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --quit-after 1200 \
             --script res://tests/nature_collision_profile.gd 2>&1 \
             | tee /tmp/collision-profile.log
           grep -q "Этап 10.7: профиль природных коллизий готов" /tmp/collision-profile.log
