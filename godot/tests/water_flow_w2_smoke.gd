@@ -93,7 +93,7 @@ func _run() -> void:
 	_test_river(world, hydro)
 	var code: String = WaterShader.code
 	_check(code.contains("UV2") and code.contains("river_phase")
-		and code.contains("river_highlight") and code.contains("TIME"),
+		and code.contains("river_highlight") and code.contains("wave_time"),
 		"Водный PBR анимирует физическое направление течения")
 	_check(not code.contains("VERTEX ="),
 		"Волны не изменяют физический уровень и объём воды")
