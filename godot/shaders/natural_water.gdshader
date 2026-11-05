@@ -9,6 +9,10 @@ uniform float ripple_strength : hint_range(0.0, 1.0) = 1.0;
 // Значения берутся из климатического снимка камеры, не создают погоду.
 uniform float wind_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float storm_strength : hint_range(0.0, 1.0) = 0.0;
+// W6: единые часы сцены останавливаются вместе с игрой.
+uniform float wave_time = 0.0;
+// Дальний обзор оставляет крупные блики без дорогих мелких волн.
+uniform float far_glint_strength : hint_range(0.0, 1.0) = 0.0;
 varying vec2 water_position;
 
 
@@ -38,11 +42,11 @@ void fragment() {
 	// произведение давало отчётливую шахматную сетку на поверхности.
 	if (ripple_strength > 0.01 && liquid > 0.01) {
 		float phase_a = dot(water_position, vec2(1.42, 0.58)) +
-			TIME * 0.83 + sin(water_position.y * 0.20) * 0.30;
+			wave_time * 0.83 + sin(water_position.y * 0.20) * 0.30;
 		float phase_b = dot(water_position, vec2(-0.78, 1.72)) -
-			TIME * 0.71 + sin(water_position.x * 0.24) * 0.22;
+			wave_time * 0.71 + sin(water_position.x * 0.24) * 0.22;
 		float phase_c = dot(water_position, vec2(2.71, -1.31)) +
-			TIME * 1.12;
+			wave_time * 1.12;
 		// На дальнем масштабе фазы мельче пикселя: фильтруем их
 		// производными экрана вместо муара и неподвижной «ткани».
 		float screen_frequency = max(
@@ -61,7 +65,7 @@ void fragment() {
 			vec2 across_flow = vec2(-flow_direction.y, flow_direction.x);
 			float bend = sin(dot(water_position, across_flow) * 7.0) * 0.35;
 			float river_phase = dot(water_position, flow_direction) * 6.5 -
-				TIME * (1.8 + river_strength * 2.0) + bend;
+				wave_time * (1.8 + river_strength * 2.0) + bend;
 			float river_fade = 1.0 - smoothstep(0.65, 1.8,
 				fwidth(river_phase));
 			float stripe = sin(river_phase) * 0.72 +
@@ -76,9 +80,9 @@ void fragment() {
 			// Скорость рисунка — визуальный отклик, не расчёт м/с.
 			// Расход и глубина задают интенсивность, лёд её гасит.
 			float flood_phase_a = dot(water_position, vec2(2.13, -0.91)) -
-				TIME * (0.70 + flood_intensity * 4.4);
+				wave_time * (0.70 + flood_intensity * 4.4);
 			float flood_phase_b = dot(water_position, vec2(-1.47, 2.26)) +
-				TIME * (0.48 + flood_intensity * 2.9);
+				wave_time * (0.48 + flood_intensity * 2.9);
 			float flood_fade = 1.0 - smoothstep(0.55, 1.80,
 				max(fwidth(flood_phase_a), fwidth(flood_phase_b)));
 			float flood_waves = sin(flood_phase_a) * 0.60 +
@@ -102,9 +106,9 @@ void fragment() {
 		if (wind_energy > 0.01) {
 			float along = mix(1.10, 0.46, ocean);
 			float wind_phase = dot(water_position, vec2(along, 0.12)) -
-				TIME * (0.38 + wind_strength * 0.9 + storm_strength * 0.5);
+				wave_time * (0.38 + wind_strength * 0.9 + storm_strength * 0.5);
 			float side_phase = dot(water_position, vec2(-0.22, 0.73)) +
-				TIME * (0.14 + wind_strength * 0.3);
+				wave_time * (0.14 + wind_strength * 0.3);
 			float wind_fade = 1.0 - smoothstep(0.55, 1.75,
 				max(fwidth(wind_phase), fwidth(side_phase)));
 			float large_wave = sin(wind_phase) * 0.78 +
@@ -140,9 +144,9 @@ void fragment() {
 		// Фронт повторяет линии физической глубины. Мировая
 		// координата лишь слегка искривляет его без сетки по чанкам.
 		float shore_phase = UV.x * 18.0 -
-			TIME * (0.35 + wind_strength * 0.56 + storm_strength * 0.27);
+			wave_time * (0.35 + wind_strength * 0.56 + storm_strength * 0.27);
 		float shore_warp = sin(dot(water_position, vec2(-0.21, 0.43)) +
-			TIME * 0.20) * 0.32;
+			wave_time * 0.20) * 0.32;
 		float crest_phase = shore_phase + shore_warp;
 		float crest = sin(crest_phase);
 		// Экранные производные гасят муар на удалении и у крутого берега.
@@ -171,6 +175,17 @@ void fragment() {
 		river_highlight * ripple_strength;
 	liquid_color += vec3(0.036, 0.050, 0.052) *
 		wind_highlight * ripple_strength * liquid;
+	// W6: медленные крупные отблески сохраняют живую дальнюю воду,
+	// когда мелкие нормали и прибрежная пена уже затухли по LOD.
+	// Мировая фаза не зависит от чанка, производные экрана гасят муар.
+	float far_phase = dot(water_position, vec2(0.11, -0.063)) -
+		wave_time * (0.16 + wind_strength * 0.18);
+	float far_fade = 1.0 - smoothstep(0.6, 1.8, fwidth(far_phase));
+	float far_glint = smoothstep(0.55, 0.92, sin(far_phase)) *
+		clamp(far_glint_strength, 0.0, 1.0) *
+		(0.12 + wind_strength * 0.40 + storm_strength * 0.18) *
+		far_fade * liquid;
+	liquid_color += vec3(0.065, 0.081, 0.080) * far_glint;
 	// Светлые участки появляются только при действительном паводке.
 	liquid_color += vec3(0.032, 0.046, 0.048) *
 		flood_highlight * ripple_strength * liquid;
