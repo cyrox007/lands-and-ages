@@ -72,6 +72,8 @@ var _shadow_active := false
 var _lightning_life := 0.0
 var _weather_fx: Node3D
 var _weather_fx_cooldown := 0.0
+var _weather_light_target: Dictionary = {}
+var _weather_light_current: Dictionary = {}
 var _process_status := "Естественные процессы ещё не изменяли рельеф"
 var _last_event := "Изменений ландшафта нет"
 var _view_mode := 0
@@ -326,6 +328,7 @@ func _update_camera() -> void:
 func _process(delta: float) -> void:
 	_record_frame(delta)
 	_advance_water_animation(delta)
+	_advance_weather_lighting(delta)
 	if _lightning_life > 0.0:
 		_lightning_life -= delta
 		if _lightning_life <= 0.0:
@@ -489,26 +492,55 @@ func _advance_water_animation(delta: float) -> void:
 			_water_animation_time)
 
 
-func _apply_weather_lighting(snapshot: Dictionary) -> void:
-	## Единое освещение всех видимых чанков из неизменяемого снимка.
-	## Контроллер не меняет Climate и не создаёт новых погодных событий.
+func _write_weather_lighting(lighting: Dictionary) -> void:
+	## Применяем к сцене только уже интерполированные параметры.
+	## Один источник света и один материал работают на все чанки,
+	## поэтому на стыках нет отдельных таймеров или различий оттенка.
 	if _world_light == null:
 		return
-	var lighting: Dictionary = WeatherLighting.from_snapshot(snapshot)
-	# Диагностические режимы оставляем без погодного затемнения.
-	if _view_mode != 0:
-		lighting = WeatherLighting.from_snapshot({})
 	_world_light.light_energy = float(lighting["sun_energy"])
 	_world_light.light_color = lighting["sun_color"]
 	if _sky_environment != null:
 		_sky_environment.ambient_light_energy = float(lighting["ambient_energy"])
 		_sky_environment.background_color = lighting["sky_color"]
 	if _ground_material != null:
-		# Облачные пятна влияют только на ALBEDO PBR, но не на рельеф.
+		# Пятна облачности читают абсолютные мировые координаты.
 		_ground_material.set_shader_parameter("cloud_coverage",
 			float(lighting["cloud_coverage"]))
 		_ground_material.set_shader_parameter("cloud_wind",
 			float(lighting["wind"]))
+
+
+func _advance_weather_lighting(delta: float) -> void:
+	## Двигаем только текущую визуальную палитру к сохранённой цели.
+	## Climate и фоновые потоки здесь не читаются даже во время
+	## расчёта нового дня; пауза и ускорение работают через delta.
+	if _weather_light_target.is_empty() or _weather_light_current.is_empty():
+		return
+	if not is_finite(delta) or delta <= 0.0:
+		return
+	if is_inside_tree() and get_tree().paused:
+		return
+	_weather_light_current = WeatherLighting.blend(
+		_weather_light_current, _weather_light_target, delta)
+	_write_weather_lighting(_weather_light_current)
+
+
+func _apply_weather_lighting(snapshot: Dictionary) -> void:
+	## Обновление погоды меняет целевой свет, а не мгновенный кадр.
+	## Первая инициализация — немедленная; автономные smoke-тесты
+	## также получают готовое состояние без игрового _process.
+	if _world_light == null:
+		return
+	var target: Dictionary = WeatherLighting.from_snapshot(snapshot)
+	if _view_mode != 0:
+		# Диагностическая палитра выключает погодный свет сразу,
+		# не смешивая цвета категории с предыдущей грозой.
+		target = WeatherLighting.from_snapshot({})
+	_weather_light_target = target
+	if _weather_light_current.is_empty() or not is_inside_tree() or _view_mode != 0:
+		_weather_light_current = target.duplicate(true)
+		_write_weather_lighting(_weather_light_current)
 
 
 func _sync_water_weather() -> void:
@@ -553,6 +585,10 @@ func _update_shadow_lod() -> void:
 	var center_chunk := Vector2i(floori(_center.x / float(chunk_size)),
 		floori(_center.y / float(chunk_size)))
 	if _world_light != null:
+		# Прозрачность меняется даже без смены центрального чанка:
+		# ранний выход ниже не должен блокировать плавный переход.
+		_world_light.shadow_opacity = ShadowLOD.shadow_opacity_for_zoom(
+			_camera.size, _view_mode)
 		_world_light.shadow_enabled = enabled
 	if _shadow_active == enabled and _shadow_center_chunk == center_chunk:
 		return
@@ -1197,6 +1233,9 @@ func _install_loaded_world(models: Dictionary) -> void:
 		_natural_processes.last_day
 	_last_event = "Мир успешно загружен"
 	_weather_fx_cooldown = 0.0
+	# После загрузки климат даст новую цель: не переносим свет старого мира.
+	_weather_light_target.clear()
+	_weather_light_current.clear()
 	_center = _world_model.config.clamp_point(_center)
 	_update_camera()
 	for chunk in _active.keys():
