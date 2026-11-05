@@ -1,6 +1,9 @@
 name: Этап 10.0 — многосидовый аудит ёмкости
 
 on:
+  # Одноразовый полный аудит после исправлений запускается отдельной веткой.
+  push:
+    branches: [ci/stage10-final-audit]
   pull_request:
     branches: [develop]
     paths:
@@ -54,7 +57,7 @@ concurrency:
 
 jobs:
   spatial-seeds:
-    if: github.event_name != 'workflow_dispatch' || inputs.large_series != true
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.large_series != true)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -123,6 +126,7 @@ jobs:
             --script res://tests/world_spatial_seeds_10.gd -- \
             --samples=2 --width=768 --height=576 \
             --profile=balanced --seed_start=1729 \
+            --min_eligible=2 \
             2>&1 | tee /tmp/spatial-768.log
           cp godot/tests/world-spatial-seeds-10.json \
             godot/tests/world-spatial-768-pr.json
@@ -166,7 +170,7 @@ jobs:
           if-no-files-found: warn
 
   spatial-large-batch:
-    if: github.event_name == 'workflow_dispatch' && inputs.large_series == true
+    if: (github.event_name == 'workflow_dispatch' && inputs.large_series == true) || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -189,11 +193,11 @@ jobs:
             --headless --path godot --editor --import --quit
       - name: Проверить 10 seed в непересекающемся диапазоне
         env:
-          MAP_WIDTH: ${{ inputs.width }}
-          MAP_HEIGHT: ${{ inputs.height }}
-          PROFILE: ${{ inputs.profile }}
+          MAP_WIDTH: ${{ inputs.width || '768' }}
+          MAP_HEIGHT: ${{ inputs.height || '576' }}
+          PROFILE: ${{ inputs.profile || 'balanced' }}
           RADIUS: ${{ inputs.radius }}
-          START_SEED: ${{ inputs.seed_start }}
+          START_SEED: ${{ inputs.seed_start || '1729' }}
         run: |
           set -o pipefail
           OFFSET=$(( ${{ matrix.shard }} * 10 ))
@@ -224,7 +228,7 @@ jobs:
           if-no-files-found: warn
 
   spatial-large-summary:
-    if: github.event_name == 'workflow_dispatch' && inputs.large_series == true
+    if: (github.event_name == 'workflow_dispatch' && inputs.large_series == true) || github.event_name == 'push'
     needs: spatial-large-batch
     runs-on: ubuntu-latest
     steps:
@@ -235,7 +239,7 @@ jobs:
           path: artifacts
       - name: Проверить полноту выборки и свести результаты
         env:
-          START_SEED: ${{ inputs.seed_start }}
+          START_SEED: ${{ inputs.seed_start || '1729' }}
         run: |
           python3 - <<'PY'
           import json
