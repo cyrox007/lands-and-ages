@@ -15,6 +15,7 @@ const Geography = preload("res://scripts/world_geography_audit.gd")
 const Selection = preload("res://scripts/world_seed_selection.gd")
 
 const OUTPUT := "res://tests/world-spatial-seeds-10.json"
+const PROGRESS := "res://tests/world-spatial-progress-10.json"
 
 
 static func _options() -> Dictionary:
@@ -68,6 +69,7 @@ static func _sample(world_seed: int, width: int,
     var world := Map.new(Config.new(width, height, world_seed))
     var hydro := Hydro.new(world)
     hydro.rebuild()
+    var after_hydrology := Time.get_ticks_usec()
     var surface := Surface.new(world, hydro)
     surface.rebuild()
     var climate := Climate.new(world, hydro)
@@ -75,12 +77,15 @@ static func _sample(world_seed: int, width: int,
     climate.set_day(1)
     surface.advance_climate_day(climate)
     hydro.apply_rainfall_map(surface.runoff_map())
+    var after_surface_climate := Time.get_ticks_usec()
     var nature := Nature.new(world, hydro, surface, climate)
     nature.generate()
+    var after_nature := Time.get_ticks_usec()
 
     var geographic: Dictionary = Geography.report(world, hydro)
     var scenario: Dictionary = Scenario.report(
         world, hydro, surface, nature, radius)
+    var after_spatial := Time.get_ticks_usec()
     var trial: Dictionary = scenario["trial"]
     var centers := 0
     var complete_groups := 0
@@ -145,6 +150,7 @@ static func _sample(world_seed: int, width: int,
             else:
                 min_state_buildable = mini(
                     min_state_buildable, int(state["buildable_cells"]))
+    var after_mature := Time.get_ticks_usec()
     var components: Array = scenario["largest_walkable_components"]
     var largest := 0
     if not components.is_empty():
@@ -189,6 +195,19 @@ static func _sample(world_seed: int, width: int,
         "states_with_both_territory_resources": states_with_both_resources,
         "minimum_state_buildable_cells": min_state_buildable,
         "invariants_valid": valid,
+        "phase_duration_ms": {
+            "map_hydrology": snappedf(
+                float(after_hydrology - started) / 1000.0, 0.001),
+            "surface_climate": snappedf(
+                float(after_surface_climate - after_hydrology)
+                / 1000.0, 0.001),
+            "nature": snappedf(
+                float(after_nature - after_surface_climate) / 1000.0, 0.001),
+            "spatial": snappedf(
+                float(after_spatial - after_nature) / 1000.0, 0.001),
+            "mature": snappedf(
+                float(after_mature - after_spatial) / 1000.0, 0.001)
+        },
         "duration_ms": snappedf(
             float(Time.get_ticks_usec() - started) / 1000.0, 0.001)
     }
@@ -216,6 +235,36 @@ static func _duration_percentiles(rows: Array[Dictionary]) -> Dictionary:
     }
 
 
+# Промежуточный отчёт записывается после каждого seed.
+# При принудительном завершении CI остаются результаты уже измеренных карт.
+static func _checkpoint(rows: Array[Dictionary], requested: int,
+        started_usec: int) -> bool:
+    var file := FileAccess.open(PROGRESS, FileAccess.WRITE)
+    if file == null:
+        return false
+    var last_seed := -1
+    if not rows.is_empty():
+        last_seed = int(rows.back()["seed"])
+    var eligible := 0
+    var valid := 0
+    for item in rows:
+        eligible += int(item["eligibility_reasons"].is_empty())
+        valid += int(item["invariants_valid"])
+    file.store_string(JSON.stringify({
+        "stage": "10.0", "status": "in_progress",
+        "completed": rows.size(), "requested": requested,
+        "last_seed": last_seed,
+        "invariants_valid": valid,
+        "strictly_eligible": eligible,
+        "elapsed_ms": snappedf(float(
+            Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+        "rows": rows,
+        "final_report_available": false
+    }, "  ") + "\n")
+    file.close()
+    return true
+
+
 func _run() -> void:
     var options: Dictionary = _options()
     if not _valid(options):
@@ -227,6 +276,7 @@ func _run() -> void:
     var profile := Envelope.for_radius(radius)
     if str(options["profile"]) != "":
         profile = Envelope.profile(str(options["profile"]))
+    var batch_started := Time.get_ticks_usec()
     var rows: Array[Dictionary] = []
     var failures: Array[int] = []
     var full := 0
@@ -239,9 +289,21 @@ func _run() -> void:
         int(options["seed_offset"]), int(options["seed_step"]))
     for index in range(seeds.size()):
         var world_seed: int = seeds[index]
+        print("Пространственный аудит: начало ", index + 1,
+            " / ", count, ", seed=", world_seed)
         var row: Dictionary = _sample(world_seed, int(options["width"]),
             int(options["height"]), radius, profile)
+        row["eligibility_reasons"] = Selection.reasons(row)
         rows.append(row)
+        print("Пространственный аудит: завершено ", index + 1,
+            " / ", count, ", seed=", world_seed,
+            ", CPU=", row["duration_ms"], " мс",
+            ", этапы=", row["phase_duration_ms"],
+            ", подходит=", row["eligibility_reasons"].is_empty())
+        if not _checkpoint(rows, count, batch_started):
+            push_error("Не удалось сохранить промежуточный отчёт")
+            quit(1)
+            return
         full += int(row["thirty_sites"])
         starts += int(row["six_starts"])
         stocked += int(int(row["starts_with_both_routes"]) == 6)
@@ -250,12 +312,6 @@ func _run() -> void:
         geography[archetype] = int(geography.get(archetype, 0)) + 1
         if not bool(row["invariants_valid"]):
             failures.append(world_seed)
-        if index % 10 == 0:
-            print("Пространственный аудит: ", index + 1, " / ", count)
-
-    # Причины отказа доступны для каждого seed, а не только суммарно.
-    for row in rows:
-        row["eligibility_reasons"] = Selection.reasons(row)
     var selection: Dictionary = Selection.summarize(rows)
     var target: String = options["archetype"]
     var chosen: Array = selection["best_overall"]
@@ -288,6 +344,19 @@ func _run() -> void:
         return
     file.store_string(JSON.stringify(result, "  ") + "\n")
     file.close()
+    var progress_file := FileAccess.open(PROGRESS, FileAccess.WRITE)
+    if progress_file != null:
+        progress_file.store_string(JSON.stringify({
+            "stage": "10.0", "status": "completed",
+            "completed": count, "requested": count,
+            "last_seed": seeds.back(),
+            "invariants_valid": count - failures.size(),
+            "strictly_eligible": int(selection["eligible"]),
+            "final_report_available": true,
+            "elapsed_ms": snappedf(float(
+                Time.get_ticks_usec() - batch_started) / 1000.0, 0.001)
+        }, "  ") + "\n")
+        progress_file.close()
     if not failures.is_empty():
         push_error("Многосидовая пространственная проверка нарушила инварианты")
         quit(1)
