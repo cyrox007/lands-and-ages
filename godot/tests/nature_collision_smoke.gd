@@ -98,6 +98,23 @@ func _run() -> void:
 
     if not tree.is_empty():
         var id: int = tree["id"]
+        # Проверку можно выполнить без камеры и без узлов физики.
+        _check(nature.interaction_points(id, -1.0).is_empty(),
+            "Отрицательный зазор не создаёт опасные точки подхода")
+        var approaches: Array[Vector2] = nature.interaction_points(id)
+        _check(approaches.size() <= 4,
+            "Для природного объекта не более четырёх точек подхода")
+        for point in approaches:
+            var cell: Vector2i = world.config.cell_at(point)
+            var index: int = nature.hydro.cell_index(cell)
+            _check(not nature.hydro.has_water(index) \
+                    and not nature.hydro.flooded_at(index),
+                "Точка подхода не находится в воде или паводке")
+            _check(world.normal_at(cell).y >= 0.76 \
+                    and nature.surface.waterlogging_at_index(index) <= 0.85,
+                "Точка подхода находится на проходимом грунте")
+            _check(not nature.intersects_solid(point, 0.08, id),
+                "Точка подхода не пересекает другой природный объект")
         var standing := Collisions.create_chunk(world, nature, chunk)
         get_root().add_child(standing)
         _check(_parts_for(standing, id) == ["ствол"],
