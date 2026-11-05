@@ -56,6 +56,8 @@ static func summarize(rows: Array[Dictionary], limit: int = 5) -> Dictionary:
             "best_candidates": []
         }
     var accepted: Array[Dictionary] = []
+    var rejected_examples: Array[Dictionary] = []
+    var rejection_counts := {}
     var rejected := 0
     for row in rows:
         var archetype: String = str(row.get("geography_archetype", "смешанная"))
@@ -74,6 +76,10 @@ static func summarize(rows: Array[Dictionary], limit: int = 5) -> Dictionary:
         }
         if not violations.is_empty():
             rejected += 1
+            for reason in violations:
+                rejection_counts[reason] = int(rejection_counts.get(reason, 0)) + 1
+            if rejected_examples.size() < maxi(limit, 0):
+                rejected_examples.append(candidate)
             continue
         accepted.append(candidate)
         groups[archetype]["eligible_seeds"] += 1
@@ -95,6 +101,8 @@ static func summarize(rows: Array[Dictionary], limit: int = 5) -> Dictionary:
         "samples": rows.size(),
         "eligible": accepted.size(),
         "rejected": rejected,
+        "rejection_reason_counts": rejection_counts,
+        "rejected_examples": rejected_examples,
         "best_overall": accepted.slice(0, maxi(limit, 0)),
         "by_archetype": groups,
         "missing_eligible_archetypes": missing,
