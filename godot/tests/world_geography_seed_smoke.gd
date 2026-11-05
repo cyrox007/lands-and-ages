@@ -90,6 +90,10 @@ static func _test_selection() -> bool:
     var found: Dictionary = SelectSeed.summarize(rows)
     if int(found["eligible"]) != 2 or int(found["rejected"]) != 2:
         return false
+    if found["rejected_examples"].size() != 2 \
+            or int(found["rejection_reason_counts"].get(
+                "менее 30 геометрических центров", 0)) != 1:
+        return false
     if found["best_overall"].size() != 2 \
             or int(found["best_overall"][0]["seed"]) != 123:
         return false
