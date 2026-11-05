@@ -7,6 +7,10 @@ const WATER_OFFSET := 0.018
 const SHORE_FADE_DEPTH := 0.7
 # Только пересекающие сушу клетки получают более точную кромку.
 const SHORE_SUBDIVISIONS := ShoreVisual.SUBDIVISIONS
+# Метки стоячей воды в UV2 не пересекаются с речным вектором длиной <= 1.
+# Шейдер выбирает разные волны для озёр и моря без дополнительных мешей.
+const STANDING_LAKE := Vector2(0.0, 2.0)
+const STANDING_OCEAN := Vector2(2.0, 0.0)
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
@@ -46,7 +50,7 @@ static func _clip_submerged_triangle(points: PackedVector2Array,
 
 static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 		polygon: PackedVector3Array, level: float, tint: Color,
-		ice: float = 0.0) -> int:
+		ice: float = 0.0, water_kind: Vector2 = Vector2.ZERO) -> int:
 	if polygon.size() < 3:
 		return 0
 	var added := 0
@@ -59,8 +63,8 @@ static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 		if absf((b - a).cross(c - a)) < 0.000001:
 			continue
 		for vertex in [polygon[0], polygon[i], polygon[i + 1]]:
-			# Прибрежная вода и открытая гладь не наследуют речной сток.
-			tool.set_uv2(Vector2.ZERO)
+			# У берега сохраняем метку озера/моря; это не речной сток.
+			tool.set_uv2(water_kind)
 			tool.set_uv(Vector2(vertex.z, ice))
 			tool.add_vertex(world.config.to_scene(
 				Vector2(vertex.x, vertex.y), level + WATER_OFFSET))
@@ -69,7 +73,8 @@ static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 
 
 static func _water_cell(tool: SurfaceTool, world: RefCounted,
-		cell: Vector2i, level: float, tint: Color, ice: float = 0.0) -> int:
+		cell: Vector2i, level: float, tint: Color, ice: float = 0.0,
+		water_kind: Vector2 = Vector2.ZERO) -> int:
 	var x := cell.x
 	var y := cell.y
 	var a := Vector2i(x, y)
@@ -84,14 +89,15 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 		_quad(tool, world.config.to_scene(Vector2(a), level + WATER_OFFSET),
 			world.config.to_scene(Vector2(b), level + WATER_OFFSET),
 			world.config.to_scene(Vector2(d), level + WATER_OFFSET),
-			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint, ice)
+			world.config.to_scene(Vector2(c), level + WATER_OFFSET), tint, ice,
+			water_kind)
 		return 2
 
 	# Высоты воды совпадают с уточнённой визуальной сеткой суши.
 	# Делим только береговые полигоны: открытая вода не усложняется.
 	# Соседние клетки получают одинаковые точки на общей границе.
 	return _subdivided_shore(tool, world, cell, level, tint, ice,
-		ha, hb, hc, hd)
+		water_kind, ha, hb, hc, hd)
 
 
 static func _terrain_height(ha: float, hb: float, hc: float,
@@ -102,7 +108,7 @@ static func _terrain_height(ha: float, hb: float, hc: float,
 
 static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, level: float, tint: Color, ice: float,
-		ha: float, hb: float, hc: float, hd: float) -> int:
+		water_kind: Vector2, ha: float, hb: float, hc: float, hd: float) -> int:
 	var added := 0
 	for j in range(SHORE_SUBDIVISIONS):
 		for i in range(SHORE_SUBDIVISIONS):
@@ -124,8 +130,10 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 			var second := _clip_submerged_triangle(
 				PackedVector2Array([d, b, c]),
 				PackedFloat32Array([h11, h10, h01]), level)
-			added += _add_polygon(tool, world, first, level, tint, ice)
-			added += _add_polygon(tool, world, second, level, tint, ice)
+			added += _add_polygon(tool, world, first, level, tint, ice,
+				water_kind)
+			added += _add_polygon(tool, world, second, level, tint, ice,
+				water_kind)
 	return added
 
 
@@ -446,7 +454,8 @@ static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i
 					ice, flood_samples)
 				continue
 			if ocean or lake:
-				added += _water_cell(tool, world, cell, level, color, ice)
+				added += _water_cell(tool, world, cell, level, color, ice,
+					STANDING_OCEAN if ocean else STANDING_LAKE)
 				continue
 			if not river:
 				continue
