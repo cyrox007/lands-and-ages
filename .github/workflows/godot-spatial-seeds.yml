@@ -155,6 +155,7 @@ jobs:
           name: world-spatial-10-seed-matrix
           path: |
             godot/tests/world-spatial-seeds-10.json
+            godot/tests/world-spatial-progress-10.json
             godot/tests/world-spatial-256-pr.json
             godot/tests/world-spatial-512-pr.json
             godot/tests/world-spatial-768-pr.json
@@ -212,6 +213,7 @@ jobs:
           name: world-spatial-large-${{ matrix.shard }}
           path: |
             godot/tests/world-spatial-seeds-10.json
+            godot/tests/world-spatial-progress-10.json
             /tmp/spatial-large.log
           if-no-files-found: warn
 
