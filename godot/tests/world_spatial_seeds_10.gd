@@ -11,6 +11,8 @@ const Nature = preload("res://scripts/nature_registry.gd")
 const Scenario = preload("res://scripts/world_spatial_scenario.gd")
 const Envelope = preload("res://scripts/world_settlement_envelope.gd")
 const Mature = preload("res://scripts/world_mature_capacity_audit.gd")
+const Geography = preload("res://scripts/world_geography_audit.gd")
+const Selection = preload("res://scripts/world_seed_selection.gd")
 
 const OUTPUT := "res://tests/world-spatial-seeds-10.json"
 
@@ -67,6 +69,7 @@ static func _sample(world_seed: int, width: int,
     var nature := Nature.new(world, hydro, surface, climate)
     nature.generate()
 
+    var geographic: Dictionary = Geography.report(world, hydro)
     var scenario: Dictionary = Scenario.report(
         world, hydro, surface, nature, radius)
     var trial: Dictionary = scenario["trial"]
@@ -91,6 +94,8 @@ static func _sample(world_seed: int, width: int,
     var unique_wood := 0
     var unique_stones := 0
     var neutral_land := 0
+    var states_with_both_resources := 0
+    var min_state_buildable := 0
     if not profile.is_empty():
         var audit: Dictionary = Mature.report(
             world, hydro, surface, nature, scenario, profile)
@@ -101,9 +106,18 @@ static func _sample(world_seed: int, width: int,
             audit["remaining_walkable_outside_test_influences"])
         valid = valid and int(audit["selected_center_count"]) == centers
         valid = valid and mature_fit <= centers and mature_groups <= 6
+        var first_state := true
         for state in audit["state_territory_proxy"]["states"]:
             unique_wood += int(state["wood_units"])
             unique_stones += int(state["boulders"])
+            if int(state["wood_units"]) > 0 and int(state["boulders"]) > 0:
+                states_with_both_resources += 1
+            if first_state:
+                min_state_buildable = int(state["buildable_cells"])
+                first_state = false
+            else:
+                min_state_buildable = mini(
+                    min_state_buildable, int(state["buildable_cells"]))
     var components: Array = scenario["largest_walkable_components"]
     var largest := 0
     if not components.is_empty():
@@ -118,6 +132,8 @@ static func _sample(world_seed: int, width: int,
     return {
         "seed": world_seed, "radius": radius,
         "geography_heuristic": archetype,
+        "geography_archetype": geographic["archetype"],
+        "geography_metrics": geographic,
         "largest_walkable_share": snappedf(share, 0.001),
         "water_share": snappedf(1.0 - float(scenario["land"]["dry"])
             / float(width * height), 0.001),
@@ -137,6 +153,8 @@ static func _sample(world_seed: int, width: int,
         "walkable_land_outside_center_influence": neutral_land,
         "unique_provisional_territory_wood": unique_wood,
         "unique_provisional_territory_boulders": unique_stones,
+        "states_with_both_territory_resources": states_with_both_resources,
+        "minimum_state_buildable_cells": min_state_buildable,
         "invariants_valid": valid,
         "duration_ms": snappedf(
             float(Time.get_ticks_usec() - started) / 1000.0, 0.001)
@@ -185,6 +203,7 @@ func _run() -> void:
         "six_starts_with_both_resources": stocked,
         "six_territories_with_five_hypothetical_mature_sites": mature,
         "geography_heuristic_counts": geography,
+        "seed_selection": Selection.summarize(rows),
         "profile_assumptions": profile,
         "mature_settlement_capacity_proven": false,
         "geographic_archetypes_controlled": false,
