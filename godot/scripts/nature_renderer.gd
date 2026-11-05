@@ -9,6 +9,21 @@ const Felling = preload("res://scripts/nature_felling_visual.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
 
 static var _meshes: Dictionary = {}
+static var _wind_direction := Vector2.RIGHT
+
+
+static func set_wind_direction(direction: Vector2) -> void:
+    # Обновляем только готовые шейдерные материалы видимого мира.
+    # Климат и физика падения продолжают работать независимо от FPS.
+    if direction.length_squared() < 0.000001:
+        return
+    _wind_direction = direction.normalized()
+    Models.set_wind_direction(_wind_direction)
+    for mesh in _meshes.values():
+        var material: Material = mesh.material
+        if material is ShaderMaterial:
+            material.set_shader_parameter(
+                "wind_direction", _wind_direction)
 
 
 static func _mesh(kind: String) -> Mesh:
@@ -52,6 +67,7 @@ static func _mesh(kind: String) -> Mesh:
     if kind in ["хвоя", "листва", "куст", "трава"]:
         var wind := ShaderMaterial.new()
         wind.shader = Wind
+        wind.set_shader_parameter("wind_direction", _wind_direction)
         mesh.material = wind
     else:
         var material := StandardMaterial3D.new()
@@ -131,7 +147,8 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var phase := float(posmod(int(item["id"]), 251)) / 251.0
         var cell := Vector2i(int(item["x"]), int(item["y"]))
         var index: int = nature.hydro.cell_index(cell)
-        var wind: float = clampf(nature.climate.wind_at_index(index) / 2.4, 0.0, 1.0)
+        var wind: float = smoothstep(6.0, 32.0,
+            nature.climate.wind_gust_at_index(index))
         var snow: float = nature.surface.snow_at_index(index)
         var season: String = str(
             nature.climate.weather_at(cell).get("season", "лето"))
@@ -244,8 +261,8 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var basis := Basis.IDENTITY.scaled(
                 Vector3(1.0, height_scale, 1.0))
             var wind_index: int = nature.hydro.cell_index(cell)
-            var wind: float = clampf(
-                nature.climate.wind_at_index(wind_index) / 2.4, 0.0, 1.0)
+            var wind: float = smoothstep(6.0, 32.0,
+                nature.climate.wind_gust_at_index(wind_index))
             var phase: float = amount
             var grass := Models.select_prop("трава", x + y * world.config.width)
             if _place_model(groups, grass, origin, height_scale,
