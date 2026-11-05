@@ -317,6 +317,10 @@ func _setup_interface() -> void:
 	hurricane_button.text = "Испытать ураган: широкая зона ветровала"
 	hurricane_button.pressed.connect(_debug_test_hurricane)
 	_debug_details.add_child(hurricane_button)
+	var tornado_button := Button.new()
+	tornado_button.text = "Испытать смерч: узкий след разрушений"
+	tornado_button.pressed.connect(_debug_test_tornado)
+	_debug_details.add_child(tornado_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -1126,6 +1130,11 @@ func _debug_test_hurricane() -> void:
 	_debug_test_wind_event("ураган")
 
 
+func _debug_test_tornado() -> void:
+	# Физический вихрь оставляет узкую трассу, а не круглый урон.
+	_debug_test_wind_event("смерч")
+
+
 func _debug_test_wind_event(kind: String) -> void:
 	# Диагностика использует тот же суточный физический цикл, что
 	# и естественное событие; GUI не меняет ресурс дерева напрямую.
@@ -1139,8 +1148,8 @@ func _debug_test_wind_event(kind: String) -> void:
 	var next_day: int = _climate.day + 1
 	# Для каждого типа выбираем дерево с гарантированным падением
 	# при интенсивности 1.0, без обхода всей карты вне камеры.
-	var probability_limit := 0.98 if kind == "ураган" else \
-		(0.95 if kind == "шквал" else 0.85)
+	var probability_limit := 0.99 if kind == "смерч" else (
+		0.98 if kind == "ураган" else (0.95 if kind == "шквал" else 0.85))
 	for chunk in _active.keys():
 		for item in _nature.objects_in_chunk(chunk):
 			if item["kind"] != "дерево" or item["state"] != "целое":
@@ -1167,6 +1176,8 @@ func _debug_test_wind_event(kind: String) -> void:
 		_day_runner.test_squall_cell = selected
 	elif kind == "ураган":
 		_day_runner.test_hurricane_cell = selected
+	elif kind == "смерч":
+		_day_runner.test_tornado_cell = selected
 	else:
 		_day_runner.test_storm_cell = selected
 	# Физика действует ровно один день: изменения можно сохранить.
@@ -1430,7 +1441,7 @@ func _complete_day(result: Dictionary) -> void:
 	var hazards: Array[Dictionary] = result["hazards"]
 	for hazard in hazards:
 		var wind_kind := str(hazard.get("kind", ""))
-		if wind_kind not in ["шторм", "шквал", "ураган"] \
+		if wind_kind not in ["шторм", "шквал", "ураган", "смерч"] \
 				or _weather_fx == null or _view_mode != 0 \
 				or _days_pending > 1:
 			continue
@@ -1445,6 +1456,9 @@ func _complete_day(result: Dictionary) -> void:
 				float(hazard["severity"]), direction)
 		elif wind_kind == "ураган":
 			_weather_fx.show_hurricane_event(
+				float(hazard["severity"]), direction)
+		elif wind_kind == "смерч":
+			_weather_fx.show_tornado_event(
 				float(hazard["severity"]), direction)
 		else:
 			_weather_fx.show_storm_event(
