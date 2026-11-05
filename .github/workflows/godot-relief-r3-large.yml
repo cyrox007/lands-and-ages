@@ -1,0 +1,55 @@
+name: R3 — увеличенные карты после изменения рельефа
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain.gd"
+      - "godot/scripts/world_config.gd"
+      - "godot/scripts/world_map.gd"
+      - ".github/workflows/godot-relief-r3-large.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: relief-r3-large-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capacity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        seed_offset: [0, 2, 4, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r3-large.zip
+          unzip -q /tmp/godot-r3-large.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Пространство 768×576: два seed со зрелыми поселениями"
+        run: |
+          set -o pipefail
+          timeout 900s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_spatial_seeds_10.gd \
+            -- --samples=2 --width=768 --height=576 --profile=balanced \
+            --seed_start=1729 --seed_step=73 --seed_offset=${{ matrix.seed_offset }} \
+            --min_eligible=1 2>&1 | tee /tmp/r3-large.log
+          grep -q "Этап 10.0: проверено 2 seed, отчёт готов" /tmp/r3-large.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/r3-large.log; then
+            exit 1
+          fi
+      - name: Отчёт новых больших карт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3-large-${{ matrix.seed_offset }}
+          path: |
+            godot/tests/world-spatial-seeds-10.json
+            godot/tests/world-spatial-progress-10.json
+            /tmp/r3-large.log
+          if-no-files-found: ignore

@@ -9,6 +9,8 @@ const DEFAULT_SEED := 1729
 const DEFAULT_CHUNK := 16
 const DEFAULT_REGION := 64
 const DEFAULT_HEIGHT_SCALE := 0.9
+const RELIEF_LEGACY := 1
+const RELIEF_SHARP := 2
 
 var width: int
 var height: int
@@ -16,18 +18,22 @@ var world_seed: int
 var chunk_size: int
 var region_size: int
 var height_scale: float
+var relief_version: int
 
 
 func _init(p_width: int = DEFAULT_WIDTH, p_height: int = DEFAULT_HEIGHT,
 		p_seed: int = DEFAULT_SEED, p_chunk: int = DEFAULT_CHUNK,
-		p_region: int = DEFAULT_REGION, p_height_scale: float = DEFAULT_HEIGHT_SCALE) -> void:
+		p_region: int = DEFAULT_REGION, p_height_scale: float = DEFAULT_HEIGHT_SCALE,
+		p_relief_version: int = RELIEF_SHARP) -> void:
 	assert(valid_dimensions(p_width, p_height, p_chunk, p_region, p_height_scale))
+	assert(p_relief_version in [RELIEF_LEGACY, RELIEF_SHARP])
 	width = p_width
 	height = p_height
 	world_seed = p_seed
 	chunk_size = p_chunk
 	region_size = p_region
 	height_scale = p_height_scale
+	relief_version = p_relief_version
 
 
 static func valid_dimensions(w: int, h: int, chunk: int, region: int, scale: float) -> bool:
@@ -114,11 +120,17 @@ func region_seed(coord: Vector2i) -> int:
 
 
 func to_data() -> Dictionary:
-	return {
+	## Для исторических сохранений v1 сохраняем точную прежнюю структуру.
+	## Это важно для подписей природных подсистем в WorldSave.
+	var result := {
 		"width": width, "height": height, "seed": world_seed,
 		"chunk_size": chunk_size, "region_size": region_size,
 		"height_scale": height_scale
 	}
+	if relief_version == RELIEF_SHARP:
+		# Новые миры явно закрепляют профиль физических высот.
+		result["relief_version"] = RELIEF_SHARP
+	return result
 
 
 static func from_data(data: Dictionary) -> RefCounted:
@@ -141,5 +153,17 @@ static func from_data(data: Dictionary) -> RefCounted:
 	# Не допускаем случайного открытия файлов с удалённым прототипным генератором.
 	if data.has("generator_version"):
 		return null
+	# Файлы до этапа R3 не содержали relief_version.
+	# При их открытии не подменяем высоты под существующими зданиями
+	# и не теряем совпадение подписей ранее сохранённой природы.
+	var profile := RELIEF_LEGACY
+	if data.has("relief_version"):
+		if not (data["relief_version"] is int or data["relief_version"] is float):
+			return null
+		profile = int(data["relief_version"])
+		if float(profile) != float(data["relief_version"]):
+			return null
+	if profile not in [RELIEF_LEGACY, RELIEF_SHARP]:
+		return null
 	return load("res://scripts/world_config.gd").new(w, h, int(data["seed"]),
-		chunk, region, scale)
+		chunk, region, scale, profile)

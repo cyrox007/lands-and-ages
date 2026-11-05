@@ -1,0 +1,85 @@
+name: R3 — физические горы, овраги и совместимость сохранений
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain.gd"
+      - "godot/scripts/world_config.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/tests/relief_geometry_r3_smoke.gd"
+      - ".github/workflows/godot-relief-r3.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain.gd"
+      - "godot/scripts/world_config.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/tests/relief_geometry_r3_smoke.gd"
+      - ".github/workflows/godot-relief-r3.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: relief-r3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  geometry-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r3.zip
+          unzip -q /tmp/godot-r3.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт проекта и компиляция
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/r3-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/r3-import.log; then
+            exit 1
+          fi
+      - name: "Физические гребни и овраги — версии и сохранения"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/relief_geometry_r3_smoke.gd \
+            2>&1 | tee /tmp/r3-geometry.log
+          grep -q "R3: геометрия, версии сохранений и физическая согласованность — успешно" /tmp/r3-geometry.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/r3-geometry.log; then
+            exit 1
+          fi
+      - name: "Физика мира, берега и единые сохранения"
+        run: |
+          set -o pipefail
+          for test in relief_smoke world_boundary_smoke world_save_smoke world_spatial_envelope_smoke relief_visual_contrast_smoke; do
+            timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+              --headless --path godot --script res://tests/"$test".gd \
+              2>&1 | tee "/tmp/r3-$test.log"
+            if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" "/tmp/r3-$test.log"; then
+              exit 1
+            fi
+          done
+      - name: Быстрый многосидовый сценарий
+        run: |
+          set -o pipefail
+          timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_spatial_seeds_10.gd \
+            -- --samples=2 --width=128 --height=96 --seed_start=1729 \
+            2>&1 | tee /tmp/r3-spatial.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/r3-spatial.log; then
+            exit 1
+          fi
+      - name: Сохранить результаты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r3-geometry-compat
+          path: |
+            /tmp/r3-*.log
+          if-no-files-found: ignore
