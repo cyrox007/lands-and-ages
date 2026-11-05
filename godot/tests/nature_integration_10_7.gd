@@ -122,7 +122,7 @@ func _verify(seed: int) -> void:
         "После валки не изменились препятствия: seed %d" % seed)
     fallen.free()
 
-    var point_count := nature.interaction_points(id).size()
+    var point_count: int = nature.interaction_points(id).size()
     _check(point_count <= 4,
         "Недопустимое число точек подхода: seed %d" % seed)
     for point in nature.interaction_points(id):
