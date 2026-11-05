@@ -8,6 +8,10 @@ const SNOW_PARTICLES := 320
 
 var _rain: GPUParticles3D
 var _snow: GPUParticles3D
+var _gusts: GPUParticles3D
+var _event_life := 0.0
+var _event_severity := 0.0
+var _event_direction := Vector2.ZERO
 var _enabled := true
 var _last_state: Dictionary = {}
 var _quality := 1
@@ -20,6 +24,35 @@ func _ready() -> void:
 		Vector2(0.035, 0.46), RAIN_PARTICLES, 17.0, 1.7)
 	_snow = _make_emitter("Снег", Color(0.96, 0.97, 1.0, 0.86),
 		Vector2(0.14, 0.14), SNOW_PARTICLES, 3.4, 5.5)
+	# Разреженные горизонтальные полосы показывают порывы над картой.
+	# Это один GPU-эмиттер, а не отдельный Node3D на каждую частицу.
+	_gusts = _make_emitter("Порывы ветра",
+		Color(0.83, 0.87, 0.76, 0.23),
+		Vector2(0.92, 0.035), 300, 16.0, 1.1)
+	var gust_motion: ParticleProcessMaterial = _gusts.process_material
+	gust_motion.gravity = Vector3.ZERO
+	gust_motion.spread = 12.0
+	gust_motion.initial_velocity_min = 9.0
+	gust_motion.initial_velocity_max = 18.0
+
+
+func _process(delta: float) -> void:
+	# Всплеск строго ограничен временем и относится к уже случившемуся
+	# физическому событию. При скрытом режиме не изменяем модель ветра.
+	if _event_life <= 0.0:
+		return
+	_event_life = maxf(0.0, _event_life - delta)
+	if _event_life == 0.0 and _gusts != null:
+		_gusts.emitting = false
+
+
+func show_storm_event(severity: float, direction: Vector2,
+		duration: float = 4.0) -> void:
+	# Только визуальный отклик на реальный hazard из суточного результата;
+	# не создаём новую грозу и не передаём силу назад в Climate.
+	_event_life = maxf(0.0, duration)
+	_event_severity = clampf(severity, 0.0, 1.0)
+	_event_direction = direction.normalized() if direction.length_squared() > 0.0 		else Vector2.RIGHT
 
 
 func _make_emitter(title: String, color: Color, size: Vector2,
@@ -74,6 +107,8 @@ func set_effects_enabled(enabled: bool) -> void:
 	if not enabled and _rain != null:
 		_rain.emitting = false
 		_snow.emitting = false
+		if _gusts != null:
+			_gusts.emitting = false
 
 
 func sync_world(climate: RefCounted, world: RefCounted,
@@ -92,7 +127,7 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	## Снимок не связан с исходным словарём: рендер не может случайно
 	## изменить параметры погоды или испортить сохранение мира.
 	_last_state = state.duplicate(true)
-	if _rain == null or _snow == null:
+	if _rain == null or _snow == null or _gusts == null:
 		return
 	var distance := clampf(zoom * 0.7, 10.0, 70.0)
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
@@ -105,16 +140,27 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		airflow = airflow.normalized()
 	var gust := clampf(float(state.get("gust", state.get("wind", 0.0))),
 		0.0, 1.0)
-	for emitter in [_rain, _snow]:
+	var storm := clampf(float(state.get("storm", 0.0)), 0.0, 1.0)
+	if _event_life > 0.0:
+		# Экранное испытание выводит след именно зарегистрированного
+		# ураганного эпизода; физическая текущая погода не меняется.
+		storm = maxf(storm, _event_severity)
+		gust = maxf(gust, 0.9 * _event_severity)
+		airflow = _event_direction
+	for emitter in [_rain, _snow, _gusts]:
 		# Область осадков следует за камерой и не растёт до размера карты.
-		emitter.position = Vector3(center.x, altitude + 22.0, center.y)
+		emitter.position = Vector3(center.x,
+			altitude + (10.0 if emitter == _gusts else 22.0), center.y)
 		var material: ParticleProcessMaterial = emitter.process_material
 		material.emission_box_extents = Vector3(distance, 5.0, distance)
-		# Медленные снежинки сносит сильнее, чем капли дождя.
-		# Сила зависит от физического порыва, а не качества частиц.
-		var drift := gust * (1.25 if emitter == _snow else 0.42)
-		material.direction = Vector3(
-			airflow.x * drift, -1.0, airflow.y * drift).normalized()
+		if emitter == _gusts:
+			# Поток направляет видимые штормовые полосы по земле.
+			material.direction = Vector3(airflow.x, 0.0, airflow.y)
+		else:
+			# Снежинки сносит сильнее, чем капли дождя.
+			var drift := gust * (1.25 if emitter == _snow else 0.42)
+			material.direction = Vector3(
+				airflow.x * drift, -1.0, airflow.y * drift).normalized()
 		emitter.seed = seed
 	_rain.amount_ratio = clampf(float(state.get("rain", 0.0))
 		* quality_factor, 0.0, 1.0)
@@ -122,6 +168,10 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		* quality_factor, 0.0, 1.0)
 	_rain.emitting = _enabled and _rain.amount_ratio >= 0.025
 	_snow.emitting = _enabled and _snow.amount_ratio >= 0.025
+	# На обычном ветре штормовые полосы не возникают.
+	_gusts.amount_ratio = clampf(
+		storm * smoothstep(0.15, 0.65, gust) * quality_factor, 0.0, 1.0)
+	_gusts.emitting = _enabled and _gusts.amount_ratio >= 0.08
 
 
 func debug_state() -> Dictionary:

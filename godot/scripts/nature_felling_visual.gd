@@ -86,7 +86,8 @@ static func animate_hit(root: Node3D) -> void:
 
 
 static func make_visual(world: RefCounted, previous: Dictionary,
-        detail: float = 1.0, winter: bool = false) -> Node3D:
+        detail: float = 1.0, winter: bool = false,
+        fall_angle_deg: int = -1) -> Node3D:
     if previous.get("kind") != "дерево" or previous.get("state") not in [
             "целое", "сухостой"]:
         return null
@@ -108,7 +109,10 @@ static func make_visual(world: RefCounted, previous: Dictionary,
     var pivot := Node3D.new()
     pivot.name = "Падение дерева"
     pivot.position = world.config.to_scene(position, elevation)
-    pivot.rotation.y = angle_for(id, world.config.world_seed)
+    # При штормовом падении поворот совпадает с физическим бревном.
+    # Ручная рубка сохраняет старый угол, если параметр не задан.
+    pivot.rotation.y = deg_to_rad(float(fall_angle_deg)) \
+        if fall_angle_deg >= 0 else angle_for(id, world.config.world_seed)
 
     var visual := MeshInstance3D.new()
     visual.name = "Падающий ствол"

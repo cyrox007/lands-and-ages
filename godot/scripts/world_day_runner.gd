@@ -15,6 +15,9 @@ var last_result: Dictionary = {}
 var last_profile_us: Dictionary = {}
 var last_statistics: Dictionary = {}
 var last_duration_us := 0
+# Явный тестовый шторм задаётся из диагностического UI ДО запуска
+# фоновой задачи, и сбрасывается в первом же расчётном дне.
+var test_storm_cell := Vector2i(-1, -1)
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -69,6 +72,15 @@ func run_day() -> void:
 	var erosion_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var hazards: Array[Dictionary] = natural_disasters.advance_day(climate.day)
+	if world.config.contains_cell(test_storm_cell):
+		# Это явно запрошенное испытание, а не естественный погодный
+		# фронт. Урон и ресурсы обрабатывает обычный NatureRegistry.
+		hazards.append({
+			"kind": "шторм", "cell": test_storm_cell,
+			"severity": 1.0, "day": climate.day,
+			"source": "диагностика"
+		})
+	test_storm_cell = Vector2i(-1, -1)
 	var disasters_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var changed := synchronize_world()
@@ -98,5 +110,7 @@ func run_day() -> void:
 		"strikes": strikes,
 		"erosion": erosion,
 		"hazards": hazards,
+		"windfalls": nature.last_windfalls.duplicate(true)
+			if nature != null and nature.generated else [],
 		"terrain_changed": changed
 	}

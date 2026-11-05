@@ -44,6 +44,7 @@ const VIEW_NAMES := [
 ]
 const MAX_BUILDS_PER_FRAME := 2
 const MAX_NATURE_REFRESHES_PER_FRAME := 2
+const MAX_STORM_FALL_ANIMATIONS := 8
 const MAX_CONCURRENT_CHUNK_JOBS := 2
 const MESH_BUDGET_US := 4200
 const HEIGHT_BOUNDS_CACHE_LIMIT := 512
@@ -304,6 +305,10 @@ func _setup_interface() -> void:
 	felling_button.text = "Ударить по ближайшему дереву"
 	felling_button.pressed.connect(_debug_fell_nearest_tree)
 	_debug_details.add_child(felling_button)
+	var storm_button := Button.new()
+	storm_button.text = "Испытать шторм: ветер и ветровал"
+	storm_button.pressed.connect(_debug_test_storm)
+	_debug_details.add_child(storm_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -549,6 +554,11 @@ func _sync_water_weather() -> void:
 	if _water_material == null or _weather_fx == null:
 		return
 	var snapshot: Dictionary = _weather_fx.debug_state()
+	# Видимая растительность следует за физическим направлением фронта.
+	# Обновляем только шейдеры, без CPU-анимации каждого дерева.
+	NatureRenderer.set_wind_direction(Vector2(
+		float(snapshot.get("wind_x", 1.0)),
+		float(snapshot.get("wind_y", 0.0))))
 	# Эти параметры влияют только на шейдер, не на объём или уровень воды.
 	_water_material.set_shader_parameter("wind_strength",
 		float(snapshot.get("wind", 0.0)))
@@ -1085,6 +1095,46 @@ func _on_tree_felled(previous: Dictionary) -> void:
 	NatureFelling.animate(visual)
 
 
+func _debug_test_storm() -> void:
+	# Явное испытание действительного физического шторма на карте.
+	# Оно запускает обычный суточный расчёт, а не создаёт фальшивое FX.
+	if _nature == null or _view_mode != 0 or _benchmark_running \
+			or _day_task_id >= 0 or _days_pending > 0 \
+			or not _storage_request.is_empty():
+		_storage_status = "Испытание шторма доступно после расчёта дня"
+		return
+	var selected := Vector2i(-1, -1)
+	var distance := INF
+	var next_day: int = _climate.day + 1
+	for chunk in _active.keys():
+		for item in _nature.objects_in_chunk(chunk):
+			if item["kind"] != "дерево" or item["state"] != "целое":
+				continue
+			var cell := Vector2i(int(item["x"]), int(item["y"]))
+			var point := Vector2(cell) + Vector2(0.5, 0.5)
+			# Отбираем дерево, которое реальный алгоритм повалит:
+			# вероятность по seed уже фиксирована до нажатия.
+			if point.distance_to(_center) > _camera.size * 0.48 \
+					or Terrain.hash2(cell.x, cell.y,
+						_world_model.config.world_seed +
+						next_day * 31 + 3173) >= 0.85:
+				continue
+			var square := point.distance_squared_to(_center)
+			if square < distance:
+				distance = square
+				selected = cell
+	if selected.x < 0:
+		_storage_status = "В видимой области нет дерева для испытания"
+		_update_hud()
+		return
+	_ensure_day_runner()
+	_day_runner.test_storm_cell = selected
+	# Один реальный игровой день изменит лес, коллизии и сохранение.
+	_queue_days(1)
+	_storage_status = "Пробный шторм ожидает расчёта · %s" % selected
+	_update_hud()
+
+
 func _debug_fell_nearest_tree() -> void:
 	# Ручная демонстрация без лесорубов, строительства и экономики.
 	if _nature == null or _benchmark_running or _day_task_id >= 0 \
@@ -1314,12 +1364,50 @@ func _complete_day(result: Dictionary) -> void:
 	if not event.is_empty():
 		_process_status = "%s, день %d: %s" % [
 			event["process"], event["day"], event["cell"]]
+	# Создаём эффекты только на главном потоке после фоновой физики.
+	# Ограничиваем число анимаций и не проигрываем 96 прошлых дней.
+	var falls: Array = result.get("windfalls", [])
+	var animated := 0
+	if _view_mode == 0 and _days_pending <= 1:
+		for entry in falls:
+			if animated >= MAX_STORM_FALL_ANIMATIONS:
+				break
+			var before: Dictionary = entry["before"]
+			var cell := Vector2i(int(before["x"]), int(before["y"]))
+			var chunk: Vector2i = _world_model.config.chunk_of(cell)
+			if not _active.has(chunk):
+				continue
+			_refresh_nature_chunk(chunk)
+			var winter: bool = _climate.weather_at(cell).get("season") == "зима"
+			var visual: Node3D = NatureFelling.make_visual(
+				_world_model, before, _detail_for_zoom(_camera.size),
+				winter, int(entry["fall_angle_deg"]))
+			if visual == null:
+				continue
+			_active[chunk].add_child(visual)
+			NatureFelling.animate(visual)
+			animated += 1
 	var hazards: Array[Dictionary] = result["hazards"]
+	for hazard in hazards:
+		if str(hazard.get("kind", "")) != "шторм" \
+				or _weather_fx == null or _view_mode != 0 \
+				or _days_pending > 1:
+			continue
+		var storm_cell: Vector2i = hazard["cell"]
+		if (Vector2(storm_cell) + Vector2(0.5, 0.5)).distance_to(_center) \
+				> _camera.size * 0.65:
+			continue
+		var direction: Vector2 = _climate.wind_direction_at_index(
+			_hydro.cell_index(storm_cell))
+		_weather_fx.show_storm_event(
+			float(hazard["severity"]), direction)
 	if not hazards.is_empty():
 		var latest: Dictionary = hazards[hazards.size() - 1]
 		_disaster_status = "%s · день %d · %s · интенсивность %.0f%%" % [
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
+		if latest.get("source", "") == "диагностика":
+			_storage_status = "Пробный шторм: повалено %d деревьев" % falls.size()
 
 
 func _cycle_view() -> void:

@@ -9,6 +9,7 @@ uniform float source_height = 100.0;
 uniform float source_base = 0.0;
 uniform float source_roughness = 0.85;
 uniform bool foliage_surface = false;
+uniform vec2 wind_direction = vec2(1.0, 0.0);
 
 varying float foliage_season;
 varying float foliage_health;
@@ -19,11 +20,15 @@ void vertex() {
     foliage_health = clamp(INSTANCE_CUSTOM.a, 0.0, 1.0);
     float height = clamp((VERTEX.y - source_base) /
         max(source_height, 0.001), 0.0, 1.0);
-    float amplitude = source_height * 0.016 *
-        clamp(INSTANCE_CUSTOM.g, 0.0, 1.0) * height * height;
+    float gust = clamp(INSTANCE_CUSTOM.g, 0.0, 1.0);
+    float amplitude = source_height * 0.095 * gust * height * height;
     float phase = INSTANCE_CUSTOM.r * 6.283185;
-    VERTEX.x += sin(TIME * 1.1 + phase) * amplitude;
-    VERTEX.z += cos(TIME * 0.73 + phase) * amplitude * 0.45;
+    float wave = sin(TIME * (1.2 + 1.3 * gust) + phase)
+        + sin(TIME * 3.8 + phase * 1.4) * 0.25;
+    // Вершины отклоняются вдоль фронта; текстуры не изменяются.
+    vec2 direction = normalize(wind_direction);
+    VERTEX.x += direction.x * wave * amplitude;
+    VERTEX.z += direction.y * wave * amplitude;
 }
 
 void fragment() {
