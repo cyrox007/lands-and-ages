@@ -7,7 +7,7 @@ const Map = preload("res://scripts/world_map.gd")
 const Hydro = preload("res://scripts/hydrology.gd")
 const Surface = preload("res://scripts/surface.gd")
 const Water = preload("res://scripts/water_mesh.gd")
-const Shader = preload("res://shaders/natural_water.gdshader")
+const WaterShader = preload("res://shaders/natural_water.gdshader")
 
 var failures: Array[String] = []
 
@@ -91,7 +91,7 @@ func _run() -> void:
 	var hydro_before: Dictionary = hydro.to_snapshot()
 	var surface_before: Dictionary = surface.to_snapshot()
 	_test_river(world, hydro)
-	var code: String = Shader.code
+	var code: String = WaterShader.code
 	_check(code.contains("UV2") and code.contains("river_phase")
 		and code.contains("river_highlight") and code.contains("TIME"),
 		"Водный PBR анимирует физическое направление течения")
