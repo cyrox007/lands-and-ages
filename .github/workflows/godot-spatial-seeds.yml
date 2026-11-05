@@ -123,6 +123,7 @@ jobs:
             --script res://tests/world_spatial_seeds_10.gd -- \
             --samples=2 --width=768 --height=576 \
             --profile=balanced --seed_start=1729 \
+            --min_eligible=2 \
             2>&1 | tee /tmp/spatial-768.log
           cp godot/tests/world-spatial-seeds-10.json \
             godot/tests/world-spatial-768-pr.json
