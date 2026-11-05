@@ -309,6 +309,10 @@ func _setup_interface() -> void:
 	storm_button.text = "Испытать шторм: ветер и ветровал"
 	storm_button.pressed.connect(_debug_test_storm)
 	_debug_details.add_child(storm_button)
+	var squall_button := Button.new()
+	squall_button.text = "Испытать шквал: локальный ветровал"
+	squall_button.pressed.connect(_debug_test_squall)
+	_debug_details.add_child(squall_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -1104,12 +1108,22 @@ func _on_tree_felled(previous: Dictionary) -> void:
 
 
 func _debug_test_storm() -> void:
-	# Явное испытание действительного физического шторма на карте.
-	# Оно запускает обычный суточный расчёт, а не создаёт фальшивое FX.
+	# Шторм использует тот же штатный путь, что и локальный шквал.
+	_debug_test_wind_event("шторм")
+
+
+func _debug_test_squall() -> void:
+	# Отдельная команда позволяет увидеть поражение узкой полосы леса.
+	_debug_test_wind_event("шквал")
+
+
+func _debug_test_wind_event(kind: String) -> void:
+	# Оба диагностических события проходят через один игровой день.
+	# Отличаются зоной и силой в NatureRegistry, а не подменой FX.
 	if _nature == null or _view_mode != 0 or _benchmark_running \
 			or _day_task_id >= 0 or _days_pending > 0 \
 			or not _storage_request.is_empty():
-		_storage_status = "Испытание шторма доступно после расчёта дня"
+		_storage_status = "Испытание ветра доступно после расчёта дня"
 		return
 	var selected := Vector2i(-1, -1)
 	var distance := INF
@@ -1122,10 +1136,11 @@ func _debug_test_storm() -> void:
 			var point := Vector2(cell) + Vector2(0.5, 0.5)
 			# Отбираем дерево, которое реальный алгоритм повалит:
 			# вероятность по seed уже фиксирована до нажатия.
+			var fall_limit := 0.75 if kind == "шквал" else 0.85
 			if point.distance_to(_center) > _camera.size * 0.48 \
 					or Terrain.hash2(cell.x, cell.y,
 						_world_model.config.world_seed +
-						next_day * 31 + 3173) >= 0.85:
+						next_day * 31 + 3173) >= fall_limit:
 				continue
 			var square := point.distance_squared_to(_center)
 			if square < distance:
@@ -1136,10 +1151,13 @@ func _debug_test_storm() -> void:
 		_update_hud()
 		return
 	_ensure_day_runner()
-	_day_runner.test_storm_cell = selected
+	if kind == "шквал":
+		_day_runner.test_squall_cell = selected
+	else:
+		_day_runner.test_storm_cell = selected
 	# Один реальный игровой день изменит лес, коллизии и сохранение.
 	_queue_days(1)
-	_storage_status = "Пробный шторм ожидает расчёта · %s" % selected
+	_storage_status = "Пробный %s ожидает расчёта · %s" % [kind, selected]
 	_update_hud()
 
 
@@ -1397,7 +1415,7 @@ func _complete_day(result: Dictionary) -> void:
 			animated += 1
 	var hazards: Array[Dictionary] = result["hazards"]
 	for hazard in hazards:
-		if str(hazard.get("kind", "")) != "шторм" \
+		if str(hazard.get("kind", "")) not in ["шторм", "шквал"] \
 				or _weather_fx == null or _view_mode != 0 \
 				or _days_pending > 1:
 			continue
@@ -1415,7 +1433,8 @@ func _complete_day(result: Dictionary) -> void:
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
 		if latest.get("source", "") == "диагностика":
-			_storage_status = "Пробный шторм: повалено %d деревьев" % falls.size()
+			_storage_status = "Пробный %s: повалено %d деревьев" % [
+				latest["kind"], falls.size()]
 
 
 func _cycle_view() -> void:
