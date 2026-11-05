@@ -9,6 +9,8 @@ const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Capacity = preload("res://scripts/world_capacity_audit.gd")
 const Scenario = preload("res://scripts/world_spatial_scenario.gd")
+const Envelope = preload("res://scripts/world_settlement_envelope.gd")
+const Mature = preload("res://scripts/world_mature_capacity_audit.gd")
 const REPORT_PATH := "res://tests/world-capacity-10.json"
 
 
@@ -178,6 +180,18 @@ func _run() -> void:
             trial_case, width, height)
         cases.append(trial_case)
 
+    # Дополнительная примерка зрелого поселения — не игровое строительство.
+    var profile: Dictionary = Envelope.profile("balanced")
+    var mature_scenario: Dictionary = cases[2]["connected_six_state_trial"]
+    var maturity: Dictionary = Mature.report(
+        map, hydro, surface, nature, mature_scenario, profile)
+    geometry_valid = geometry_valid \
+        and int(maturity["selected_center_count"]) \
+        == int(mature_scenario["trial"]["assigned_centers"])
+    geometry_valid = geometry_valid \
+        and int(maturity["hypothetical_mature_centers"]) \
+        <= int(maturity["selected_center_count"])
+
     # Повторный расчёт на том же seed не должен менять распределение.
     var repeated: Dictionary = Scenario.report(
         map, hydro, surface, nature, 9)
@@ -190,6 +204,9 @@ func _run() -> void:
         "size": [map.config.width, map.config.height],
         "goal": {"states": 6, "mature_centers": 30},
         "spatial_contract": _scale_hypotheses(map.config.height_scale),
+        "proportion_candidates": Envelope.scale_candidates(
+            map.config.height_scale),
+        "mature_settlement_trial": maturity,
         "reproducible": reproducible,
         "geometry_invariants_valid": geometry_valid,
         "experimental_only": true,
