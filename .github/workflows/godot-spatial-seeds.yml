@@ -44,6 +44,10 @@ on:
         required: true
         default: "1729"
 
+concurrency:
+  group: spatial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   spatial-seeds:
     runs-on: ubuntu-latest
