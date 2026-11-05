@@ -82,6 +82,7 @@ static func _test_selection() -> bool:
     var bad := _candidate(345, "полуостров")
     bad["centers"] = 25
     bad["hypothetical_mature_sites"] = 23
+    bad["states_with_five_hypothetical_mature_sites"] = 4
     var missing := _candidate(456, "внутреннее море")
     missing["states_with_both_territory_resources"] = 5
 
@@ -105,8 +106,12 @@ static func _test_selection() -> bool:
 
 
 func _initialize() -> void:
-    if not _test_geography() or not _test_selection():
-        push_error("Этап 10.0: ошибка географии или выбора seed")
+    if not _test_geography():
+        push_error("Этап 10.0: ошибка географических архетипов")
+        quit(1)
+        return
+    if not _test_selection():
+        push_error("Этап 10.0: ошибка строгого отбора seed")
         quit(1)
         return
     print("Этап 10.0: географические архетипы и отбор seed проверены")
