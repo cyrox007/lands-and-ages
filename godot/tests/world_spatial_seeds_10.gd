@@ -165,6 +165,28 @@ static func _sample(world_seed: int, width: int,
     }
 
 
+# Статистика CPU-расчёта на CI; это не FPS и не профиль GPU/Android.
+static func _duration_percentiles(rows: Array[Dictionary]) -> Dictionary:
+    var samples: Array[float] = []
+    for row in rows:
+        samples.append(float(row["duration_ms"]))
+    samples.sort()
+    if samples.is_empty():
+        return {}
+    var p50 := clampi(ceili(float(samples.size()) * 0.50) - 1,
+        0, samples.size() - 1)
+    var p95 := clampi(ceili(float(samples.size()) * 0.95) - 1,
+        0, samples.size() - 1)
+    var p99 := clampi(ceili(float(samples.size()) * 0.99) - 1,
+        0, samples.size() - 1)
+    return {
+        "min_ms": samples.front(), "p50_ms": samples[p50],
+        "p95_ms": samples[p95], "p99_ms": samples[p99],
+        "max_ms": samples.back(),
+        "headless_cpu_only": true
+    }
+
+
 func _run() -> void:
     var options: Dictionary = _options()
     if not _valid(options):
@@ -213,6 +235,7 @@ func _run() -> void:
         "six_territories_with_five_hypothetical_mature_sites": mature,
         "geography_heuristic_counts": geography,
         "seed_selection": selection,
+        "generation_duration": _duration_percentiles(rows),
         "requested_archetype": target,
         "matching_eligible_candidates": chosen,
         "requested_archetype_found": target == "" or not chosen.is_empty(),
