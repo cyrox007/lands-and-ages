@@ -1,4 +1,4 @@
-name: Этап 11.6 — течение рек и водные маски
+name: Этап 11.6 — течение рек и ветровые волны
 
 on:
   push:
@@ -7,6 +7,10 @@ on:
       - "godot/scripts/water_mesh.gd"
       - "godot/shaders/natural_water.gdshader"
       - "godot/tests/water_flow_w2_smoke.gd"
+      - "godot/tests/water_wind_w3_smoke.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/weather_visual_state.gd"
+      - "godot/scripts/weather_fx_controller.gd"
       - ".github/workflows/godot-river-flow-w2.yml"
   pull_request:
     branches: [develop]
@@ -14,6 +18,10 @@ on:
       - "godot/scripts/water_mesh.gd"
       - "godot/shaders/natural_water.gdshader"
       - "godot/tests/water_flow_w2_smoke.gd"
+      - "godot/tests/water_wind_w3_smoke.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/weather_visual_state.gd"
+      - "godot/scripts/weather_fx_controller.gd"
       - ".github/workflows/godot-river-flow-w2.yml"
   workflow_dispatch:
 
@@ -50,6 +58,16 @@ jobs:
             2>&1 | tee /tmp/river-w2.log
           grep -q "Этап 11.6/W2: речное течение по физическому стоку — успешно" /tmp/river-w2.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/river-w2.log; then
+            exit 1
+          fi
+      - name: "W3: озёра, море, ветер и физические снимки"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/water_wind_w3_smoke.gd \
+            2>&1 | tee /tmp/river-w3.log
+          grep -q "Этап 11.6/W3: ветровые волны озёр и моря — успешно" /tmp/river-w3.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/river-w3.log; then
             exit 1
           fi
       - name: Регрессия берегов, паводка и исходной водной ряби
