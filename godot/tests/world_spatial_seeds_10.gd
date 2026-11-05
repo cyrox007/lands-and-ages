@@ -221,6 +221,9 @@ func _run() -> void:
         if index % 10 == 0:
             print("Пространственный аудит: ", index + 1, " / ", count)
 
+    # Причины отказа доступны для каждого seed, а не только суммарно.
+    for row in rows:
+        row["eligibility_reasons"] = Selection.reasons(row)
     var selection: Dictionary = Selection.summarize(rows)
     var target: String = options["archetype"]
     var chosen: Array = selection["best_overall"]
