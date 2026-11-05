@@ -457,38 +457,80 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
 
 func _damage_from_events(hazards: Array[Dictionary],
         strikes: Array[Dictionary], changed: Dictionary) -> void:
-    # Природные события поражают реальные деревья около эпицентра.
-    # Удар вне экрана наносит тот же урон, что и видимый.
+    # Природные события изменяют физический лес независимо от камеры.
+    # Повреждения затрагивают только чанки около эпицентра: полный обход
+    # всех объектов для каждого события не масштабируется на большой карте.
     var events: Array[Dictionary] = []
     for event in hazards:
         events.append({
+            "kind": str(event.get("kind", "")),
             "cell": event.get("cell"),
             "radius": 5.0,
+            "severity": clampf(float(event.get("severity", 0.0)), 0.0, 1.0),
             "damage": roundi(float(event.get("severity", 0.0)) * 350.0)
         })
     for strike in strikes:
         events.append({
+            "kind": "молния",
             "cell": strike.get("cell"),
             "radius": 2.5,
+            "severity": 0.0,
             "damage": roundi(float(strike.get("ignition_potential", 0.0)) * 700.0)
         })
+
     for event in events:
         if not (event["cell"] is Vector2i) or int(event["damage"]) <= 0:
             continue
         var center: Vector2i = event["cell"]
-        for id in _objects.keys():
+        if not world.config.contains_cell(center):
+            continue
+        var radius: float = float(event["radius"])
+        var center_chunk: Vector2i = world.config.chunk_of(center)
+        var reach := ceili(radius / float(world.config.chunk_size)) + 1
+        var affected_ids: Array[int] = []
+        for cy in range(center_chunk.y - reach, center_chunk.y + reach + 1):
+            for cx in range(center_chunk.x - reach, center_chunk.x + reach + 1):
+                for id in _chunks.get(Vector2i(cx, cy), []):
+                    affected_ids.append(int(id))
+        # Упорядочиваем обработку для одинаковых результатов на всех клиентах.
+        affected_ids.sort()
+        for id in affected_ids:
             var item: Dictionary = _objects[id]
             if item["kind"] != "дерево" or item["state"] != "целое":
                 continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
-            if Vector2(cell - center).length() > float(event["radius"]):
+            if Vector2(cell - center).length() > radius:
                 continue
+
+            # Сильный шторм может сразу повалить дерево. Выбор по seed,
+            # суткам и координатам не зависит от рендера или порядка чанков.
+            var severity: float = float(event["severity"])
+            var windfall := str(event["kind"]) == "шторм" and severity >= 0.55
+            if windfall:
+                var chance := clampf((severity - 0.55) * 2.0, 0.0, 0.85)
+                windfall = Terrain.hash2(cell.x, cell.y,
+                    world.config.world_seed + climate.day * 31 + 3173) < chance
+
             item["health"] = maxi(0, int(item["health"]) - int(event["damage"]))
-            if int(item["health"]) == 0:
+            if windfall:
+                # Древесина переходит из стоящего ствола в лежащий ресурс.
+                # Дата падения и коллизии следуют за состоянием, не за FX.
+                item["fallen_wood"] = int(item["fallen_wood"]) + int(item["wood_units"])
+                item["wood_units"] = 0
+                item["state"] = "пень"
+                item["health"] = 0
+                item["cut_progress"] = 0
+                item["dead_since_day"] = -1
+                item["fallen_since_day"] = climate.day
+            elif int(item["health"]) == 0:
+                # Не поваленное погибшее дерево остаётся сухостоем.
                 item["state"] = "сухостой"
                 item["dead_since_day"] = climate.day
-                changed[world.config.chunk_of(cell)] = true
+
             _objects[id] = item
+            # Даже неполное повреждение меняет здоровье/вид кроны.
+            # Сообщаем рендереру и системе коллизий об изменённом чанке.
+            changed[world.config.chunk_of(cell)] = true
 
 
 func advance_day(day: int, hazards: Array[Dictionary] = [],
