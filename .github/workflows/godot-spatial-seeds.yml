@@ -7,7 +7,10 @@ on:
       - "godot/scripts/world_settlement_envelope.gd"
       - "godot/scripts/world_mature_capacity_audit.gd"
       - "godot/scripts/world_spatial_scenario.gd"
+      - "godot/scripts/world_geography_audit.gd"
+      - "godot/scripts/world_seed_selection.gd"
       - "godot/tests/world_spatial_seeds_10.gd"
+      - "godot/tests/world_geography_seed_smoke.gd"
       - "godot/tests/world_spatial_envelope_smoke.gd"
       - ".github/workflows/godot-spatial-seeds.yml"
   workflow_dispatch:
@@ -61,6 +64,11 @@ jobs:
         run: |
           /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit
+      - name: Проверить искусственные географические формы
+        run: |
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_geography_seed_smoke.gd
       - name: Проверить 100 seed в PR или ручную матрицу кандидатов
         run: |
           set -o pipefail
