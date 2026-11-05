@@ -69,14 +69,14 @@ func _run() -> void:
 		_finish()
 		return
 	var cell := Vector2i(int(target["x"]), int(target["y"]))
-	var wood_before: int = nature.wood_total()
-	var before_map: String = JSON.stringify(world.to_data())
+	var wood_before: int = int(target["wood_units"]) + int(target["fallen_wood"])
 
 	# Диагностическая команда идёт через штатный Runner и Registry,
 	# а не создаёт декоративное событие без физических последствий.
 	runner.test_storm_cell = cell
 	runner.run_day()
 	var result: Dictionary = runner.last_result
+	var before_visual_map: String = JSON.stringify(world.to_data())
 	var trials := 0
 	for hazard in result["hazards"]:
 		if hazard.get("source", "") == "диагностика":
@@ -143,13 +143,13 @@ func _run() -> void:
 	fx.free()
 
 	Renderer.set_wind_direction(direction)
-	_check(nature.wood_total() == wood_before,
-		"Ни анимация, ни испытание не создают древесину")
+	_check(int(fallen["wood_units"]) + int(fallen["fallen_wood"]) ==
+		wood_before, "Ветровал не создаёт древесину из воздуха")
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(nature.to_data()))
 	var restored := Nature.new(world, hydro, surface, climate)
 	_check(restored.load_data(saved) and restored.to_data() == nature.to_data(),
 		"Направленный ветровал переживает загрузку")
-	_check(JSON.stringify(world.to_data()) == before_map,
+	_check(JSON.stringify(world.to_data()) == before_visual_map,
 		"Шторм не изобретает новый рельеф")
 
 	# Следующий день не дублирует диагностический шторм.
