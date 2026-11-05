@@ -9,6 +9,9 @@ on:
       - "godot/tests/world_shadows_l2_smoke.gd"
       - "godot/tests/world_shadows_l3_smoke.gd"
       - "godot/shaders/natural_ground.gdshader"
+      - "godot/scripts/weather_visual_state.gd"
+      - "godot/scripts/weather_lighting_state.gd"
+      - "godot/tests/world_weather_l4_smoke.gd"
       - "godot/tests/world_shadows_l2_capture.gd"
       - ".github/workflows/godot-shadows-l2.yml"
   pull_request:
@@ -19,6 +22,9 @@ on:
       - "godot/tests/world_shadows_l2_smoke.gd"
       - "godot/tests/world_shadows_l3_smoke.gd"
       - "godot/shaders/natural_ground.gdshader"
+      - "godot/scripts/weather_visual_state.gd"
+      - "godot/scripts/weather_lighting_state.gd"
+      - "godot/tests/world_weather_l4_smoke.gd"
       - "godot/tests/world_shadows_l2_capture.gd"
       - ".github/workflows/godot-shadows-l2.yml"
   workflow_dispatch:
@@ -67,6 +73,16 @@ jobs:
             2>&1 | tee /tmp/shadow-l3.log
           grep -q "Этап 11.2/L3: дальняя светотень по физике — успешно" /tmp/shadow-l3.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-l3.log; then
+            exit 1
+          fi
+      - name: "L4: погодное освещение и неизменность физики"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_weather_l4_smoke.gd \
+            2>&1 | tee /tmp/shadow-l4.log
+          grep -q "Этап 11.2/L4: свет и облачность по реальному климату — успешно" /tmp/shadow-l4.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-l4.log; then
             exit 1
           fi
       - name: Регрессия PBR и света
