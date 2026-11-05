@@ -33,6 +33,7 @@ const HEIGHT := {
 
 static var _models: Dictionary = {}
 static var _materials: Dictionary = {}
+static var _wind_direction := Vector2.RIGHT
 
 
 static func _collect(node: Node, parent: Transform3D, parts: Array) -> void:
@@ -97,10 +98,27 @@ static func _make_wind_material(source: BaseMaterial3D,
     material.set_shader_parameter("source_tint", source.albedo_color)
     material.set_shader_parameter("source_roughness", source.roughness)
     material.set_shader_parameter("foliage_surface", _is_foliage(source))
+    material.set_shader_parameter("wind_direction", _wind_direction)
     if source.albedo_texture != null:
         material.set_shader_parameter("source_texture", source.albedo_texture)
         material.set_shader_parameter("has_texture", true)
     return material
+
+
+static func set_wind_direction(direction: Vector2) -> void:
+    # Рендер получает направление из пяти физических климатических проб.
+    # Важно обновлять материалы уже загруженных GLB, не пересоздавая
+    # их вершины, текстуры или MultiMesh ради каждого порыва.
+    if direction.length_squared() < 0.000001:
+        return
+    _wind_direction = direction.normalized()
+    for model in _models.values():
+        var mesh: Mesh = model["mesh"]
+        for surface in range(mesh.get_surface_count()):
+            var material: Material = mesh.surface_get_material(surface)
+            if material is ShaderMaterial:
+                material.set_shader_parameter(
+                    "wind_direction", _wind_direction)
 
 
 static func info(key: String) -> Dictionary:
