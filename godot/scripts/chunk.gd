@@ -2,6 +2,7 @@ extends RefCounted
 ## GPU-меш только показывает состояние WorldMap, Surface и Climate.
 
 const Relief = preload("res://scripts/relief.gd")
+const ReliefFeatures = preload("res://scripts/relief_visual_features.gd")
 const Appearance = preload("res://scripts/landscape_appearance.gd")
 const MaterialMix = preload("res://scripts/terrain_material_mix.gd")
 const ShoreVisual = preload("res://scripts/shore_visual.gd")
@@ -37,6 +38,7 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 	var uvs := PackedVector2Array()
 	var uv2s := PackedVector2Array()
 	var conditions := PackedByteArray()
+	var shape_features := PackedByteArray()
 	var indices := PackedInt32Array()
 	for j in range(height + 1):
 		for i in range(width + 1):
@@ -47,6 +49,14 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 			var normal: Vector3 = world.normal_at(vertex)
 			vertices.push_back(world.config.to_scene(Vector2(float(x), float(y)), h))
 			normals.push_back(normal)
+			# У каждой физической вершины — два параметра формы.
+			# Два оставшихся байта зарезервированы для следующих визуальных масок.
+			var features: Vector2 = ReliefFeatures.sample_at(world, vertex) \
+				if mode == 0 else Vector2.ZERO
+			shape_features.append(roundi(clampf(features.x, 0.0, 1.0) * 255.0))
+			shape_features.append(roundi(clampf(features.y, 0.0, 1.0) * 255.0))
+			shape_features.append(0)
+			shape_features.append(255)
 			var cell := Vector2i(mini(x, world.config.width - 1),
 				mini(y, world.config.height - 1))
 			if mode == 0 and surface != null and hydro != null:
@@ -119,6 +129,14 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 						uv2s.append(uv2s[a].lerp(uv2s[b], u).lerp(
 							uv2s[c].lerp(uv2s[d], u), v))
 						for channel in range(4):
+							# Береговые субвершины получают непрерывные значения
+							# маски из тех же углов, что и высоту физической сетки.
+							var shape_top := lerpf(float(shape_features[a * 4 + channel]),
+								float(shape_features[b * 4 + channel]), u)
+							var shape_bottom := lerpf(float(shape_features[c * 4 + channel]),
+								float(shape_features[d * 4 + channel]), u)
+							shape_features.append(clampi(roundi(lerpf(
+								shape_top, shape_bottom, v)), 0, 255))
 							var t := lerpf(float(conditions[a * 4 + channel]),
 								float(conditions[b * 4 + channel]), u)
 							var btm := lerpf(float(conditions[c * 4 + channel]),
@@ -143,6 +161,7 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
 	arrays[Mesh.ARRAY_CUSTOM0] = conditions
+	arrays[Mesh.ARRAY_CUSTOM1] = shape_features
 	arrays[Mesh.ARRAY_INDEX] = indices
 	return arrays
 
@@ -150,6 +169,8 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	# Только главный поток создаёт ресурсы GPU.
 	var mesh := ArrayMesh.new()
-	var flags := Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
+	# Оба пользовательских канала уплотнены до RGBA8: 8 байт на вершину.
+	var flags := (Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) \
+		| (Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT)
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
 	return mesh

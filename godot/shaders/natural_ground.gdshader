@@ -7,11 +7,14 @@ uniform sampler2D terrain_normal_roughness : filter_linear_mipmap_anisotropic, r
 uniform float detail_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float macro_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float texture_density : hint_range(0.05, 2.0) = 0.35;
+// Контраст формы действует даже издалека; выключение не меняет физические высоты.
+uniform float relief_contrast : hint_range(0.0, 1.0) = 0.72;
 
 varying vec3 ground_position;
 varying vec3 ground_world_normal;
 varying float ground_steepness;
 varying vec4 ground_conditions;
+varying vec4 ground_shape;
 
 
 void vertex() {
@@ -20,6 +23,8 @@ void vertex() {
 	ground_steepness = 1.0 - clamp(abs(NORMAL.y), 0.0, 1.0);
 	// CUSTOM0 из меша: вода в почве, морской берег, мороз и речной берег.
 	ground_conditions = CUSTOM0;
+	// CUSTOM1: выпуклость, вогнутость; остальные каналы зарезервированы.
+	ground_shape = CUSTOM1;
 }
 
 
@@ -186,7 +191,14 @@ void fragment() {
 	float wet_material = wet * (0.35 + 0.65 * absorbency);
 	vec3 base_albedo = albedo_sum * mix(vec3(1.0), tint, 0.17) *
 		(1.0 + strata * cliff * 0.016 * detail_strength) * macro_tint;
-	ALBEDO = clamp(base_albedo * mix(1.0, 0.67, wet_material),
+	// Подсветка реального гребня и затемнение настоящей впадины
+	// основаны только на высотах WorldMap: никакой новой поверхности.
+	float ridge = smoothstep(0.05, 0.90, ground_shape.r);
+	float ravine = smoothstep(0.05, 0.90, ground_shape.g);
+	float escarpment = smoothstep(0.15, 0.57, ground_steepness);
+	float relief_light = clamp(1.0 + relief_contrast * (
+		0.15 * ridge - 0.27 * ravine - 0.09 * escarpment), 0.65, 1.14);
+	ALBEDO = clamp(base_albedo * relief_light * mix(1.0, 0.67, wet_material),
 		vec3(0.0), vec3(1.0));
 	ROUGHNESS = clamp(mix(roughness_sum, 0.34, wet_material * 0.72),
 		0.25, 1.0);
