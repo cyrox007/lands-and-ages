@@ -7,7 +7,7 @@ signal tree_struck(previous: Dictionary, cut_progress: int)
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
-const FORMAT_VERSION := 3
+const FORMAT_VERSION := 4
 const DEADWOOD_FALL_DAYS := 2 * 96
 const DEADWOOD_VARIATION_DAYS := 96
 const LOG_DECAY_INTERVAL_DAYS := 96
@@ -142,6 +142,7 @@ func generate() -> bool:
                 "health": 1000, "wood_units": stock, "fallen_wood": 0,
                 "cut_progress": 0,
                 "dead_since_day": -1, "fallen_since_day": -1,
+                "fall_angle_deg": -1,
                 "state": "целое", "radius": 0.35 if kind == "валун" else (
                     0.21 if kind == "дерево" else 0.12)
             }
@@ -383,6 +384,8 @@ func fell_tree(id: int) -> Dictionary:
     item["cut_progress"] = 0
     item["dead_since_day"] = -1
     item["fallen_since_day"] = climate.day
+    # Ручная рубка сохраняет прежнее детерминированное направление.
+    item["fall_angle_deg"] = -1
     _modify(id, item)
     tree_felled.emit(before)
     return {"id": id, "wood_units": wood, "state": "пень"}
@@ -444,7 +447,7 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
             "age_days": 0, "health": 800, "wood_units": 0,
             "fallen_wood": 0, "state": "целое", "radius": 0.08,
             "cut_progress": 0, "dead_since_day": -1,
-            "fallen_since_day": -1
+            "fallen_since_day": -1, "fall_angle_deg": -1
         }
         _objects[next_id] = child
         _index(child)
@@ -522,6 +525,12 @@ func _damage_from_events(hazards: Array[Dictionary],
                 item["cut_progress"] = 0
                 item["dead_since_day"] = -1
                 item["fallen_since_day"] = climate.day
+                # Поваленный ствол лежит по направлению физического
+                # потока воздуха в своей клетке, а не по случайному ID.
+                var wind_index: int = hydro.cell_index(cell)
+                var direction: Vector2 = climate.wind_direction_at_index(wind_index)
+                item["fall_angle_deg"] = posmod(roundi(rad_to_deg(
+                    atan2(-direction.y, direction.x))), 360)
             elif int(item["health"]) == 0:
                 # Не поваленное погибшее дерево остаётся сухостоем.
                 item["state"] = "сухостой"
@@ -616,6 +625,8 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
                     item["cut_progress"] = 0
                     item["dead_since_day"] = -1
                     item["fallen_since_day"] = day
+                    # Естественное падение сухостоя не является ветровалом.
+                    item["fall_angle_deg"] = -1
         _objects[id] = item
         updates += 1
         if old_state != str(item["state"]):
@@ -640,7 +651,8 @@ func to_data() -> Dictionary:
             int(entry["fallen_wood"]), str(entry["state"]),
             int(entry.get("cut_progress", 0)),
             int(entry.get("dead_since_day", -1)),
-            int(entry.get("fallen_since_day", -1))
+            int(entry.get("fallen_since_day", -1)),
+            int(entry.get("fall_angle_deg", -1))
         ])
     return {
         "version": FORMAT_VERSION, "generated": generated,
@@ -652,7 +664,8 @@ func load_data(data: Dictionary) -> bool:
     var version: Variant = data.get("version")
     # JSON reads numbers as floats; Array membership compares their types too.
     if not (version is int or version is float) \
-            or (version != 1 and version != 2 and version != FORMAT_VERSION) \
+            or (version != 1 and version != 2 and version != 3 \
+                and version != FORMAT_VERSION) \
             or not (data.get("generated") is bool) \
             or not (data.get("objects") is Array):
         return false
@@ -667,7 +680,7 @@ func load_data(data: Dictionary) -> bool:
     var by_chunk := {}
     for raw in raw_items:
         var item_size := 10 if version == 1 else (
-            11 if version == 2 else 13)
+            11 if version == 2 else (13 if version == 3 else 14))
         if not (raw is Array) or raw.size() != item_size:
             return false
         for number in [0, 3, 4, 5, 6, 7, 8]:
@@ -687,7 +700,7 @@ func load_data(data: Dictionary) -> bool:
                 return false
         var dead_since_day := -1
         var fallen_since_day := -1
-        if version == FORMAT_VERSION:
+        if version >= 3:
             for field in [11, 12]:
                 if not (raw[field] is int or raw[field] is float) \
                         or not is_finite(float(raw[field])) \
@@ -698,6 +711,18 @@ func load_data(data: Dictionary) -> bool:
             if dead_since_day < -1 or dead_since_day > int(day) \
                     or fallen_since_day < -1 \
                     or fallen_since_day > int(day):
+                return false
+        var fall_angle_deg := -1
+        if version == FORMAT_VERSION:
+            # Новый угол — целое число градусов. Это исключает дрейф
+            # координат бревна из-за точности JSON и изменений FPS.
+            var angle_value: Variant = raw[13]
+            if not (angle_value is int or angle_value is float) \
+                    or not is_finite(float(angle_value)) \
+                    or float(angle_value) != float(int(angle_value)):
+                return false
+            fall_angle_deg = int(angle_value)
+            if fall_angle_deg < -1 or fall_angle_deg >= 360:
                 return false
         var id := int(raw[0])
         var x := int(raw[3])
@@ -716,8 +741,8 @@ func load_data(data: Dictionary) -> bool:
             return false
         if cut_progress > 0 and (kind != "дерево" or raw[9] == "пень"):
             return false
-        if version < FORMAT_VERSION:
-            # Старые снимки не знают дату гибели/валки: отсчёт
+        if version < 3:
+            # Только форматы 1–2 не содержали дату гибели/валки: отсчёт
             # естественного распада начинается с момента загрузки.
             if raw[9] == "сухостой":
                 dead_since_day = int(day)
@@ -729,6 +754,11 @@ func load_data(data: Dictionary) -> bool:
                 dead_since_day < 0 or fallen_since_day != -1)) \
                 or (raw[9] == "пень" and (
                 dead_since_day != -1 or fallen_since_day < 0)):
+            return false
+        # Направление допустимо лишь у лежащего ствола. У живых
+        # деревьев, сухостоя, кустарников и пустых пней его нет.
+        if fall_angle_deg >= 0 and (kind != "дерево" \
+                or raw[9] != "пень" or int(raw[8]) <= 0):
             return false
         if int(raw[5]) < 0 or int(raw[5]) > 100000000 \
                 or int(raw[6]) < 0 or int(raw[6]) > 1000 \
@@ -743,6 +773,7 @@ func load_data(data: Dictionary) -> bool:
             "cut_progress": cut_progress,
             "dead_since_day": dead_since_day,
             "fallen_since_day": fallen_since_day,
+            "fall_angle_deg": fall_angle_deg,
             "radius": 0.35 if kind == "валун" else (
                 0.21 if kind == "дерево" else 0.12)
         }
