@@ -125,7 +125,7 @@ func _run() -> void:
     var result := {
         "stage": "10.7",
         "benchmark": "Коллизии при перемещении камеры, headless CPU",
-        "seed": world.config.seed,
+        "seed": world.config.world_seed,
         "map_size": [world.config.width, world.config.height],
         "camera_steps": CAMERA_STEPS,
         "collision_chunks_created": created,
