@@ -206,6 +206,12 @@ jobs:
             --seed_start="$START_SEED" \
             2>&1 | tee /tmp/spatial-large.log
           test -s godot/tests/world-spatial-seeds-10.json
+      - name: Подготовить журнал рядом с отчётами
+        if: always()
+        run: |
+          if test -f /tmp/spatial-large.log; then
+            cp /tmp/spatial-large.log godot/tests/spatial-large.log
+          fi
       - name: Сохранить десять измерений
         if: always()
         uses: actions/upload-artifact@v4
@@ -214,7 +220,7 @@ jobs:
           path: |
             godot/tests/world-spatial-seeds-10.json
             godot/tests/world-spatial-progress-10.json
-            /tmp/spatial-large.log
+            godot/tests/spatial-large.log
           if-no-files-found: warn
 
   spatial-large-summary:
@@ -237,7 +243,8 @@ jobs:
           from collections import Counter
           from pathlib import Path
 
-          files = sorted(Path("artifacts").glob("*/world-spatial-seeds-10.json"))
+          # Старые ZIP содержали промежуточные каталоги runner; читаем оба формата.
+          files = sorted(Path("artifacts").rglob("world-spatial-seeds-10.json"))
           if len(files) != 10:
               raise SystemExit(f"Нужно 10 отчётов, найдено {len(files)}")
 
