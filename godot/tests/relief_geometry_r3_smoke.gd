@@ -118,6 +118,9 @@ func _test_physics_and_render() -> void:
 	hydro.rebuild()
 	var surface = Surface.new(world, hydro)
 	surface.rebuild()
+	# Инициализируем локальный сток до снимка Hydrology:
+	# пустой PackedFloat32Array нельзя кодировать как base64.
+	hydro.apply_rainfall_map(surface.runoff_map())
 	var before_world: Dictionary = world.to_data()
 	var before_hydro: Dictionary = hydro.to_snapshot()
 	var before_surface: Dictionary = surface.to_snapshot()
@@ -136,7 +139,7 @@ func _test_physics_and_render() -> void:
 	_check(world.set_vertex(vertex, original + 2.0), "Изменение высоты атомарно")
 	var mask_after: Vector2 = Features.sample_at(world, vertex)
 	_check(mask_before != mask_after, "Маски формы пересчитываются от новой высоты")
-	_check(world.vertex_at(vertex) == original + 2.0,
+	_check(is_equal_approx(world.vertex_at(vertex), original + 2.0),
 		"Деформация сохраняется в одном WorldMap")
 	# После пересчёта водосбора гидрология читает ту же высоту:
 	# локальные маски рендера не подменяют уровень настоящей воды.
