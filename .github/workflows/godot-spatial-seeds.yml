@@ -1,6 +1,10 @@
 name: Этап 10.0 — многосидовый аудит ёмкости
 
 on:
+  push:
+    branches: [fix/stage10-start-resource-routing]
+    paths:
+      - ".github/workflows/godot-spatial-seeds.yml"
   pull_request:
     branches: [develop]
     paths:
@@ -58,11 +62,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SAMPLES: ${{ github.event_name == 'pull_request' && '100' || inputs.samples }}
-      MAP_WIDTH: ${{ github.event_name == 'pull_request' && '96' || inputs.width }}
-      MAP_HEIGHT: ${{ github.event_name == 'pull_request' && '80' || inputs.height }}
+      SAMPLES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '100' || inputs.samples }}
+      MAP_WIDTH: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '96' || inputs.width }}
+      MAP_HEIGHT: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '80' || inputs.height }}
       RADIUS: ${{ inputs.radius || '12' }}
-      PROFILE: ${{ github.event_name == 'pull_request' && 'compact' || inputs.profile }}
+      PROFILE: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'compact' || inputs.profile }}
       ARCHETYPE: ${{ inputs.archetype || '' }}
       START_SEED: ${{ inputs.seed_start || '1729' }}
     steps:
@@ -97,7 +101,7 @@ jobs:
           grep -q "Этап 10.0: проверено" /tmp/spatial-seeds.log
           test -s godot/tests/world-spatial-seeds-10.json
       - name: Сравнить пилотную и промежуточную карты в PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         run: |
           set -o pipefail
           # Валидация модели не требует 100 больших карт при каждом коммите.
@@ -139,7 +143,7 @@ jobs:
           test -s godot/tests/world-spatial-512-pr.json
           test -s godot/tests/world-spatial-768-pr.json
       - name: Показать измеренную вместимость карт
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         run: |
           python3 - <<'PY'
           import json
