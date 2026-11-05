@@ -93,8 +93,22 @@ func _test_automatic_hurricane() -> void:
             "После JSON совпадают счётчики и дата бедствий")
         _check(restored._storms == disasters._storms,
             "Серия штормовых суток восстановлена без потери истории")
-        _check(restored.last_events == disasters.last_events,
-            "События урагана восстановлены без изменения вида и клеток")
+        # JSON меняет точное представление части float-значений.
+        # Сравниваем физические поля и время, а не побитовое
+        # равенство словарей с числовыми Variant.
+        var events_match := restored.last_events.size() == \
+            disasters.last_events.size()
+        for index in range(restored.last_events.size()):
+            var loaded: Dictionary = restored.last_events[index]
+            var original: Dictionary = disasters.last_events[index]
+            events_match = events_match and \
+                str(loaded["kind"]) == str(original["kind"]) and \
+                int(loaded["day"]) == int(original["day"]) and \
+                loaded["cell"] == original["cell"] and \
+                int(loaded["duration_days"]) == int(original["duration_days"]) and \
+                absf(float(loaded["severity"]) - float(original["severity"])) < 0.00001
+        _check(events_match,
+            "Вид, клетка, длительность и сила урагана восстановлены")
     _check(restored.advance_day(3).is_empty(),
         "Повторное применение того же дня не создаёт второй ураган")
     climate.set_day(4)
