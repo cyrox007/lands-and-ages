@@ -65,6 +65,10 @@ static func _candidate(world_seed: int, geography: String) -> Dictionary:
         "seed": world_seed,
         "geography_archetype": geography,
         "invariants_valid": true,
+        "route_aware_layout": true,
+        "buildable_profile_checked": true,
+        "disconnected_center_states": [],
+        "failed_building_states": [],
         "six_starts": true,
         "centers": 30,
         "hypothetical_mature_sites": 30,
@@ -109,12 +113,37 @@ static func _test_selection() -> bool:
         and "внутреннее море" in found["missing_eligible_archetypes"]
 
 
+# Проверяем, что параллельные группы не повторяют seed.
+static func _test_seed_shards() -> bool:
+    var first: Array[int] = SelectSeed.seed_sequence(1729, 3, 0, 73)
+    var second: Array[int] = SelectSeed.seed_sequence(1729, 3, 3, 73)
+    if first != [1729, 1802, 1875] or second != [1948, 2021, 2094]:
+        return false
+    if not SelectSeed.seed_sequence(1729, 1, -1).is_empty():
+        return false
+    if not SelectSeed.seed_sequence(1729, 1, 0, 0).is_empty():
+        return false
+    if not SelectSeed.seed_sequence(1729, 0).is_empty():
+        return false
+    var broken := _candidate(567, "материк")
+    broken["disconnected_center_states"] = [2]
+    if not "есть поселения без сухопутной связи со стартом" \
+            in SelectSeed.reasons(broken):
+        return false
+    broken = _candidate(568, "материк")
+    broken["buildable_profile_checked"] = false
+    if not "не проверена площадь развитого поселения" \
+            in SelectSeed.reasons(broken):
+        return false
+    return true
+
+
 func _initialize() -> void:
     if not _test_geography():
         push_error("Этап 10.0: ошибка географических архетипов")
         quit(1)
         return
-    if not _test_selection():
+    if not _test_selection() or not _test_seed_shards():
         push_error("Этап 10.0: ошибка строгого отбора seed")
         quit(1)
         return

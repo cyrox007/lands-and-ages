@@ -74,7 +74,7 @@ static func for_radius(radius: int) -> Dictionary:
 static func scale_candidates(height_scale: float) -> Dictionary:
     var result := []
     for meters_per_cell in [2.0, 3.0, 4.0]:
-        var cell_area := meters_per_cell * meters_per_cell
+        var cell_area: float = meters_per_cell * meters_per_cell
         var settlements: Array[Dictionary] = []
         for name in names():
             var measured: Dictionary = profile(name)

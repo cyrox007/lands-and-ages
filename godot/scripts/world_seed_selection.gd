@@ -11,10 +11,29 @@ const TYPES := [
 ]
 
 
+# Непересекающиеся диапазоны seed для параллельного аудита.
+static func seed_sequence(seed_start: int, count: int,
+        offset: int = 0, step: int = 73) -> Array[int]:
+    var result: Array[int] = []
+    if count < 1 or offset < 0 or step < 1:
+        return result
+    for index in range(count):
+        result.append(seed_start + (offset + index) * step)
+    return result
+
+
 static func reasons(row: Dictionary) -> Array[String]:
     var errors: Array[String] = []
     if not bool(row.get("invariants_valid", false)):
         errors.append("нарушены инварианты расчёта")
+    if not bool(row.get("route_aware_layout", false)):
+        errors.append("сухопутные маршруты между центрами не подтверждены")
+    if not bool(row.get("buildable_profile_checked", false)):
+        errors.append("не проверена площадь развитого поселения")
+    if not row.get("disconnected_center_states", []).is_empty():
+        errors.append("есть поселения без сухопутной связи со стартом")
+    if not row.get("failed_building_states", []).is_empty():
+        errors.append("есть поселения без необходимой строительной площади")
     if not bool(row.get("six_starts", false)):
         errors.append("менее шести стартовых районов")
     if int(row.get("centers", 0)) < CENTERS:
