@@ -59,7 +59,7 @@ func _run() -> void:
 	var original_climate := JSON.stringify(climate.to_data())
 	var original_hydro := JSON.stringify(hydro.to_data())
 
-	var controller: Node3D = Effects.new()
+	var controller = Effects.new()
 	root.add_child(controller)
 	controller.set_quality(0)
 	controller.apply_snapshot(rain, Vector2(16.0, 12.0), 4.0, 44.0, 1729)
