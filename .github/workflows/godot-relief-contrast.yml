@@ -1,0 +1,78 @@
+name: Рельеф — выразительность и физические инварианты
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/relief_visual_features.gd"
+      - "godot/scripts/chunk.gd"
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/tests/relief_visual_contrast_smoke.gd"
+      - ".github/workflows/godot-relief-contrast.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/relief_visual_features.gd"
+      - "godot/scripts/chunk.gd"
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/tests/relief_visual_contrast_smoke.gd"
+      - ".github/workflows/godot-relief-contrast.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: relief-contrast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  relief-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-relief.zip
+          unzip -q /tmp/godot-relief.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт и проверка GDScript
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/relief-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/relief-import.log; then
+            exit 1
+          fi
+      - name: Рельеф: гребни, овраги и стыки
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/relief_visual_contrast_smoke.gd \
+            2>&1 | tee /tmp/relief-contrast.log
+          grep -q "Рельеф: визуальные гребни, овраги и стыки — успешно" /tmp/relief-contrast.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script|Invalid call|ERROR:" /tmp/relief-contrast.log; then
+            exit 1
+          fi
+      - name: Регрессия PBR и масок материалов
+        run: |
+          set -o pipefail
+          for test in world_pbr_materials_smoke world_pbr_macro_smoke; do
+            timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+              --headless --path godot --script res://tests/"$test".gd \
+              2>&1 | tee "/tmp/$test.log"
+            if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" "/tmp/$test.log"; then
+              exit 1
+            fi
+          done
+      - name: Записать результаты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-contrast-smoke
+          path: |
+            /tmp/relief-import.log
+            /tmp/relief-contrast.log
+            /tmp/world_pbr_materials_smoke.log
+            /tmp/world_pbr_macro_smoke.log
+          if-no-files-found: ignore
