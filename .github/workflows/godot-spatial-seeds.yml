@@ -108,8 +108,19 @@ jobs:
             2>&1 | tee /tmp/spatial-512.log
           cp godot/tests/world-spatial-seeds-10.json \
             godot/tests/world-spatial-512-pr.json
+            godot/tests/world-spatial-768-pr.json
+          # Одна увеличенная карта: проверка геометрии без 100 тяжёлых прогонов.
+          timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples=1 --width=768 --height=576 \
+            --profile=balanced --seed_start=1729 \
+            2>&1 | tee /tmp/spatial-768.log
+          cp godot/tests/world-spatial-seeds-10.json \
+            godot/tests/world-spatial-768-pr.json
           test -s godot/tests/world-spatial-256-pr.json
           test -s godot/tests/world-spatial-512-pr.json
+          test -s godot/tests/world-spatial-768-pr.json
       - name: Показать измеренную вместимость карт
         if: github.event_name == 'pull_request'
         run: |
@@ -141,4 +152,5 @@ jobs:
             /tmp/spatial-seeds.log
             /tmp/spatial-256.log
             /tmp/spatial-512.log
+            /tmp/spatial-768.log
           if-no-files-found: warn
