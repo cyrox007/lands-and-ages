@@ -4,6 +4,7 @@ extends RefCounted
 ## исключительно свойства рендера, а не высоты и коллизии.
 
 const MAX_SHADOW_ZOOM := 76.0
+const FADE_START_ZOOM := 60.0
 const TERRAIN_RADIUS := 2
 const NATURE_RADIUS := 1
 
@@ -12,6 +13,17 @@ static func active(zoom: float, mode: int) -> bool:
 	## Полные тени включены только в природном режиме при ближнем
 	## масштабе. Диагностические виды и обзорная карта дешевле.
 	return is_finite(zoom) and zoom <= MAX_SHADOW_ZOOM and mode == 0
+
+
+static func shadow_opacity_for_zoom(zoom: float, mode: int) -> float:
+	## Плавно скрываем геометрические тени до выключения карты на 76.
+	## Переход считается из абсолютного размера камеры: результат не
+	## зависит от порядка приближения и от количества кадров.
+	if not active(zoom, mode):
+		return 0.0
+	# На ближнем масштабе сохраняем всю силу настоящей тени.
+	# На дальнем её уже замещает непрерывный рельефный L3.
+	return 1.0 - smoothstep(FADE_START_ZOOM, MAX_SHADOW_ZOOM, zoom)
 
 
 static func chunk_casts(coord: Vector2i, center_chunk: Vector2i,
