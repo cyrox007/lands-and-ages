@@ -12,6 +12,10 @@ uniform float relief_contrast : hint_range(0.0, 1.0) = 0.72;
 // L3: направление существующего солнца, без дополнительных карт теней.
 // Крупные формы берутся из физической нормали и признаков WorldMap.
 uniform vec3 far_light_direction = vec3(0.0, 1.0, 0.0);
+// L4: облачность из Climate; рисунок не является вторым источником погоды.
+uniform float cloud_coverage : hint_range(0.0, 1.0) = 0.0;
+uniform float cloud_wind : hint_range(0.0, 1.0) = 0.0;
+uniform float cloud_time = 0.0;
 
 varying vec3 ground_position;
 varying vec3 ground_world_normal;
@@ -214,8 +218,19 @@ void fragment() {
 		0.035 * ridge - 0.075 * ravine - 0.060 * escarpment;
 	float far_light = mix(1.0, clamp(far_relief, 0.76, 1.12),
 		far_blend * relief_contrast);
+	// На реальном облачном фронте слегка движутся крупные пятна света.
+	// Мировые координаты непрерывны на границах чанков, а покрытие
+	// задаёт только физическая погода; без облаков маска равна нулю.
+	float cloud_dimming = 0.0;
+	if (cloud_coverage > 0.015) {
+		vec2 drift = vec2(0.018, -0.006) * cloud_time *
+			(0.28 + cloud_wind * 0.72);
+		float cloud_field = terrain_noise(ground_position.xz * 0.012 + drift);
+		cloud_dimming = cloud_coverage *
+			smoothstep(0.38, 0.70, cloud_field) * 0.19;
+	}
 	ALBEDO = clamp(base_albedo * relief_light * far_light *
-		mix(1.0, 0.67, wet_material),
+		(1.0 - cloud_dimming) * mix(1.0, 0.67, wet_material),
 		vec3(0.0), vec3(1.0));
 	ROUGHNESS = clamp(mix(roughness_sum, 0.34, wet_material * 0.72),
 		0.25, 1.0);
