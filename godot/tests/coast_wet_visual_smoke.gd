@@ -380,7 +380,7 @@ func _test_wetness() -> void:
 func _test_waves() -> void:
 	var code: String = WaveShader.code
 	_check(code.contains("fwidth(phase_a)") and
-		code.contains("wave_fade") and code.contains("TIME"),
+		code.contains("wave_fade") and code.contains("wave_time"),
 		"Волны анимируются и ослабляются при экранном алиасинге")
 	_check(not code.contains("VERTEX ="),
 		"Шейдер воды не изменяет физическую поверхность")
