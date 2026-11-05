@@ -125,6 +125,10 @@ func _test_game_tornado() -> void:
     var id: int = int(original["id"])
     var cell := Vector2i(int(original["x"]), int(original["y"]))
     var wood := int(original["wood_units"]) + int(original["fallen_wood"])
+    var initial: Dictionary = JSON.parse_string(JSON.stringify(nature.to_data()))
+    var cloned := Nature.new(world, hydro, surface, climate)
+    _check(cloned.load_data(initial),
+        "Исходный лес отдельно сохранён для проверки вихревого угла")
     var before: Dictionary = {}
     for entry in nature.to_data()["objects"]:
         if entry[1] == "дерево" and entry[9] == "целое":
@@ -177,9 +181,6 @@ func _test_game_tornado() -> void:
         "Противоположное вращение меняет локальный ветер")
 
     var offtrack_safe := false
-    var peripheral_fall := false
-    var clockwise := Terrain.hash2(cell.x, cell.y,
-        seed + climate.day * 43 + 6139) < 0.5
     for other_id in before.keys():
         var old: Dictionary = before[other_id]
         if posmod(2 - int(other_id), 8) == 0:
@@ -196,14 +197,54 @@ func _test_game_tornado() -> void:
                     int(current["health"]) == int(old["health"]):
                 offtrack_safe = true
             continue
-        if current["state"] != "пень":
-            continue
-        var direction := Nature.tornado_direction(offset, wind, clockwise)
-        var shape: Dictionary = Geometry.log_footprint(current, world.config)
-        if Vector2(shape.get("axis", Vector2.ZERO)).dot(direction) > 0.999:
-            peripheral_fall = true
     _check(offtrack_safe, "Дерево рядом со следом не получает урон")
-    _check(peripheral_fall, "Периферийный ствол падает по вихревому ветру")
+
+    # В редком лесу нельзя требовать, чтобы случайно стояло второе
+    # дерево на полосе. Вместо этого подбираем центр вихря так,
+    # чтобы выбранный ствол заведомо находился на периферии.
+    var vortex_center := Vector2i(-1, -1)
+    var expected := Vector2.ZERO
+    for dy in range(-5, 6):
+        if vortex_center.x >= 0:
+            break
+        for dx in range(-5, 6):
+            var candidate: Vector2i = cell + Vector2i(dx, dy)
+            if not world.config.contains_cell(candidate):
+                continue
+            var candidate_wind: Vector2 = climate.wind_direction_at_index(
+                hydro.cell_index(candidate))
+            var distance_to_tree := Vector2(cell - candidate)
+            if distance_to_tree.length() < 2.0:
+                continue
+            if not Nature.tornado_reaches(distance_to_tree, candidate_wind):
+                continue
+            var track: Vector2 = Nature.tornado_track_offset(
+                distance_to_tree, candidate_wind)
+            if absf(track.y) < 0.4 or absf(track.y) > 1.5:
+                continue
+            var falloff := 0.25 + 0.75 * (1.0 - absf(track.y) / 2.2)
+            var probability := clampf((falloff - 0.25) * 1.6, 0.0, 0.99)
+            if Terrain.hash2(cell.x, cell.y,
+                    seed + climate.day * 31 + 3173) >= probability:
+                continue
+            vortex_center = candidate
+            var spin := Terrain.hash2(candidate.x, candidate.y,
+                seed + climate.day * 43 + 6139) < 0.5
+            expected = Nature.tornado_direction(
+                distance_to_tree, candidate_wind, spin)
+            break
+    _check(vortex_center.x >= 0,
+        "Для проверяемого дерева найдена периферийная трасса вихря")
+    if vortex_center.x >= 0:
+        cloned.advance_day(2, [{
+            "kind": "смерч", "cell": vortex_center, "severity": 1.0
+        }])
+        var spun: Dictionary = cloned.object_at(id)
+        var spin_shape: Dictionary = Geometry.log_footprint(
+            spun, world.config)
+        _check(spun["state"] == "пень" and
+            Vector2(spin_shape.get("axis", Vector2.ZERO)).dot(expected) > 0.999,
+            "Периферийный ствол падает по вычисленному вихревому ветру")
 
     var colliders := Collisions.create_chunk(
         world, nature, world.config.chunk_of(cell))
