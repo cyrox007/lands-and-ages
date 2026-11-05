@@ -104,31 +104,36 @@ void fragment() {
 	// fwidth сглаживает тонкую полосу при удалении камеры, без муара.
 	float shoreline_aa = max(fwidth(UV.x) * 1.4, 0.012);
 	float foam_band = smoothstep(0.004, 0.055 + shoreline_aa, UV.x) *
-		(1.0 - smoothstep(0.13, 0.30 + shoreline_aa, UV.x)) * standing;
-	float shoreline_foam = 0.0;
+		(1.0 - smoothstep(0.13, 0.30 + shoreline_aa, UV.x));
+	// У рек сохраняется прежняя слабая пена; прибой усиливает
+	// только действительно стоячие водоёмы (UV2).
+	float shoreline_foam = foam_band * (0.24 + (1.0 - standing) * 0.36) *
+		liquid;
 	float shoreline_glint = 0.0;
 	float shoreline_wash = 0.0;
-	if (foam_band > 0.001 && liquid > 0.01) {
-		// Мировая координата непрерывна между соседними чанками:
-		// полосы прибоя не должны обрываться на квадратных границах.
-		float shore_phase = dot(water_position, vec2(0.76, 0.29)) -
+	if (foam_band > 0.001 && standing > 0.01 && liquid > 0.01 &&
+			ripple_strength > 0.01) {
+		// Фронт повторяет линии физической глубины. Мировая
+		// координата лишь слегка искривляет его без сетки по чанкам.
+		float shore_phase = UV.x * 18.0 -
 			TIME * (0.35 + wind_strength * 0.56 + storm_strength * 0.27);
 		float shore_warp = sin(dot(water_position, vec2(-0.21, 0.43)) +
 			TIME * 0.20) * 0.32;
 		float crest_phase = shore_phase + shore_warp;
 		float crest = sin(crest_phase);
+		// Экранные производные гасят муар на удалении и у крутого берега.
 		float crest_fade = 1.0 - smoothstep(0.6, 2.0,
 			fwidth(crest_phase));
 		float surge = clamp(0.14 + wind_strength * 0.55 +
 			storm_strength * 0.50, 0.0, 1.0);
 		float foam_crest = smoothstep(0.08, 0.70, crest) *
-			crest_fade * surge;
-		shoreline_foam = foam_band * (0.24 + foam_crest * 0.74) * liquid;
-		// Отражающая полоса следует за тем же фронтом, но уже пены.
+			crest_fade * surge * ripple_strength;
+		shoreline_foam += foam_band * foam_crest * 0.74 * liquid;
+		// Отражающая полоса совпадает с волновым фронтом, но уже пены.
 		shoreline_glint = foam_band * smoothstep(0.52, 0.90, crest) *
-			crest_fade * surge * liquid;
+			crest_fade * surge * liquid * ripple_strength;
 		shoreline_wash = foam_band * crest * crest_fade *
-			surge * liquid;
+			surge * liquid * ripple_strength;
 	}
 	vec3 base = COLOR.rgb;
 	vec3 shallow = mix(base, vec3(0.27, 0.42, 0.42), nearshore * 0.22);
