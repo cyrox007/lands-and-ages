@@ -1,7 +1,16 @@
-name: Отладочный Android APK природного мира — этап 9.4
+name: Отладочный Android APK природного мира — шторм 11.3
 
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/nature_*.gd"
+      - "godot/scripts/weather_fx_controller.gd"
+      - "godot/shaders/nature_*.gdshader"
+      - ".github/workflows/world-android-debug.yml"
 
 permissions:
   contents: read
@@ -79,22 +88,22 @@ jobs:
           mkdir -p build
           timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot \
-            --export-debug Android "$GITHUB_WORKSPACE/build/lands-and-ages-world-qa-arm64.apk" \
+            --export-debug Android "$GITHUB_WORKSPACE/build/lands-and-ages-storm-qa-arm64.apk" \
             2>&1 | tee /tmp/android-export.log
-          test -s build/lands-and-ages-world-qa-arm64.apk
-          unzip -t build/lands-and-ages-world-qa-arm64.apk | tail -n 2
-          unzip -l build/lands-and-ages-world-qa-arm64.apk | grep -q 'lib/arm64-v8a/'
+          test -s build/lands-and-ages-storm-qa-arm64.apk
+          unzip -t build/lands-and-ages-storm-qa-arm64.apk | tail -n 2
+          unzip -l build/lands-and-ages-storm-qa-arm64.apk | grep -q 'lib/arm64-v8a/'
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose \
-            build/lands-and-ages-world-qa-arm64.apk
-          sha256sum build/lands-and-ages-world-qa-arm64.apk > build/SHA256SUMS.txt
-          echo "Этап 9.4: отладочный Android ARM64 APK подписан и проверен — успешно."
+            build/lands-and-ages-storm-qa-arm64.apk
+          sha256sum build/lands-and-ages-storm-qa-arm64.apk > build/SHA256SUMS.txt
+          echo "Этап 11.3: отладочный Android ARM64 APK подписан и проверен — успешно."
       - name: Сохранить APK для аппаратной проверки
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: world-qa-android-arm64-debug
+          name: world-storm-11-3-android-arm64-debug
           path: |
-            build/lands-and-ages-world-qa-arm64.apk
+            build/lands-and-ages-storm-qa-arm64.apk
             build/SHA256SUMS.txt
             /tmp/android-export.log
           if-no-files-found: warn
