@@ -94,6 +94,80 @@ static func _test_foundations() -> bool:
     return int(reduced["walkable"]) < int(free["walkable"])
 
 
+# Дома не должны занимать единственный участок 4×4, нужный под поле.
+# Старый порядок (дома перед полями) проваливал эту примерку.
+static func _test_large_plots_first() -> bool:
+    var width := 48
+    var height := 48
+    var center := Vector2i(24, 24)
+    var walkable := PackedByteArray()
+    var buildable := PackedByteArray()
+    walkable.resize(width * height)
+    buildable.resize(width * height)
+    walkable.fill(1)
+    var squares := [
+        {"cell": center, "size": 2},
+        {"cell": center + Vector2i(-3, -5), "size": 4},
+        {"cell": center + Vector2i(3, -2), "size": 2},
+        {"cell": center + Vector2i(3, 1), "size": 2}
+    ]
+    for square in squares:
+        var start: Vector2i = square["cell"]
+        var side: int = square["size"]
+        for dy in range(side):
+            for dx in range(side):
+                buildable[(start.y + dy) * width + start.x + dx] = 1
+    var profile := {
+        "radius": 8, "yard_cells": 0, "road_cells": 0, "free_cells": 0,
+        "required_buildable_cells": 28, "required_walkable_cells": 28,
+        "building_plots": [
+            {"kind": "центр", "count": 1, "width": 2, "height": 2},
+            {"kind": "дома", "count": 2, "width": 2, "height": 2},
+            {"kind": "поля", "count": 1, "width": 4, "height": 4}
+        ]
+    }
+    if not Audit.site_fits(buildable, walkable, width, height,
+            center, profile):
+        return false
+    var accessible: Dictionary = Audit._reachable(
+        buildable, walkable, width, height, center, 8)
+    var lots: Dictionary = Audit._pack_lots(
+        buildable, width, height, center, profile, accessible)
+    if not lots["hypothetical_mature_fit"] \
+            or lots["packed_lots"]["поля"] != 1 \
+            or lots["packed_lots"]["дома"] != 2:
+        return false
+    # Уничтожение одной клетки единственного поля делает план невозможным.
+    buildable[(center.y - 5) * width + center.x - 3] = 0
+    return not Audit.site_fits(
+        buildable, walkable, width, height, center, profile)
+
+
+static func _test_mature_candidates() -> bool:
+    var width := 72
+    var height := 72
+    var walkable := PackedByteArray()
+    var buildable := PackedByteArray()
+    walkable.resize(width * height)
+    buildable.resize(width * height)
+    walkable.fill(1)
+    buildable.fill(1)
+    var acceptable := Vector2i(40, 40)
+    var blocked := Vector2i(20, 20)
+    buildable[blocked.y * width + blocked.x] = 0
+    var candidates: Array[Dictionary] = [
+        {"cell": blocked}, {"cell": acceptable}
+    ]
+    var profile: Dictionary = Envelope.profile("balanced")
+    var validator := Callable(Audit, "site_fits").bind(profile)
+    var filtered := Scenario._viable_candidates(
+        candidates, buildable, walkable, width, height, validator)
+    if filtered.size() != 1 or filtered[0]["cell"] != acceptable:
+        return false
+    return Scenario._viable_candidates(candidates, buildable, walkable,
+        width, height, Callable()).size() == 2
+
+
 static func _test_paths_and_territories() -> bool:
     var width := 12
     var height := 8
@@ -168,6 +242,8 @@ static func _test_real_routes() -> bool:
 
 func _initialize() -> void:
     if not _test_profiles() or not _test_foundations() \
+            or not _test_large_plots_first() \
+            or not _test_mature_candidates() \
             or not _test_paths_and_territories() or not _test_real_routes():
         push_error("Этап 10.0.2–10.0.4: инвариант пространственного профиля")
         quit(1)

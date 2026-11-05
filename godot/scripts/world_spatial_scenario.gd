@@ -275,6 +275,22 @@ static func _candidates(buildable: PackedByteArray,
     return result
 
 
+# Единый строгий фильтр применяем ДО подбора государств и маршрутов.
+# Полученная функция выполняет ту же проверку, что финальный аудит.
+static func _viable_candidates(candidates: Array[Dictionary],
+        buildable: PackedByteArray, walkable: PackedByteArray,
+        width: int, height: int,
+        site_validator: Callable) -> Array[Dictionary]:
+    if not site_validator.is_valid():
+        return candidates
+    var viable: Array[Dictionary] = []
+    for candidate in candidates:
+        if bool(site_validator.call(buildable, walkable, width, height,
+                candidate["cell"])):
+            viable.append(candidate)
+    return viable
+
+
 static func _fits(candidate: Dictionary, occupied: Array[Dictionary],
         radius: int, state: int) -> bool:
     var cell: Vector2i = candidate["cell"]
@@ -474,7 +490,8 @@ static func _layout(candidates: Array[Dictionary],
     }
 
 static func report(world: RefCounted, hydro: RefCounted,
-        surface: RefCounted, nature: RefCounted, radius: int) -> Dictionary:
+        surface: RefCounted, nature: RefCounted, radius: int,
+        site_validator: Callable = Callable()) -> Dictionary:
     hydro.ensure_ready()
     surface.ensure_ready()
     var width: int = world.config.width
@@ -488,7 +505,10 @@ static func report(world: RefCounted, hydro: RefCounted,
     var candidates: Array[Dictionary] = _candidates(
         terrain["buildable"], connected["labels"], resources,
         width, height, radius)
-    var trial := _layout(candidates, connected, resources,
+    var viable: Array[Dictionary] = _viable_candidates(
+        candidates, terrain["buildable"], terrain["walkable"],
+        width, height, site_validator)
+    var trial := _layout(viable, connected, resources,
         terrain["walkable"], width, height, radius)
     var sorted_sizes := component_sizes.duplicate()
     sorted_sizes.sort()
@@ -497,6 +517,9 @@ static func report(world: RefCounted, hydro: RefCounted,
         "radius_hypothesis_cells": radius,
         "old_headquarters_footprint_cells": [FOUNDATION, FOUNDATION],
         "candidate_count": candidates.size(),
+        "mature_candidate_count": viable.size(),
+        "rejected_immature_candidates": candidates.size() - viable.size(),
+        "mature_preselection_checked": site_validator.is_valid(),
         "land": terrain["counts"],
         "walkable_components": component_sizes.size(),
         "largest_walkable_components": sorted_sizes.slice(0, 8),

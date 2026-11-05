@@ -98,6 +98,33 @@ static func _occupy_lot(cell: Vector2i, width_cells: int, height_cells: int,
                 x0, y0, side)] = 1
 
 
+# Проверка пригодности на стадии ВЫБОРА центра. Физику мира не меняем.
+# Быстрый расчёт необходимой площади отсекает заведомо плохие точки.
+static func site_fits(buildable: PackedByteArray,
+        walkable: PackedByteArray, width: int, height: int,
+        center: Vector2i, profile: Dictionary) -> bool:
+    if profile.is_empty() or width <= 0 or height <= 0 \
+            or buildable.size() != width * height \
+            or walkable.size() != width * height:
+        return false
+    var radius: int = profile["radius"]
+    if center.x < radius or center.y < radius \
+            or center.x + radius >= width \
+            or center.y + radius >= height:
+        return false
+    if walkable[center.y * width + center.x] == 0:
+        return false
+    var reachable: Dictionary = _reachable(
+        buildable, walkable, width, height, center, radius)
+    if int(reachable["buildable"]) \
+            < int(profile["required_buildable_cells"]) \
+            or int(reachable["walkable"]) \
+            < int(profile["required_walkable_cells"]):
+        return false
+    return bool(_pack_lots(buildable, width, height, center,
+        profile, reachable)["hypothetical_mature_fit"])
+
+
 static func _pack_lots(buildable: PackedByteArray,
         width: int, height: int, center: Vector2i,
         profile: Dictionary, reachable: Dictionary) -> Dictionary:
@@ -107,7 +134,17 @@ static func _pack_lots(buildable: PackedByteArray,
     var placed := {}
     var missing := {}
     var occupied_cells := 0
-    for plot in profile["building_plots"]:
+    # Резервируем центр, затем крупные участки: иначе дома дробят землю
+    # на полосы и поля 4×4 ошибочно считаются невозможными.
+    var plots: Array = profile["building_plots"].duplicate(true)
+    plots.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+        if str(a["kind"]) == "центр":
+            return true
+        if str(b["kind"]) == "центр":
+            return false
+        return int(a["width"]) * int(a["height"]) \
+            > int(b["width"]) * int(b["height"]))
+    for plot in plots:
         var kind: String = plot["kind"]
         var needed: int = plot["count"]
         var plot_width: int = plot["width"]

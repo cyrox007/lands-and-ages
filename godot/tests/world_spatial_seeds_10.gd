@@ -83,8 +83,11 @@ static func _sample(world_seed: int, width: int,
     var after_nature := Time.get_ticks_usec()
 
     var geographic: Dictionary = Geography.report(world, hydro)
+    var site_validator := Callable()
+    if not profile.is_empty():
+        site_validator = Callable(Mature, "site_fits").bind(profile)
     var scenario: Dictionary = Scenario.report(
-        world, hydro, surface, nature, radius)
+        world, hydro, surface, nature, radius, site_validator)
     var after_spatial := Time.get_ticks_usec()
     var trial: Dictionary = scenario["trial"]
     var centers := 0
@@ -100,6 +103,8 @@ static func _sample(world_seed: int, width: int,
     valid = valid and centers == int(trial["assigned_centers"])
     valid = valid and complete_groups == int(trial["full_states"])
     valid = valid and bool(trial["resource_route_checked"])
+    valid = valid and (profile.is_empty() \
+        or bool(scenario["mature_preselection_checked"]))
     valid = valid and (complete_groups == 6) \
         == bool(trial["trial_30_centers_found"])
 
@@ -174,6 +179,9 @@ static func _sample(world_seed: int, width: int,
         "walkable": walkable,
         "buildable": scenario["land"]["buildable"],
         "candidates": scenario["candidate_count"],
+        "mature_candidates": scenario["mature_candidate_count"],
+        "rejected_immature_candidates": scenario["rejected_immature_candidates"],
+        "mature_preselection_checked": scenario["mature_preselection_checked"],
         "centers": centers, "complete_groups": complete_groups,
         "six_starts": bool(trial["six_starts_found"]),
         "thirty_sites": bool(trial["trial_30_centers_found"]),
@@ -276,6 +284,7 @@ func _run() -> void:
     var profile := Envelope.for_radius(radius)
     if str(options["profile"]) != "":
         profile = Envelope.profile(str(options["profile"]))
+        radius = int(profile["radius"])
     var batch_started := Time.get_ticks_usec()
     var rows: Array[Dictionary] = []
     var failures: Array[int] = []
@@ -319,6 +328,7 @@ func _run() -> void:
         chosen = selection["by_archetype"][target]["best_candidates"]
     var result := {
         "stage": "10.0", "options": options,
+        "effective_radius": radius,
         "samples": count, "seed_step": options["seed_step"],
         "seed_offset": options["seed_offset"],
         "thirty_geometric_sites_found": full,
