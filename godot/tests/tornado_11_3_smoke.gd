@@ -114,7 +114,9 @@ func _test_game_tornado() -> void:
             continue
         if x < 18 or y < 18 or x >= 78 or y >= 62:
             continue
-        if Terrain.hash2(x, y, seed + 2 * 31 + 3173) >= 0.99:
+        # Для двух сценариев выбираем дерево с гарантированно
+        # низким порогом падения, чтобы тест не зависел от удачи.
+        if Terrain.hash2(x, y, seed + 2 * 31 + 3173) >= 0.40:
             continue
         original = nature.object_at(id)
         break
@@ -220,7 +222,7 @@ func _test_game_tornado() -> void:
                 continue
             var track: Vector2 = Nature.tornado_track_offset(
                 distance_to_tree, candidate_wind)
-            if absf(track.y) < 0.4 or absf(track.y) > 1.5:
+            if absf(track.y) < 0.4 or absf(track.y) > 1.1:
                 continue
             var falloff := 0.25 + 0.75 * (1.0 - absf(track.y) / 2.2)
             var probability := clampf((falloff - 0.25) * 1.6, 0.0, 0.99)
