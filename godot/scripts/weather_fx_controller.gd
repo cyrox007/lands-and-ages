@@ -95,7 +95,7 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	if _rain == null or _snow == null:
 		return
 	var distance := clampf(zoom * 0.7, 10.0, 70.0)
-	var quality_factor := [0.36, 0.72, 1.0][_quality]
+	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
 	for emitter in [_rain, _snow]:
 		# Область осадков следует за камерой и не растёт до размера карты.
 		emitter.position = Vector3(center.x, altitude + 22.0, center.y)
