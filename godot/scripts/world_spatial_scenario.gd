@@ -229,9 +229,55 @@ static func walking_distances(walkable: PackedByteArray, width: int,
     return distance
 
 
+# Несколько источников одновременно: минимальное расстояние от древесины
+# или камня по той же четырёхсвязной суше, что и путь от поселения.
+# Один проход вместо десятков проверок маршрута для каждого кандидата.
+static func _resource_reach_mask(walkable: PackedByteArray,
+        stock: PackedInt32Array, width: int, height: int,
+        max_steps: int) -> PackedByteArray:
+    var reached := PackedByteArray()
+    reached.resize(walkable.size())
+    if width <= 0 or height <= 0 or max_steps < 0 \
+            or walkable.size() != width * height \
+            or stock.size() != walkable.size():
+        return reached
+    var distance := PackedInt32Array()
+    distance.resize(walkable.size())
+    distance.fill(-1)
+    var queue: Array[int] = []
+    for index in range(walkable.size()):
+        if walkable[index] == 0 or stock[index] <= 0:
+            continue
+        distance[index] = 0
+        reached[index] = 1
+        queue.append(index)
+    var cursor := 0
+    while cursor < queue.size():
+        var index: int = queue[cursor]
+        cursor += 1
+        if distance[index] >= max_steps:
+            continue
+        var x := index % width
+        var y := floori(float(index) / float(width))
+        for direction in DIRECTIONS:
+            var nx: int = x + direction.x
+            var ny: int = y + direction.y
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            var next: int = ny * width + nx
+            if walkable[next] == 0 or distance[next] >= 0:
+                continue
+            distance[next] = distance[index] + 1
+            reached[next] = 1
+            queue.append(next)
+    return reached
+
+
 static func _candidates(buildable: PackedByteArray,
         labels: PackedInt32Array, resources: Dictionary,
-        width: int, height: int, radius: int) -> Array[Dictionary]:
+        width: int, height: int, radius: int,
+        route_wood: PackedByteArray, route_stones: PackedByteArray
+        ) -> Array[Dictionary]:
     var offsets: Array[Vector2i] = []
     for dy in range(-radius, radius + 1):
         for dx in range(-radius, radius + 1):
@@ -266,6 +312,8 @@ static func _candidates(buildable: PackedByteArray,
             result.append({
                 "cell": cell, "component": component,
                 "coverage": snappedf(coverage, 0.0001),
+                "route_has_wood": route_wood[index] != 0,
+                "route_has_stone": route_stones[index] != 0,
                 # Близость ресурса не доказывает наличие сухопутного маршрута.
                 "nearby_wood": _local_stock(resources["wood"],
                     width, height, cell, reach),
@@ -318,6 +366,10 @@ static func _anchor(candidates: Array[Dictionary],
         if not _fits(candidate, occupied, radius, state):
             continue
         var score: float = float(candidate["coverage"]) * 20.0
+        # Для начальной точки реальный маршрут важнее близости на карте.
+        if bool(candidate.get("route_has_wood", false)) \
+                and bool(candidate.get("route_has_stone", false)):
+            score += 300.0
         if int(candidate["nearby_wood"]) > 0:
             score += 6.0
         if int(candidate["nearby_boulders"]) > 0:
@@ -384,7 +436,7 @@ static func _layout(candidates: Array[Dictionary],
         var best_score := -1
         # Первый подходящий по геометрии центр не обязательно имеет
         # сухопутные дороги и доступные ресурсы. Проверяем альтернативы.
-        for attempt in range(12):
+        for attempt in range(12 if state < 4 else 24):
             var anchor: Dictionary = _anchor(
                 candidates, occupied, radius, state, counts, excluded)
             if anchor.is_empty():
@@ -502,9 +554,20 @@ static func report(world: RefCounted, hydro: RefCounted,
     var component_sizes: Array[int] = connected["sizes"]
     var resources: Dictionary = _resources(nature, connected["labels"],
         component_sizes.size(), width, height)
+    var route_wood: PackedByteArray = _resource_reach_mask(
+        terrain["walkable"], resources["wood_cells"], width, height,
+        radius * 3)
+    var route_stones: PackedByteArray = _resource_reach_mask(
+        terrain["walkable"], resources["stone_cells"], width, height,
+        radius * 3)
     var candidates: Array[Dictionary] = _candidates(
         terrain["buildable"], connected["labels"], resources,
-        width, height, radius)
+        width, height, radius, route_wood, route_stones)
+    var resource_ready_candidates := 0
+    for candidate in candidates:
+        if bool(candidate["route_has_wood"]) \
+                and bool(candidate["route_has_stone"]):
+            resource_ready_candidates += 1
     var viable: Array[Dictionary] = _viable_candidates(
         candidates, terrain["buildable"], terrain["walkable"],
         width, height, site_validator)
@@ -517,6 +580,7 @@ static func report(world: RefCounted, hydro: RefCounted,
         "radius_hypothesis_cells": radius,
         "old_headquarters_footprint_cells": [FOUNDATION, FOUNDATION],
         "candidate_count": candidates.size(),
+        "resource_ready_candidates": resource_ready_candidates,
         "mature_candidate_count": viable.size(),
         "rejected_immature_candidates": candidates.size() - viable.size(),
         "mature_preselection_checked": site_validator.is_valid(),

@@ -168,6 +168,53 @@ static func _test_mature_candidates() -> bool:
         width, height, Callable()).size() == 2
 
 
+# Близость камня по прямой не должна считаться доступным маршрутом.
+static func _test_resource_reach_mask() -> bool:
+    var width := 20
+    var height := 12
+    var walkable := PackedByteArray()
+    var stones := PackedInt32Array()
+    walkable.resize(width * height)
+    stones.resize(width * height)
+    walkable.fill(1)
+    for y in range(height):
+        walkable[y * width + 10] = 0
+    stones[6 * width + 13] = 1
+    var start := Vector2i(8, 6)
+    var mask := Scenario._resource_reach_mask(
+        walkable, stones, width, height, 9)
+    var route := Scenario.route_stock(
+        walkable, stones, stones, width, height, start, 9)
+    if mask[6 * width + 8] != 0 or int(route["boulders"]) != 0:
+        return false
+    walkable[6 * width + 10] = 1
+    mask = Scenario._resource_reach_mask(
+        walkable, stones, width, height, 9)
+    route = Scenario.route_stock(
+        walkable, stones, stones, width, height, start, 9)
+    return mask[6 * width + 8] != 0 \
+        and int(route["boulders"]) > 0
+
+
+# Приоритет реальных ресурсов действует ещё до закрепления старта.
+static func _test_resource_anchor_priority() -> bool:
+    var candidates: Array[Dictionary] = [
+        {"cell": Vector2i(10, 10), "component": 0,
+            "coverage": 1.0, "nearby_wood": 10,
+            "nearby_boulders": 10,
+            "route_has_wood": false, "route_has_stone": false},
+        {"cell": Vector2i(25, 10), "component": 0,
+            "coverage": 0.8, "nearby_wood": 0,
+            "nearby_boulders": 0,
+            "route_has_wood": true, "route_has_stone": true}
+    ]
+    var occupied: Array[Dictionary] = []
+    var selected: Dictionary = Scenario._anchor(
+        candidates, occupied, 4, 0, {0: 5})
+    return not selected.is_empty() \
+        and selected["cell"] == Vector2i(25, 10)
+
+
 static func _test_paths_and_territories() -> bool:
     var width := 12
     var height := 8
@@ -242,6 +289,8 @@ static func _test_real_routes() -> bool:
 
 func _initialize() -> void:
     if not _test_profiles() or not _test_foundations() \
+            or not _test_resource_reach_mask() \
+            or not _test_resource_anchor_priority() \
             or not _test_large_plots_first() \
             or not _test_mature_candidates() \
             or not _test_paths_and_territories() or not _test_real_routes():
