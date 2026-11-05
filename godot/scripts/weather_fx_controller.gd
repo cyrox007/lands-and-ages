@@ -83,7 +83,7 @@ func sync_world(climate: RefCounted, world: RefCounted,
 	var snapshot: Dictionary = VisualState.sample(
 		climate, world.config, center, zoom)
 	var height: float = world.height_at(center)
-	var altitude := world.config.to_scene(center, height).y
+	var altitude: float = world.config.to_scene(center, height).y
 	apply_snapshot(snapshot, center, altitude, zoom, world.config.world_seed)
 
 
