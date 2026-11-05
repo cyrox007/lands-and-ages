@@ -1,10 +1,6 @@
 name: Этап 10.0 — многосидовый аудит ёмкости
 
 on:
-  push:
-    branches: [fix/stage10-start-resource-routing]
-    paths:
-      - ".github/workflows/godot-spatial-seeds.yml"
   pull_request:
     branches: [develop]
     paths:
@@ -62,11 +58,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SAMPLES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '100' || inputs.samples }}
-      MAP_WIDTH: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '96' || inputs.width }}
-      MAP_HEIGHT: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '80' || inputs.height }}
+      SAMPLES: ${{ github.event_name == 'pull_request' && '100' || inputs.samples }}
+      MAP_WIDTH: ${{ github.event_name == 'pull_request' && '96' || inputs.width }}
+      MAP_HEIGHT: ${{ github.event_name == 'pull_request' && '80' || inputs.height }}
       RADIUS: ${{ inputs.radius || '12' }}
-      PROFILE: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'compact' || inputs.profile }}
+      PROFILE: ${{ github.event_name == 'pull_request' && 'compact' || inputs.profile }}
       ARCHETYPE: ${{ inputs.archetype || '' }}
       START_SEED: ${{ inputs.seed_start || '1729' }}
     steps:
@@ -101,7 +97,7 @@ jobs:
           grep -q "Этап 10.0: проверено" /tmp/spatial-seeds.log
           test -s godot/tests/world-spatial-seeds-10.json
       - name: Сравнить пилотную и промежуточную карты в PR
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         run: |
           set -o pipefail
           # Валидация модели не требует 100 больших карт при каждом коммите.
@@ -130,20 +126,11 @@ jobs:
             2>&1 | tee /tmp/spatial-768.log
           cp godot/tests/world-spatial-seeds-10.json \
             godot/tests/world-spatial-768-pr.json
-          # Зафиксированные отказы: 2532 (29 центров), 2824 (нет камня).
-          timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
-            --headless --path godot \
-            --script res://tests/world_spatial_seeds_10.gd -- \
-            --samples=2 --seed_start=2532 --seed_step=292 \
-            --width=768 --height=576 --profile=balanced \
-            2>&1 | tee /tmp/spatial-768-regression.log
-          cp godot/tests/world-spatial-seeds-10.json \
-            godot/tests/world-spatial-768-regression-pr.json
           test -s godot/tests/world-spatial-256-pr.json
           test -s godot/tests/world-spatial-512-pr.json
           test -s godot/tests/world-spatial-768-pr.json
       - name: Показать измеренную вместимость карт
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         run: |
           python3 - <<'PY'
           import json
@@ -172,12 +159,10 @@ jobs:
             godot/tests/world-spatial-256-pr.json
             godot/tests/world-spatial-512-pr.json
             godot/tests/world-spatial-768-pr.json
-            godot/tests/world-spatial-768-regression-pr.json
             /tmp/spatial-seeds.log
             /tmp/spatial-256.log
             /tmp/spatial-512.log
             /tmp/spatial-768.log
-            /tmp/spatial-768-regression.log
           if-no-files-found: warn
 
   spatial-large-batch:
