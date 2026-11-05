@@ -26,6 +26,7 @@ on:
       - "godot/tests/nature_stage_10_smoke.gd"
       - "godot/tests/nature_windfall_11_3_smoke.gd"
       - "godot/tests/storm_visible_11_3_smoke.gd"
+      - "godot/tests/squall_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
@@ -58,6 +59,7 @@ on:
       - "godot/tests/nature_stage_10_smoke.gd"
       - "godot/tests/nature_windfall_11_3_smoke.gd"
       - "godot/tests/storm_visible_11_3_smoke.gd"
+      - "godot/tests/squall_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
@@ -145,6 +147,18 @@ jobs:
             | tee /tmp/nature-storm-visible.log
           grep -q "11.3/V2.3:.*успешно" /tmp/nature-storm-visible.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-storm-visible.log; then
+            exit 1
+          fi
+      - name: "11.3/V2.4 — направленный шквал и устойчивость состояния"
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/squall_11_3_smoke.gd 2>&1 \
+            | tee /tmp/nature-squall.log
+          grep -q "11.3/V2.4:.*успешно" /tmp/nature-squall.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-squall.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6

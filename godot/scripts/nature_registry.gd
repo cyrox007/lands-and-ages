@@ -462,6 +462,15 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
     return created
 
 
+static func squall_reaches(offset: Vector2, direction: Vector2) -> bool:
+    # Смещение относительно эпицентра проецируем по ветру и поперёк.
+    # Порыв повреждает длинную узкую полосу, включая небольшой тыл,
+    # но не соседний лес за её боковой границей.
+    var along := offset.dot(direction)
+    var across := absf(offset.cross(direction))
+    return along >= -2.0 and along <= 9.0 and across <= 2.5
+
+
 func _damage_from_events(hazards: Array[Dictionary],
         strikes: Array[Dictionary], changed: Dictionary) -> void:
     # Природные события изменяют физический лес независимо от камеры.
@@ -469,12 +478,15 @@ func _damage_from_events(hazards: Array[Dictionary],
     # всех объектов для каждого события не масштабируется на большой карте.
     var events: Array[Dictionary] = []
     for event in hazards:
+        var squall := str(event.get("kind", "")) == "шквал"
+        var force := clampf(float(event.get("severity", 0.0)), 0.0, 1.0)
         events.append({
             "kind": str(event.get("kind", "")),
             "cell": event.get("cell"),
-            "radius": 5.0,
-            "severity": clampf(float(event.get("severity", 0.0)), 0.0, 1.0),
-            "damage": roundi(float(event.get("severity", 0.0)) * 350.0)
+            # Шквал длиннее по ветру, но существенно уже обычного шторма.
+            "radius": 9.0 if squall else 5.0,
+            "severity": force,
+            "damage": roundi(force * (500.0 if squall else 350.0))
         })
     for strike in strikes:
         events.append({
@@ -492,6 +504,12 @@ func _damage_from_events(hazards: Array[Dictionary],
         if not world.config.contains_cell(center):
             continue
         var radius: float = float(event["radius"])
+        var is_squall := str(event["kind"]) == "шквал"
+        var squall_direction := Vector2.RIGHT
+        if is_squall:
+            # Направление берём в эпицентре из физического климата.
+            squall_direction = climate.wind_direction_at_index(
+                hydro.cell_index(center))
         var center_chunk: Vector2i = world.config.chunk_of(center)
         var reach := ceili(radius / float(world.config.chunk_size)) + 1
         var affected_ids: Array[int] = []
@@ -506,15 +524,21 @@ func _damage_from_events(hazards: Array[Dictionary],
             if item["kind"] != "дерево" or item["state"] != "целое":
                 continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
-            if Vector2(cell - center).length() > radius:
+            var offset := Vector2(cell - center)
+            if offset.length() > radius:
+                continue
+            if is_squall and not squall_reaches(offset, squall_direction):
+                # Соседние деревья вне полосы порыва не повреждаются.
                 continue
 
-            # Сильный шторм может сразу повалить дерево. Выбор по seed,
-            # суткам и координатам не зависит от рендера или порядка чанков.
+            # Выбор упавших деревьев по seed и суткам не зависит
+            # от камеры, FPS и порядка обработки чанков.
             var severity: float = float(event["severity"])
-            var windfall := str(event["kind"]) == "шторм" and severity >= 0.55
+            var windfall := (str(event["kind"]) == "шторм" or is_squall) \
+                and severity >= (0.45 if is_squall else 0.55)
             if windfall:
-                var chance := clampf((severity - 0.55) * 2.0, 0.0, 0.85)
+                var chance := clampf((severity - 0.45) * 2.2, 0.0, 0.95) \
+                    if is_squall else clampf((severity - 0.55) * 2.0, 0.0, 0.85)
                 windfall = Terrain.hash2(cell.x, cell.y,
                     world.config.world_seed + climate.day * 31 + 3173) < chance
 

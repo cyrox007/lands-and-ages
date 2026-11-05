@@ -14,7 +14,7 @@ const DIRECTIONS := [
 	Vector2i(-1, 0), Vector2i(1, 0),
 	Vector2i(0, -1), Vector2i(0, 1)
 ]
-const KINDS := ["шторм", "паводок", "засуха", "лавина",
+const KINDS := ["шторм", "шквал", "паводок", "засуха", "лавина",
 	"сель", "оползень", "землетрясение"]
 
 var world: RefCounted
@@ -129,6 +129,10 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 
 	var storm_risk := clampf((wind - 10.0) / 12.0, 0.0, 1.0) \
 		* clampf(storm * 1.85, 0.0, 1.0)
+	# Короткий шквал — отдельный порывистый фронт. Для него не нужна
+	# трёхсуточная выдержка обычного шторма, но нужен высокий порыв.
+	var squall_risk := clampf((wind - 16.0) / 13.0, 0.0, 1.0) * \
+		clampf(0.55 + storm * 0.65, 0.0, 1.0)
 	var flood_risk := clampf(hydro.flood_depth_at(i) / 0.45, 0.0, 1.0)
 	var drought_risk := clampf((0.32 - moisture) / 0.32, 0.0, 1.0) \
 		* clampf((air - 15.0) / 17.0, 0.0, 1.0) \
@@ -147,7 +151,8 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 		mudflow_risk = 0.0
 		slide_risk = 0.0
 	return {
-		"шторм": storm_risk, "паводок": flood_risk,
+		"шторм": storm_risk, "шквал": squall_risk,
+		"паводок": flood_risk,
 		"засуха": drought_risk, "лавина": avalanche_risk,
 		"сель": mudflow_risk, "оползень": slide_risk,
 		"землетрясение": fault_risk_at(cell),
@@ -243,6 +248,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 			var index := ry * dimensions.x + rx
 			var found := _candidates(Vector2i(rx, ry), check_slopes)
 			var storm: Dictionary = found["шторм"]
+			var squall: Dictionary = found["шквал"]
 			var flood: Dictionary = found["паводок"]
 			var drought: Dictionary = found["засуха"]
 			_storms[index] = _streak(_storms[index], storm["score"], 0.34)
@@ -257,6 +263,13 @@ func advance_day(day: int) -> Array[Dictionary]:
 
 			if _storms[index] == 3:
 				_record("шторм", storm["cell"], storm["score"], _storms[index])
+			# Один короткий шквал допускается при резком физическом порыве.
+			# Отбор по seed/дню не расходует состояние генератора случайных
+			# чисел, поэтому сохранение и повторный прогон согласованы.
+			if _storms[index] != 3 and float(squall["score"]) >= 0.72 \
+					and Terrain.hash2(rx, ry,
+						world.config.world_seed + day * 79 + 4417) < 0.42:
+				_record("шквал", squall["cell"], squall["score"], 1)
 			if _floods[index] == 2:
 				_record("чрезвычайный паводок", flood["cell"],
 					flood["score"], _floods[index])

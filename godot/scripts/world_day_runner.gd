@@ -18,6 +18,7 @@ var last_duration_us := 0
 # Явный тестовый шторм задаётся из диагностического UI ДО запуска
 # фоновой задачи, и сбрасывается в первом же расчётном дне.
 var test_storm_cell := Vector2i(-1, -1)
+var test_squall_cell := Vector2i(-1, -1)
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -81,6 +82,15 @@ func run_day() -> void:
 			"source": "диагностика"
 		})
 	test_storm_cell = Vector2i(-1, -1)
+	if world.config.contains_cell(test_squall_cell):
+		# Испытание проводит настоящий локальный шквал тем же путём,
+		# что и случайные бедствия. Частицы не создают урон напрямую.
+		hazards.append({
+			"kind": "шквал", "cell": test_squall_cell,
+			"severity": 1.0, "day": climate.day,
+			"source": "диагностика", "duration_days": 1
+		})
+	test_squall_cell = Vector2i(-1, -1)
 	var disasters_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var changed := synchronize_world()
