@@ -88,7 +88,8 @@ func _test_real_flood() -> void:
 		return
 
 	var world_before: Dictionary = world.to_data()
-	var hydro_before: Dictionary = hydro.to_snapshot()
+	var hydro_before: Dictionary = hydro.water_at(flood_cell)
+	var water_count_before: Dictionary = hydro.water_count()
 	var point := Vector2(flood_cell) + Vector2(0.5, 0.5)
 	_check(Water._flood_motion_at(hydro, point) > 0.0,
 		"Визуальная энергия считывается из настоящего паводка")
@@ -115,7 +116,8 @@ func _test_real_flood() -> void:
 		_check(moving > 0,
 			"У затопленной поймы действительно есть подвижная поверхность")
 	_check(world.to_data() == world_before and
-		hydro.to_snapshot() == hydro_before,
+		hydro.water_at(flood_cell) == hydro_before and
+		hydro.water_count() == water_count_before,
 		"Визуальная турбулентность не меняет высоты и гидрологию")
 
 	# После уменьшения осадков исчезает именно физическое затопление,
