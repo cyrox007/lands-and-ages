@@ -112,7 +112,6 @@ jobs:
             2>&1 | tee /tmp/spatial-512.log
           cp godot/tests/world-spatial-seeds-10.json \
             godot/tests/world-spatial-512-pr.json
-            godot/tests/world-spatial-768-pr.json
           # Одна увеличенная карта: проверка геометрии без 100 тяжёлых прогонов.
           timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot \
@@ -153,6 +152,7 @@ jobs:
             godot/tests/world-spatial-seeds-10.json
             godot/tests/world-spatial-256-pr.json
             godot/tests/world-spatial-512-pr.json
+            godot/tests/world-spatial-768-pr.json
             /tmp/spatial-seeds.log
             /tmp/spatial-256.log
             /tmp/spatial-512.log
