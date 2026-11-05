@@ -20,7 +20,8 @@ const OUTPUT := "res://tests/world-spatial-seeds-10.json"
 static func _options() -> Dictionary:
     var options := {
         "samples": 2, "width": 96, "height": 80,
-        "seed_start": 1729, "radius": 12, "profile": ""
+        "seed_start": 1729, "radius": 12,
+        "profile": "", "archetype": ""
     }
     for argument in OS.get_cmdline_user_args():
         if not argument.begins_with("--") or not argument.contains("="):
@@ -28,8 +29,8 @@ static func _options() -> Dictionary:
         var parts := argument.substr(2).split("=", false, 1)
         if parts.size() != 2 or not options.has(parts[0]):
             continue
-        if parts[0] == "profile":
-            options["profile"] = parts[1]
+        if parts[0] == "profile" or parts[0] == "archetype":
+            options[parts[0]] = parts[1]
         elif parts[1].is_valid_int():
             options[parts[0]] = int(parts[1])
     if str(options["profile"]) != "":
@@ -42,6 +43,9 @@ static func _options() -> Dictionary:
 static func _valid(options: Dictionary) -> bool:
     if str(options["profile"]) != "" \
             and Envelope.profile(str(options["profile"])).is_empty():
+        return false
+    if str(options["archetype"]) != "" \
+            and not str(options["archetype"]) in Selection.TYPES:
         return false
     return int(options["samples"]) >= 1 \
         and int(options["samples"]) <= 500 \
@@ -195,6 +199,11 @@ func _run() -> void:
         if index % 10 == 0:
             print("Пространственный аудит: ", index + 1, " / ", count)
 
+    var selection: Dictionary = Selection.summarize(rows)
+    var target: String = options["archetype"]
+    var chosen: Array = selection["best_overall"]
+    if target != "":
+        chosen = selection["by_archetype"][target]["best_candidates"]
     var result := {
         "stage": "10.0", "options": options,
         "samples": count, "seed_step": 73,
@@ -203,7 +212,10 @@ func _run() -> void:
         "six_starts_with_both_resources": stocked,
         "six_territories_with_five_hypothetical_mature_sites": mature,
         "geography_heuristic_counts": geography,
-        "seed_selection": Selection.summarize(rows),
+        "seed_selection": selection,
+        "requested_archetype": target,
+        "matching_eligible_candidates": chosen,
+        "requested_archetype_found": target == "" or not chosen.is_empty(),
         "profile_assumptions": profile,
         "mature_settlement_capacity_proven": false,
         "geographic_archetypes_controlled": false,
