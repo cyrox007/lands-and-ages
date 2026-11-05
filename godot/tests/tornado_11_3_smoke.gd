@@ -131,6 +131,11 @@ func _test_game_tornado() -> void:
     var cloned := Nature.new(world, hydro, surface, climate)
     _check(cloned.load_data(initial),
         "Исходный лес отдельно сохранён для проверки вихревого угла")
+    # Обе копии загружаем до работы Runner: он может изменить
+    # ревизию рельефа, которая входит в подпись сохранения.
+    var safe_forest := Nature.new(world, hydro, surface, climate)
+    _check(safe_forest.load_data(initial),
+        "Исходный лес отдельно сохранён для проверки границы следа")
     var lightning := Weather.new(world, climate, surface, hydro)
     var processes := Processes.new(world, hydro, surface, climate)
     var disasters := Disasters.new(world, hydro, surface, climate)
@@ -201,9 +206,6 @@ func _test_game_tornado() -> void:
             break
     _check(safe_center.x >= 0, "Для дерева найдена точка вне следа")
     if safe_center.x >= 0:
-        var safe_forest := Nature.new(world, hydro, surface, climate)
-        _check(safe_forest.load_data(initial),
-            "Проверка соседнего леса стартует с исходного состояния")
         safe_forest.advance_day(2, [{
             "kind": "смерч", "cell": safe_center, "severity": 1.0
         }])
