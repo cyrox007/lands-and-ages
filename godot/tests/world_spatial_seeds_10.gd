@@ -20,7 +20,8 @@ const OUTPUT := "res://tests/world-spatial-seeds-10.json"
 static func _options() -> Dictionary:
     var options := {
         "samples": 2, "width": 96, "height": 80,
-        "seed_start": 1729, "radius": 12,
+        "seed_start": 1729, "seed_offset": 0, "seed_step": 73,
+        "radius": 12,
         "profile": "", "archetype": ""
     }
     for argument in OS.get_cmdline_user_args():
@@ -47,7 +48,11 @@ static func _valid(options: Dictionary) -> bool:
     if str(options["archetype"]) != "" \
             and not str(options["archetype"]) in Selection.TYPES:
         return false
-    return int(options["samples"]) >= 1 \
+    return int(options["seed_offset"]) >= 0 \
+        and int(options["seed_offset"]) <= 500000 \
+        and int(options["seed_step"]) >= 1 \
+        and int(options["seed_step"]) <= 10000 \
+        and int(options["samples"]) >= 1 \
         and int(options["samples"]) <= 500 \
         and int(options["width"]) >= 64 \
         and int(options["width"]) <= 1024 \
@@ -229,8 +234,11 @@ func _run() -> void:
     var stocked := 0
     var mature := 0
     var geography := {}
-    for index in range(count):
-        var world_seed: int = int(options["seed_start"]) + index * 73
+    var seeds: Array[int] = Selection.seed_sequence(
+        int(options["seed_start"]), count,
+        int(options["seed_offset"]), int(options["seed_step"]))
+    for index in range(seeds.size()):
+        var world_seed: int = seeds[index]
         var row: Dictionary = _sample(world_seed, int(options["width"]),
             int(options["height"]), radius, profile)
         rows.append(row)
@@ -255,7 +263,8 @@ func _run() -> void:
         chosen = selection["by_archetype"][target]["best_candidates"]
     var result := {
         "stage": "10.0", "options": options,
-        "samples": count, "seed_step": 73,
+        "samples": count, "seed_step": options["seed_step"],
+        "seed_offset": options["seed_offset"],
         "thirty_geometric_sites_found": full,
         "six_initial_sites_found": starts,
         "six_starts_with_both_resources": stocked,
