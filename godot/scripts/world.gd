@@ -26,6 +26,7 @@ const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WeatherFX = preload("res://scripts/weather_fx_controller.gd")
+const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
@@ -63,6 +64,9 @@ var _disaster_status := "Сильных природных событий пок
 var _weather_events: RefCounted
 var _weather_status := "Молний пока не было"
 var _lightning_light: OmniLight3D
+var _world_light: DirectionalLight3D
+var _shadow_center_chunk := Vector2i(-100000, -100000)
+var _shadow_active := false
 var _lightning_life := 0.0
 var _weather_fx: Node3D
 var _weather_fx_cooldown := 0.0
@@ -194,12 +198,15 @@ func _setup_environment() -> void:
 	_lightning_light.light_energy = 5.0
 	_lightning_light.visible = false
 	add_child(_lightning_light)
-	var world_light := DirectionalLight3D.new()
-	world_light.rotation_degrees = Vector3(-54, -36, 0)
-	world_light.light_color = Color(1.0, 0.94, 0.84)
-	world_light.light_energy = 1.25
-	world_light.shadow_enabled = false
-	add_child(world_light)
+	# Настоящий направленный свет создаём один раз. Карта теней
+	# включается только в ближнем масштабе через ShadowLOD.
+	_world_light = DirectionalLight3D.new()
+	_world_light.name = "Солнечный свет"
+	_world_light.rotation_degrees = Vector3(-54, -36, 0)
+	_world_light.light_color = Color(1.0, 0.94, 0.84)
+	_world_light.light_energy = 1.25
+	_world_light.shadow_enabled = false
+	add_child(_world_light)
 	var sky := WorldEnvironment.new()
 	var options := Environment.new()
 	options.background_mode = Environment.BG_COLOR
@@ -457,6 +464,32 @@ func _update_material_detail() -> void:
 		_ground_material.set_shader_parameter("macro_strength", detail)
 	if _water_material != null:
 		_water_material.set_shader_parameter("ripple_strength", detail)
+	# При отдалении прекращаем дорогие тени, но оставляем R2
+	# (светотеневые маски реального рельефа) и обычное освещение.
+	_update_shadow_lod()
+
+
+func _update_shadow_lod() -> void:
+	## Меняем теневые свойства только при переходе на иной чанк
+	## или при переключении режима/масштаба. В физику не входим.
+	if _camera == null or _world_model == null:
+		return
+	var enabled: bool = ShadowLOD.active(_camera.size, _view_mode)
+	var chunk_size: int = _world_model.config.chunk_size
+	var center_chunk := Vector2i(floori(_center.x / float(chunk_size)),
+		floori(_center.y / float(chunk_size)))
+	if _world_light != null:
+		_world_light.shadow_enabled = enabled
+	if _shadow_active == enabled and _shadow_center_chunk == center_chunk:
+		return
+	_shadow_active = enabled
+	_shadow_center_chunk = center_chunk
+	for coord in _active.keys():
+		var near_ground: bool = ShadowLOD.chunk_casts(coord, center_chunk,
+			_camera.size, _view_mode)
+		var near_nature: bool = ShadowLOD.chunk_casts(coord, center_chunk,
+			_camera.size, _view_mode, true)
+		ShadowLOD.configure_chunk(_active[coord], near_ground, near_nature)
 
 
 func _change_zoom(multiplier: float) -> void:
@@ -568,6 +601,7 @@ func _refresh_visible(force: bool) -> void:
 		floori(_center.y / float(_world_model.config.chunk_size)))
 	_chunk_center = center_chunk
 	_visibility_center = _center
+	_update_shadow_lod()
 	# Во время фоновой физики высоты читать нельзя: временно используем
 	# консервативный квадрат и уточняем его после синхронизации.
 	var cull := _camera != null and _camera.is_inside_tree() \
@@ -778,6 +812,7 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 	var node := Node3D.new()
 	node.name = "Чанк_%d_%d" % [coord.x, coord.y]
 	var ground := MeshInstance3D.new()
+	ground.name = "Рельеф"
 	ground.mesh = ground_mesh
 	if _view_mode == 0:
 		ground.material_override = _ground_material
@@ -802,6 +837,14 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 	if _view_mode == 0 and _nature != null:
 		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord,
 			_detail_for_zoom(_camera.size)))
+	# Новый чанк получает корректный бюджет теней до добавления в сцену.
+	# При движении камеры существующие чанки перенастраиваются без пересборки.
+	if _camera != null:
+		ShadowLOD.configure_chunk(node,
+			ShadowLOD.chunk_casts(coord, _shadow_center_chunk,
+				_camera.size, _view_mode),
+			ShadowLOD.chunk_casts(coord, _shadow_center_chunk,
+				_camera.size, _view_mode, true))
 	_terrain_holder.add_child(node)
 	if old_node != null:
 		old_node.queue_free()
@@ -836,6 +879,13 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 		previous.queue_free()
 	chunk_node.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
 		_detail_for_zoom(_camera.size)))
+	# После обновления растений восстанавливаем тени без задержки кадра.
+	if _camera != null:
+		ShadowLOD.configure_chunk(chunk_node,
+			ShadowLOD.chunk_casts(chunk, _shadow_center_chunk,
+				_camera.size, _view_mode),
+			ShadowLOD.chunk_casts(chunk, _shadow_center_chunk,
+				_camera.size, _view_mode, true))
 	var old_collisions: Node = chunk_node.get_node_or_null(
 		NatureCollision.COLLISION_NAME)
 	if old_collisions != null:
