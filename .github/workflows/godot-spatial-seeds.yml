@@ -43,6 +43,10 @@ on:
         description: "Начальный seed"
         required: true
         default: "1729"
+      large_series:
+        description: "Разделить 100 seed большой карты на 10 независимых заданий"
+        type: boolean
+        default: false
 
 concurrency:
   group: spatial-${{ github.event.pull_request.number || github.ref }}
@@ -50,6 +54,7 @@ concurrency:
 
 jobs:
   spatial-seeds:
+    if: github.event_name != 'workflow_dispatch' || inputs.large_series != true
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -158,3 +163,148 @@ jobs:
             /tmp/spatial-512.log
             /tmp/spatial-768.log
           if-no-files-found: warn
+
+  spatial-large-batch:
+    if: github.event_name == 'workflow_dispatch' && inputs.large_series == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать проект Godot
+        run: |
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit
+      - name: Проверить 10 seed в непересекающемся диапазоне
+        env:
+          MAP_WIDTH: ${{ inputs.width }}
+          MAP_HEIGHT: ${{ inputs.height }}
+          PROFILE: ${{ inputs.profile }}
+          RADIUS: ${{ inputs.radius }}
+          START_SEED: ${{ inputs.seed_start }}
+        run: |
+          set -o pipefail
+          OFFSET=$(( ${{ matrix.shard }} * 10 ))
+          timeout 6800s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_spatial_seeds_10.gd -- \
+            --samples=10 --seed_offset="$OFFSET" --seed_step=73 \
+            --width="$MAP_WIDTH" --height="$MAP_HEIGHT" \
+            --profile="$PROFILE" --radius="$RADIUS" \
+            --seed_start="$START_SEED" \
+            2>&1 | tee /tmp/spatial-large.log
+          test -s godot/tests/world-spatial-seeds-10.json
+      - name: Сохранить десять измерений
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-spatial-large-${{ matrix.shard }}
+          path: |
+            godot/tests/world-spatial-seeds-10.json
+            /tmp/spatial-large.log
+          if-no-files-found: warn
+
+  spatial-large-summary:
+    if: github.event_name == 'workflow_dispatch' && inputs.large_series == true
+    needs: spatial-large-batch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить отчёты десяти диапазонов
+        uses: actions/download-artifact@v4
+        with:
+          pattern: world-spatial-large-*
+          path: artifacts
+      - name: Проверить полноту выборки и свести результаты
+        env:
+          START_SEED: ${{ inputs.seed_start }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from collections import Counter
+          from pathlib import Path
+
+          files = sorted(Path("artifacts").glob("*/world-spatial-seeds-10.json"))
+          if len(files) != 10:
+              raise SystemExit(f"Нужно 10 отчётов, найдено {len(files)}")
+
+          rows = []
+          options = None
+          for shard, path in enumerate(files):
+              data = json.loads(path.read_text(encoding="utf-8"))
+              current = data["options"]
+              if options is None:
+                  options = current
+              for key in ("width", "height", "profile", "radius", "seed_step"):
+                  if current[key] != options[key]:
+                      raise SystemExit(f"Разные параметры выборки: {key}")
+              if data["samples"] != 10 or current["seed_offset"] != shard * 10:
+                  raise SystemExit(f"Нарушена разбивка диапазона: {path}")
+              rows.extend(data["rows"])
+
+          expected = [int(os.environ["START_SEED"]) + i * 73 for i in range(100)]
+          actual = sorted(int(row["seed"]) for row in rows)
+          if actual != sorted(expected):
+              raise SystemExit("Есть пропуски или повторения seed между заданиями")
+          invalid = [row["seed"] for row in rows if not row["invariants_valid"]]
+          if invalid:
+              raise SystemExit(f"Нарушены инварианты расчёта: {invalid}")
+          eligible = [row for row in rows if not row["eligibility_reasons"]]
+          archetypes = Counter(row["geography_archetype"] for row in rows)
+          timings = sorted(float(row["duration_ms"]) for row in rows)
+
+          def percentile(p):
+              index = max(0, (len(timings) * p + 99) // 100 - 1)
+              return timings[min(index, len(timings) - 1)]
+
+          summary = {
+              "stage": "10.0",
+              "samples": len(rows),
+              "width": options["width"],
+              "height": options["height"],
+              "profile": options["profile"],
+              "seed_start": int(os.environ["START_SEED"]),
+              "seed_step": 73,
+              "strictly_eligible": len(eligible),
+              "archetype_counts": dict(sorted(archetypes.items())),
+              "p50_cpu_ms": percentile(50),
+              "p95_cpu_ms": percentile(95),
+              "p99_cpu_ms": percentile(99),
+              "mature_settlement_capacity_proven": False,
+              "full_world_capacity_confirmed": False,
+          }
+          Path("large-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8")
+          lines = [
+              "# Этап 10.0 — 100 seed большой карты",
+              f"Карта {summary['width']}×{summary['height']}, профиль {summary['profile']}",
+              f"Пригодно по экспериментальным правилам: {len(eligible)}/100",
+              f"Время CPU p50/p95/p99: {percentile(50)}/{percentile(95)}/{percentile(99)} мс",
+              f"Наблюдаемые географии: {dict(sorted(archetypes.items()))}",
+              "Масштаб клетки и настоящая нагрузка 30 поселений ещё не подтверждены."
+          ]
+          markdown = "\n\n".join(lines) + "\n"
+          Path("large-summary.md").write_text(markdown, encoding="utf-8")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
+              output.write(markdown)
+          print(markdown)
+          PY
+      - name: Сохранить объединённую сводку
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-spatial-large-summary
+          path: |
+            large-summary.json
+            large-summary.md
