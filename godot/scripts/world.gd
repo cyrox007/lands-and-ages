@@ -180,6 +180,7 @@ func _ready() -> void:
 	_weather_fx.name = "Атмосферные эффекты"
 	add_child(_weather_fx)
 	_weather_fx.sync_world(_climate, _world_model, _center, _camera.size)
+	_sync_water_weather()
 	_setup_interface()
 	_refresh_visible(true)
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -379,6 +380,7 @@ func _process(delta: float) -> void:
 					_view_mode == 0 and not _benchmark_running)
 				_weather_fx.sync_world(_climate, _world_model,
 					_center, _camera.size)
+				_sync_water_weather()
 				_weather_fx_cooldown = 0.35
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
@@ -452,6 +454,19 @@ func _visible_radius() -> int:
 		if dimensions.y > 0.0:
 			aspect = dimensions.x / dimensions.y
 	return _radius_for_zoom(_camera.size, aspect, _world_model.config.chunk_size)
+
+
+func _sync_water_weather() -> void:
+	## Передаём ветру и шторму один проверенный снимок камеры.
+	## Климат не читается, пока фоновый расчёт дня меняет физические массивы.
+	if _water_material == null or _weather_fx == null:
+		return
+	var snapshot: Dictionary = _weather_fx.debug_state()
+	# Эти параметры влияют только на шейдер, не на объём или уровень воды.
+	_water_material.set_shader_parameter("wind_strength",
+		float(snapshot.get("wind", 0.0)))
+	_water_material.set_shader_parameter("storm_strength",
+		float(snapshot.get("storm", 0.0)))
 
 
 func _update_material_detail() -> void:
