@@ -102,6 +102,39 @@ func _check_climate_binding(climate: RefCounted, world: RefCounted) -> void:
 	_check(is_equal_approx(float(view._water_material.get_shader_parameter(
 		"storm_strength")), float(snapshot["storm"])),
 		"Шейдер получает реальную силу грозы")
+	# W7: проверяем физический вектор, а не только силу ветра.
+	var expected := Vector2(float(snapshot["wind_x"]),
+		float(snapshot["wind_y"]))
+	if expected.length_squared() < 0.000001:
+		expected = Vector2.RIGHT
+	else:
+		expected = expected.normalized()
+	var actual: Vector2 = view._water_material.get_shader_parameter(
+		"wind_direction")
+	_check(actual.distance_to(expected) < 0.00001,
+		"Направление волн совпадает с климатическим ветром")
+	# Обратный ветер поворачивает гребни без изменения гидрологии.
+	var reversed := snapshot.duplicate(true)
+	reversed["wind_x"] = -expected.x
+	reversed["wind_y"] = -expected.y
+	fx.apply_snapshot(reversed, Vector2.ZERO, 0.0, 64.0,
+		world.config.world_seed)
+	view._sync_water_weather()
+	var opposite: Vector2 = view._water_material.get_shader_parameter(
+		"wind_direction")
+	_check(opposite.distance_to(-expected) < 0.00001,
+		"Смена ветра разворачивает волны без пересборки воды")
+	# Старые погодные снимки и взаимно погашенные фронты безопасны.
+	var no_direction := snapshot.duplicate(true)
+	no_direction["wind_x"] = 0.0
+	no_direction["wind_y"] = 0.0
+	fx.apply_snapshot(no_direction, Vector2.ZERO, 0.0, 64.0,
+		world.config.world_seed)
+	view._sync_water_weather()
+	var fallback: Vector2 = view._water_material.get_shader_parameter(
+		"wind_direction")
+	_check(fallback == Vector2.RIGHT,
+		"Нулевой вектор не создаёт неопределённую фазу волн")
 	view.free()
 	fx.free()
 
@@ -126,6 +159,7 @@ func _run() -> void:
 	_check_climate_binding(climate, world)
 	var code: String = WaterShader.code
 	_check(code.contains("wind_strength") and code.contains("storm_strength")
+		and code.contains("wind_direction") and code.contains("main_wave")
 		and code.contains("wind_phase") and code.contains("fwidth(wind_phase)"),
 		"Шейдер имеет ветровые волны с фильтрацией дальних частот")
 	_check(code.contains("river_strength") and code.contains("river_phase"),
