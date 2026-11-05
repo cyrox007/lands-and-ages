@@ -191,6 +191,44 @@ static func route_stock(walkable: PackedByteArray,
     return result
 
 
+# Расстояния только по проходимой суше, без мостов и переходов через воду.
+# Единый предел маршрута для выбора и итоговой проверки поселений.
+static func walking_distances(walkable: PackedByteArray, width: int,
+        height: int, start: Vector2i, max_steps: int) -> PackedInt32Array:
+    var distance := PackedInt32Array()
+    distance.resize(walkable.size())
+    distance.fill(-1)
+    if width <= 0 or height <= 0 or walkable.size() != width * height \
+            or start.x < 0 or start.y < 0 or start.x >= width \
+            or start.y >= height or max_steps < 0:
+        return distance
+    var start_index := start.y * width + start.x
+    if walkable[start_index] == 0:
+        return distance
+    var queue: Array[int] = [start_index]
+    distance[start_index] = 0
+    var cursor := 0
+    while cursor < queue.size():
+        var index: int = queue[cursor]
+        cursor += 1
+        var steps: int = distance[index]
+        if steps >= max_steps:
+            continue
+        var x := index % width
+        var y := floori(float(index) / float(width))
+        for direction in DIRECTIONS:
+            var nx: int = x + direction.x
+            var ny: int = y + direction.y
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            var next_index := ny * width + nx
+            if distance[next_index] >= 0 or walkable[next_index] == 0:
+                continue
+            distance[next_index] = steps + 1
+            queue.append(next_index)
+    return distance
+
+
 static func _candidates(buildable: PackedByteArray,
         labels: PackedInt32Array, resources: Dictionary,
         width: int, height: int, radius: int) -> Array[Dictionary]:
@@ -251,10 +289,13 @@ static func _fits(candidate: Dictionary, occupied: Array[Dictionary],
 
 static func _anchor(candidates: Array[Dictionary],
         occupied: Array[Dictionary], radius: int, state: int,
-        component_counts: Dictionary) -> Dictionary:
+        component_counts: Dictionary, excluded: Dictionary = {}) -> Dictionary:
     var best: Dictionary = {}
     var best_score := -INF
     for candidate in candidates:
+        var point: Vector2i = candidate["cell"]
+        if excluded.has(point):
+            continue
         var component: int = candidate["component"]
         if int(component_counts.get(component, 0)) < CENTERS_PER_STATE:
             continue
@@ -282,7 +323,8 @@ static func _anchor(candidates: Array[Dictionary],
 
 static func _next_center(candidates: Array[Dictionary],
         anchor: Dictionary, occupied: Array[Dictionary],
-        radius: int, state: int) -> Dictionary:
+        radius: int, state: int, path_distances: PackedInt32Array,
+        width: int) -> Dictionary:
     var best: Dictionary = {}
     var best_score := INF
     var center: Vector2i = anchor["cell"]
@@ -291,8 +333,12 @@ static func _next_center(candidates: Array[Dictionary],
             continue
         if not _fits(candidate, occupied, radius, state):
             continue
-        var distance: float = Vector2(
-            candidate["cell"]).distance_to(Vector2(center))
+        var point: Vector2i = candidate["cell"]
+        var index := point.y * width + point.x
+        # Близость на карте не заменяет реальный пеший маршрут.
+        if path_distances[index] < 0:
+            continue
+        var distance: float = Vector2(point).distance_to(Vector2(center))
         if distance > float(radius * 12):
             continue
         var score: float = distance - float(candidate["coverage"]) * 2.0
@@ -300,7 +346,6 @@ static func _next_center(candidates: Array[Dictionary],
             best = candidate
             best_score = score
     return best
-
 
 static func _layout(candidates: Array[Dictionary],
         components: Dictionary, resources: Dictionary,
@@ -315,35 +360,79 @@ static func _layout(candidates: Array[Dictionary],
     var starts_with_reachable_wood := 0
     var starts_with_reachable_boulders := 0
     var starts_with_both := 0
+    var evaluated_anchors := 0
+
     for state in range(STATES):
-        var anchor: Dictionary = _anchor(
-            candidates, occupied, radius, state, counts)
-        if anchor.is_empty():
+        var excluded := {}
+        var choice: Dictionary = {}
+        var best_score := -1
+        # Первый подходящий по геометрии центр не обязательно имеет
+        # сухопутные дороги и доступные ресурсы. Проверяем альтернативы.
+        for attempt in range(12):
+            var anchor: Dictionary = _anchor(
+                candidates, occupied, radius, state, counts, excluded)
+            if anchor.is_empty():
+                break
+            excluded[anchor["cell"]] = true
+            evaluated_anchors += 1
+            var center: Vector2i = anchor["cell"]
+            var path_distances := walking_distances(walkable, width,
+                height, center, radius * 24)
+            var trial_occupied: Array[Dictionary] = occupied.duplicate()
+            trial_occupied.append({
+                "cell": center, "state": state, "slot": 0})
+            var group: Array[Vector2i] = [center]
+            for slot in range(1, CENTERS_PER_STATE):
+                var next: Dictionary = _next_center(
+                    candidates, anchor, trial_occupied, radius,
+                    state, path_distances, width)
+                if next.is_empty():
+                    break
+                var next_center: Vector2i = next["cell"]
+                group.append(next_center)
+                trial_occupied.append({
+                    "cell": next_center, "state": state, "slot": slot})
+            var origin_stock: Dictionary = route_stock(
+                walkable, resources["wood_cells"],
+                resources["stone_cells"], width, height, center,
+                radius * 3)
+            var both_resources: bool = int(origin_stock["wood_units"]) > 0 \
+                and int(origin_stock["boulders"]) > 0
+            var score := group.size() * 100 + int(both_resources) * 10 \
+                + int(int(origin_stock["wood_units"]) > 0) \
+                + int(int(origin_stock["boulders"]) > 0)
+            if score > best_score:
+                best_score = score
+                choice = {
+                    "anchor": anchor, "group": group,
+                    "start_route": origin_stock}
+            if group.size() == CENTERS_PER_STATE and both_resources:
+                break
+
+        if choice.is_empty():
             states.append({"state": state + 1, "centers": [],
                 "connected_component": -1, "component_wood_units": 0,
                 "component_boulders": 0, "nearby_wood_units": 0,
-                "nearby_boulders": 0, "resource_routes": []})
+                "nearby_boulders": 0, "resource_routes": [],
+                "anchor_attempts": excluded.size(),
+                "center_routes_validated": false})
             continue
-        var group: Array[Vector2i] = [anchor["cell"]]
-        occupied.append({"cell": anchor["cell"], "state": state, "slot": 0})
-        for slot in range(1, CENTERS_PER_STATE):
-            var next: Dictionary = _next_center(
-                candidates, anchor, occupied, radius, state)
-            if next.is_empty():
-                break
-            group.append(next["cell"])
-            occupied.append({"cell": next["cell"], "state": state,
-                "slot": slot})
+
+        var selected: Dictionary = choice["anchor"]
+        var group: Array[Vector2i] = choice["group"]
         var positions: Array = []
         var resource_routes: Array[Dictionary] = []
-        for cell in group:
+        for slot in range(group.size()):
+            var cell: Vector2i = group[slot]
             positions.append([cell.x, cell.y])
-            # Ближайший запас по квадрату — только предварительная оценка.
-            # Каждый маршрут проверяется отдельно, запасы не суммируем.
-            resource_routes.append(route_stock(
-                walkable, resources["wood_cells"],
-                resources["stone_cells"], width, height,
-                cell, radius * 3))
+            occupied.append({"cell": cell, "state": state, "slot": slot})
+            if slot == 0:
+                resource_routes.append(choice["start_route"])
+            else:
+                resource_routes.append(route_stock(
+                    walkable, resources["wood_cells"],
+                    resources["stone_cells"], width, height,
+                    cell, radius * 3))
         if int(resource_routes[0]["wood_units"]) > 0:
             starts_with_reachable_wood += 1
         if int(resource_routes[0]["boulders"]) > 0:
@@ -351,16 +440,18 @@ static func _layout(candidates: Array[Dictionary],
         if int(resource_routes[0]["wood_units"]) > 0 \
                 and int(resource_routes[0]["boulders"]) > 0:
             starts_with_both += 1
-        var component: int = anchor["component"]
+        var component: int = selected["component"]
         states.append({
             "state": state + 1, "centers": positions,
             "connected_component": component,
             "component_walkable_cells": components["sizes"][component],
             "component_wood_units": resources["connected_wood"][component],
             "component_boulders": resources["connected_stones"][component],
-            "nearby_wood_units": anchor["nearby_wood"],
-            "nearby_boulders": anchor["nearby_boulders"],
-            "resource_routes": resource_routes
+            "nearby_wood_units": selected["nearby_wood"],
+            "nearby_boulders": selected["nearby_boulders"],
+            "resource_routes": resource_routes,
+            "anchor_attempts": excluded.size(),
+            "center_routes_validated": true
         })
     var full_states := 0
     for state in states:
@@ -369,18 +460,18 @@ static func _layout(candidates: Array[Dictionary],
     return {
         "states": states, "assigned_centers": occupied.size(),
         "full_states": full_states,
+        "evaluated_anchors": evaluated_anchors,
+        "route_aware_layout": true,
         "resource_route_checked": true,
         "starts_with_reachable_wood": starts_with_reachable_wood,
         "starts_with_reachable_boulders": starts_with_reachable_boulders,
         "starts_with_both_resources": starts_with_both,
         "six_starts_found": states.filter(
-            func(state: Dictionary) -> bool:
-                return not state["centers"].is_empty()).size() == STATES,
+            func(item: Dictionary) -> bool:
+                return not item["centers"].is_empty()).size() == STATES,
         "trial_30_centers_found": full_states == STATES,
-        # Даже 30 геометрических мест не доказывают размеры зрелых центров.
         "maximal_map_certified": false
     }
-
 
 static func report(world: RefCounted, hydro: RefCounted,
         surface: RefCounted, nature: RefCounted, radius: int) -> Dictionary:
