@@ -30,7 +30,7 @@ func _test_scene(world: RefCounted) -> void:
 	var camera := Camera3D.new()
 	view.add_child(camera)
 	view._camera = camera
-	var sun: Vector3 = view._world_light.global_transform.basis.z.normalized()
+	var sun: Vector3 = view._world_light.transform.basis.z.normalized()
 	var transferred: Vector3 = view._ground_material.get_shader_parameter(
 		"far_light_direction")
 	_check(transferred.distance_to(sun) < 0.00001,
