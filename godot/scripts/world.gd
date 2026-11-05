@@ -229,6 +229,16 @@ func _setup_materials() -> void:
 	_ground_material.set_shader_parameter("terrain_normal_roughness",
 		TerrainNormalRoughness)
 	_ground_material.set_shader_parameter("macro_strength", 1.0)
+	# Используем направление уже существующего солнца, а не
+	# декоративный источник дальнего света из отдельной системы.
+	if _world_light != null:
+		# В headless-тесте узел ещё не находится в SceneTree;
+		# там локальный базис солнца совпадает с мировым.
+		var sun_basis := _world_light.transform.basis
+		if _world_light.is_inside_tree():
+			sun_basis = _world_light.global_transform.basis
+		_ground_material.set_shader_parameter("far_light_direction",
+			sun_basis.z.normalized())
 	_debug_ground_material = StandardMaterial3D.new()
 	_debug_ground_material.vertex_color_use_as_albedo = true
 	_debug_ground_material.roughness = 1.0

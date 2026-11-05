@@ -1,4 +1,4 @@
-name: Этап 11.2 — ближние тени ландшафта и леса
+name: Этап 11.2 — ближние тени и дальняя светотень
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
       - "godot/scripts/world_shadow_lod.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/world_shadows_l2_smoke.gd"
+      - "godot/tests/world_shadows_l3_smoke.gd"
+      - "godot/shaders/natural_ground.gdshader"
       - "godot/tests/world_shadows_l2_capture.gd"
       - ".github/workflows/godot-shadows-l2.yml"
   pull_request:
@@ -15,6 +17,8 @@ on:
       - "godot/scripts/world_shadow_lod.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/world_shadows_l2_smoke.gd"
+      - "godot/tests/world_shadows_l3_smoke.gd"
+      - "godot/shaders/natural_ground.gdshader"
       - "godot/tests/world_shadows_l2_capture.gd"
       - ".github/workflows/godot-shadows-l2.yml"
   workflow_dispatch:
@@ -53,6 +57,16 @@ jobs:
             2>&1 | tee /tmp/shadow-smoke.log
           grep -q "Этап 11.2/L2: ограниченные тени рельефа и леса — успешно" /tmp/shadow-smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-smoke.log; then
+            exit 1
+          fi
+      - name: "L3: панорамная светотень, солнечный вектор и физика"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_shadows_l3_smoke.gd \
+            2>&1 | tee /tmp/shadow-l3.log
+          grep -q "Этап 11.2/L3: дальняя светотень по физике — успешно" /tmp/shadow-l3.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-l3.log; then
             exit 1
           fi
       - name: Регрессия PBR и света
