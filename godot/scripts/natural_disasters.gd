@@ -109,7 +109,9 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 	var air: float = climate.temperature_at_index(i)
 	var liquid: float = climate.precipitation_at_index(i) \
 		* (1.0 - Climate.snowfall_fraction(air))
-	var wind: float = climate.wind_at_index(i)
+	# Для опасного ветрового события важны порывы, а не только
+	# средняя скорость: оба значения — физический климат суток.
+	var wind: float = climate.wind_gust_at_index(i)
 	var storm: float = climate.storm_at_index(i)
 	var depth: float = surface.soil_depth_at_index(i)
 	var rock: bool = surface.rock_at_index(i)
