@@ -74,7 +74,6 @@ static func for_radius(radius: int) -> Dictionary:
 static func scale_candidates(height_scale: float) -> Dictionary:
     var result := []
     for meters_per_cell in [2.0, 3.0, 4.0]:
-        var factor := meters_per_cell / IMPORTED_TREE_HEIGHT_SCENE
         result.append({
             "meters_per_cell": meters_per_cell,
             "human_height_scene_units": snappedf(
