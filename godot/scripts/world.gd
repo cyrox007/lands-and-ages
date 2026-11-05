@@ -25,6 +25,7 @@ const LandscapeEvents = preload("res://scripts/landscape_events.gd")
 const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
+const WeatherFX = preload("res://scripts/weather_fx_controller.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
@@ -63,6 +64,8 @@ var _weather_events: RefCounted
 var _weather_status := "Молний пока не было"
 var _lightning_light: OmniLight3D
 var _lightning_life := 0.0
+var _weather_fx: Node3D
+var _weather_fx_cooldown := 0.0
 var _process_status := "Естественные процессы ещё не изменяли рельеф"
 var _last_event := "Изменений ландшафта нет"
 var _view_mode := 0
@@ -168,6 +171,11 @@ func _ready() -> void:
 	add_child(_camera)
 	_update_material_detail()
 	_update_camera()
+	# Атмосферный рендер живёт отдельно от физики и чанков карты.
+	_weather_fx = WeatherFX.new()
+	_weather_fx.name = "Атмосферные эффекты"
+	add_child(_weather_fx)
+	_weather_fx.sync_world(_climate, _world_model, _center, _camera.size)
 	_setup_interface()
 	_refresh_visible(true)
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -355,6 +363,16 @@ func _process(delta: float) -> void:
 	if _day_task_id < 0 and _days_pending == 0:
 		_flush_nature_visuals()
 		_sync_nature_colliders()
+		# Пока физическая задача работает в потоке, климат не читаем.
+		# Снимок осадков обновляем редко, не при каждом графическом кадре.
+		if _weather_fx != null:
+			_weather_fx_cooldown -= delta
+			if _weather_fx_cooldown <= 0.0:
+				_weather_fx.set_effects_enabled(
+					_view_mode == 0 and not _benchmark_running)
+				_weather_fx.sync_world(_climate, _world_model,
+					_center, _camera.size)
+				_weather_fx_cooldown = 0.35
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	if _days_pending == 0 and _day_task_id < 0:
@@ -1054,6 +1072,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_process_status = "Природные процессы восстановлены до дня %d" % \
 		_natural_processes.last_day
 	_last_event = "Мир успешно загружен"
+	_weather_fx_cooldown = 0.0
 	_center = _world_model.config.clamp_point(_center)
 	_update_camera()
 	for chunk in _active.keys():
@@ -1144,6 +1163,7 @@ func _cycle_view() -> void:
 	if _benchmark_running:
 		return
 	_view_mode = (_view_mode + 1) % 8
+	_weather_fx_cooldown = 0.0
 	if _day_task_id < 0:
 		_refresh_visible(true)
 	_update_hud()
