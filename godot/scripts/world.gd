@@ -309,6 +309,10 @@ func _setup_interface() -> void:
 	storm_button.text = "Испытать шторм: ветер и ветровал"
 	storm_button.pressed.connect(_debug_test_storm)
 	_debug_details.add_child(storm_button)
+	var squall_button := Button.new()
+	squall_button.text = "Испытать шквал: полоса ветровала"
+	squall_button.pressed.connect(_debug_test_squall)
+	_debug_details.add_child(squall_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -1104,28 +1108,39 @@ func _on_tree_felled(previous: Dictionary) -> void:
 
 
 func _debug_test_storm() -> void:
-	# Явное испытание действительного физического шторма на карте.
-	# Оно запускает обычный суточный расчёт, а не создаёт фальшивое FX.
+	# Старое испытание шторма сохраняет прежний сценарий и вероятность.
+	_debug_test_wind_event("шторм")
+
+
+func _debug_test_squall() -> void:
+	# Новый отдельный сценарий запускает локальный шквал на карте.
+	_debug_test_wind_event("шквал")
+
+
+func _debug_test_wind_event(kind: String) -> void:
+	# Диагностика использует тот же суточный физический цикл, что
+	# и естественное событие; GUI не меняет ресурс дерева напрямую.
 	if _nature == null or _view_mode != 0 or _benchmark_running \
 			or _day_task_id >= 0 or _days_pending > 0 \
 			or not _storage_request.is_empty():
-		_storage_status = "Испытание шторма доступно после расчёта дня"
+		_storage_status = "Испытание ветра доступно после расчёта дня"
 		return
 	var selected := Vector2i(-1, -1)
 	var distance := INF
 	var next_day: int = _climate.day + 1
+	var probability_limit := 0.95 if kind == "шквал" else 0.85
 	for chunk in _active.keys():
 		for item in _nature.objects_in_chunk(chunk):
 			if item["kind"] != "дерево" or item["state"] != "целое":
 				continue
 			var cell := Vector2i(int(item["x"]), int(item["y"]))
 			var point := Vector2(cell) + Vector2(0.5, 0.5)
-			# Отбираем дерево, которое реальный алгоритм повалит:
-			# вероятность по seed уже фиксирована до нажатия.
+			# Выбираем дерево с воспроизводимым падением по seed и
+			# приближаем эпицентр к камере для видимого результата.
 			if point.distance_to(_center) > _camera.size * 0.48 \
 					or Terrain.hash2(cell.x, cell.y,
 						_world_model.config.world_seed +
-						next_day * 31 + 3173) >= 0.85:
+						next_day * 31 + 3173) >= probability_limit:
 				continue
 			var square := point.distance_squared_to(_center)
 			if square < distance:
@@ -1136,10 +1151,13 @@ func _debug_test_storm() -> void:
 		_update_hud()
 		return
 	_ensure_day_runner()
-	_day_runner.test_storm_cell = selected
-	# Один реальный игровой день изменит лес, коллизии и сохранение.
+	if kind == "шквал":
+		_day_runner.test_squall_cell = selected
+	else:
+		_day_runner.test_storm_cell = selected
+	# Физика действует ровно один день: изменения можно сохранить.
 	_queue_days(1)
-	_storage_status = "Пробный шторм ожидает расчёта · %s" % selected
+	_storage_status = "Пробный %s ожидает расчёта · %s" % [kind, selected]
 	_update_hud()
 
 
@@ -1397,7 +1415,8 @@ func _complete_day(result: Dictionary) -> void:
 			animated += 1
 	var hazards: Array[Dictionary] = result["hazards"]
 	for hazard in hazards:
-		if str(hazard.get("kind", "")) != "шторм" \
+		var wind_kind := str(hazard.get("kind", ""))
+		if wind_kind not in ["шторм", "шквал"] \
 				or _weather_fx == null or _view_mode != 0 \
 				or _days_pending > 1:
 			continue
@@ -1407,15 +1426,20 @@ func _complete_day(result: Dictionary) -> void:
 			continue
 		var direction: Vector2 = _climate.wind_direction_at_index(
 			_hydro.cell_index(storm_cell))
-		_weather_fx.show_storm_event(
-			float(hazard["severity"]), direction)
+		if wind_kind == "шквал":
+			_weather_fx.show_squall_event(
+				float(hazard["severity"]), direction)
+		else:
+			_weather_fx.show_storm_event(
+				float(hazard["severity"]), direction)
 	if not hazards.is_empty():
 		var latest: Dictionary = hazards[hazards.size() - 1]
 		_disaster_status = "%s · день %d · %s · интенсивность %.0f%%" % [
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
 		if latest.get("source", "") == "диагностика":
-			_storage_status = "Пробный шторм: повалено %d деревьев" % falls.size()
+			_storage_status = "Пробный %s: повалено %d деревьев" % [
+				str(latest["kind"]), falls.size()]
 
 
 func _cycle_view() -> void:
