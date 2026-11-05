@@ -131,10 +131,6 @@ func _test_game_tornado() -> void:
     var cloned := Nature.new(world, hydro, surface, climate)
     _check(cloned.load_data(initial),
         "Исходный лес отдельно сохранён для проверки вихревого угла")
-    var before: Dictionary = {}
-    for entry in nature.to_data()["objects"]:
-        if entry[1] == "дерево" and entry[9] == "целое":
-            before[int(entry[0])] = nature.object_at(int(entry[0]))
     var lightning := Weather.new(world, climate, surface, hydro)
     var processes := Processes.new(world, hydro, surface, climate)
     var disasters := Disasters.new(world, hydro, surface, climate)
