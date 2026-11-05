@@ -99,21 +99,41 @@ void fragment() {
 		NORMAL = normalize(mat3(VIEW_MATRIX) * water_normal);
 	}
 
-	// Пена появляется тонкой полосой внутри береговой воды.
-	// На самой линии обрезки она затухает: так не подсвечиваются
-	// целиком треугольники, пересекающие крутой склон.
-	float foam_band = smoothstep(0.005, 0.07, UV.x) *
-		(1.0 - smoothstep(0.13, 0.33, UV.x));
-	float broken = 0.68;
-	if (ripple_strength > 0.01 && liquid > 0.01) {
-		broken = 0.59 + 0.13 * sin(water_position.x * 3.8 +
-			water_position.y * 2.1 + TIME * 0.45);
+	// W4: пена существует только на реальной прибрежной глубине,
+	// не появляется посреди озера и гаснет точно на обрезке берега.
+	// fwidth сглаживает тонкую полосу при удалении камеры, без муара.
+	float shoreline_aa = max(fwidth(UV.x) * 1.4, 0.012);
+	float foam_band = smoothstep(0.004, 0.055 + shoreline_aa, UV.x) *
+		(1.0 - smoothstep(0.13, 0.30 + shoreline_aa, UV.x)) * standing;
+	float shoreline_foam = 0.0;
+	float shoreline_glint = 0.0;
+	float shoreline_wash = 0.0;
+	if (foam_band > 0.001 && liquid > 0.01) {
+		// Мировая координата непрерывна между соседними чанками:
+		// полосы прибоя не должны обрываться на квадратных границах.
+		float shore_phase = dot(water_position, vec2(0.76, 0.29)) -
+			TIME * (0.35 + wind_strength * 0.56 + storm_strength * 0.27);
+		float shore_warp = sin(dot(water_position, vec2(-0.21, 0.43)) +
+			TIME * 0.20) * 0.32;
+		float crest_phase = shore_phase + shore_warp;
+		float crest = sin(crest_phase);
+		float crest_fade = 1.0 - smoothstep(0.6, 2.0,
+			fwidth(crest_phase));
+		float surge = clamp(0.14 + wind_strength * 0.55 +
+			storm_strength * 0.50, 0.0, 1.0);
+		float foam_crest = smoothstep(0.08, 0.70, crest) *
+			crest_fade * surge;
+		shoreline_foam = foam_band * (0.24 + foam_crest * 0.74) * liquid;
+		// Отражающая полоса следует за тем же фронтом, но уже пены.
+		shoreline_glint = foam_band * smoothstep(0.52, 0.90, crest) *
+			crest_fade * surge * liquid;
+		shoreline_wash = foam_band * crest * crest_fade *
+			surge * liquid;
 	}
-	float foam = foam_band * broken * liquid;
 	vec3 base = COLOR.rgb;
 	vec3 shallow = mix(base, vec3(0.27, 0.42, 0.42), nearshore * 0.22);
 	vec3 liquid_color = mix(shallow, vec3(0.48, 0.60, 0.57),
-		foam * 0.20);
+		shoreline_foam * 0.26);
 	liquid_color += vec3(0.008, 0.012, 0.013) * ripple *
 		ripple_strength * liquid;
 	// Направленные блики рек и ветровые блики водоёмов независимы.
@@ -122,10 +142,14 @@ void fragment() {
 		river_highlight * ripple_strength;
 	liquid_color += vec3(0.036, 0.050, 0.052) *
 		wind_highlight * ripple_strength * liquid;
+	// Белёсая кромка и блики движутся согласованно со штормовым фронтом.
+	liquid_color += vec3(0.045, 0.061, 0.060) * shoreline_glint +
+		vec3(0.012, 0.019, 0.021) * shoreline_wash;
 	vec3 ice_color = vec3(0.78, 0.87, 0.90);
 	ALBEDO = clamp(mix(liquid_color, ice_color, ice),
 		vec3(0.0), vec3(1.0));
-	ROUGHNESS = mix(mix(0.18, 0.32, nearshore), 0.84, ice);
+	ROUGHNESS = mix(clamp(mix(0.18, 0.32, nearshore) +
+		shoreline_foam * 0.15, 0.0, 1.0), 0.84, ice);
 	METALLIC = 0.0;
 	ALPHA = mix(COLOR.a * (1.0 - nearshore * 0.12), 0.96, ice);
 }
