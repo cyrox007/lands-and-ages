@@ -93,6 +93,18 @@ static func _sample(world_seed: int, width: int,
     valid = valid and (complete_groups == 6) \
         == bool(trial["trial_30_centers_found"])
 
+    var missing_stone_start_states: Array[int] = []
+    var missing_wood_start_states: Array[int] = []
+    for state in trial["states"]:
+        if state["centers"].is_empty():
+            continue
+        var start_route: Dictionary = state["resource_routes"][0]
+        if int(start_route["boulders"]) == 0:
+            missing_stone_start_states.append(int(state["state"]))
+        if int(start_route["wood_units"]) == 0:
+            missing_wood_start_states.append(int(state["state"]))
+    var disconnected_center_states: Array[int] = []
+    var failed_building_states: Array[int] = []
     var mature_fit := 0
     var mature_groups := 0
     var unique_wood := 0
@@ -110,6 +122,12 @@ static func _sample(world_seed: int, width: int,
             audit["remaining_walkable_outside_test_influences"])
         valid = valid and int(audit["selected_center_count"]) == centers
         valid = valid and mature_fit <= centers and mature_groups <= 6
+        for state in audit["states"]:
+            if not bool(state["intercenter_routes_walkable"]) \
+                    and not state["centers"].is_empty():
+                disconnected_center_states.append(int(state["state"]))
+            if int(state["mature_fit_centers"]) < state["centers"].size():
+                failed_building_states.append(int(state["state"]))
         var first_state := true
         for state in audit["state_territory_proxy"]["states"]:
             unique_wood += int(state["wood_units"])
@@ -151,6 +169,12 @@ static func _sample(world_seed: int, width: int,
         "starts_with_wood_route": int(trial["starts_with_reachable_wood"]),
         "starts_with_boulder_route": int(trial["starts_with_reachable_boulders"]),
         "starts_with_both_routes": int(trial["starts_with_both_resources"]),
+        "missing_stone_start_states": missing_stone_start_states,
+        "missing_wood_start_states": missing_wood_start_states,
+        "disconnected_center_states": disconnected_center_states,
+        "failed_building_states": failed_building_states,
+        "anchor_trials": int(trial["evaluated_anchors"]),
+        "route_aware_layout": bool(trial["route_aware_layout"]),
         "hypothetical_mature_sites": mature_fit,
         "states_with_five_hypothetical_mature_sites": mature_groups,
         "buildable_profile_checked": not profile.is_empty(),

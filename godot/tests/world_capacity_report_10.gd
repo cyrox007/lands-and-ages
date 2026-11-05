@@ -92,7 +92,8 @@ static func _layout_valid(case: Dictionary, width: int, height: int) -> bool:
     var starts_with_wood := 0
     var starts_with_boulders := 0
     var starts_with_both := 0
-    if not bool(data["resource_route_checked"]):
+    if not bool(data["resource_route_checked"]) \
+            or not bool(data.get("route_aware_layout", false)):
         return false
     for state in data["states"]:
         var points: Array = state["centers"]
@@ -102,6 +103,9 @@ static func _layout_valid(case: Dictionary, width: int, height: int) -> bool:
         if points.size() > 5:
             return false
         if not points.is_empty() and int(state["connected_component"]) < 0:
+            return false
+        if not points.is_empty() \
+                and not bool(state["center_routes_validated"]):
             return false
         if points.size() == 5:
             full += 1

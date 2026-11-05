@@ -3,6 +3,7 @@ extends SceneTree
 
 const Envelope = preload("res://scripts/world_settlement_envelope.gd")
 const Audit = preload("res://scripts/world_mature_capacity_audit.gd")
+const Scenario = preload("res://scripts/world_spatial_scenario.gd")
 
 
 static func _test_profiles() -> bool:
@@ -105,9 +106,43 @@ static func _test_paths_and_territories() -> bool:
     return connected[1] > 0
 
 
+static func _test_real_routes() -> bool:
+    var width := 40
+    var height := 24
+    var walkable := PackedByteArray()
+    walkable.resize(width * height)
+    walkable.fill(1)
+    # Разрыв суши: на карте соседний центр близко, но дорога отсутствует.
+    for y in range(height):
+        walkable[y * width + 20] = 0
+    var anchor := {
+        "cell": Vector2i(12, 12), "component": 0, "coverage": 1.0
+    }
+    var candidates: Array[Dictionary] = [
+        {"cell": Vector2i(25, 12), "component": 0, "coverage": 1.0},
+        {"cell": Vector2i(0, 12), "component": 0, "coverage": 0.9}
+    ]
+    var occupied: Array[Dictionary] = [
+        {"cell": Vector2i(12, 12), "state": 0, "slot": 0}
+    ]
+    var distances := Scenario.walking_distances(
+        walkable, width, height, Vector2i(12, 12), 96)
+    if distances[12 * width + 25] != -1:
+        return false
+    var found: Dictionary = Scenario._next_center(
+        candidates, anchor, occupied, 4, 0, distances, width)
+    if found.is_empty() or found["cell"] != Vector2i(0, 12):
+        return false
+    # После появления сухопутного прохода центр становится доступным.
+    walkable[12 * width + 20] = 1
+    var reopened := Scenario.walking_distances(
+        walkable, width, height, Vector2i(12, 12), 96)
+    return reopened[12 * width + 25] > 0
+
+
 func _initialize() -> void:
     if not _test_profiles() or not _test_foundations() \
-            or not _test_paths_and_territories():
+            or not _test_paths_and_territories() or not _test_real_routes():
         push_error("Этап 10.0.2–10.0.4: инвариант пространственного профиля")
         quit(1)
         return
