@@ -23,7 +23,7 @@ static func _options() -> Dictionary:
         "samples": 2, "width": 96, "height": 80,
         "seed_start": 1729, "seed_offset": 0, "seed_step": 73,
         "radius": 12,
-        "profile": "", "archetype": ""
+        "profile": "", "archetype": "", "min_eligible": 0
     }
     for argument in OS.get_cmdline_user_args():
         if not argument.begins_with("--") or not argument.contains("="):
@@ -49,7 +49,9 @@ static func _valid(options: Dictionary) -> bool:
     if str(options["archetype"]) != "" \
             and not str(options["archetype"]) in Selection.TYPES:
         return false
-    return int(options["seed_offset"]) >= 0 \
+    return int(options["min_eligible"]) >= 0 \
+        and int(options["min_eligible"]) <= int(options["samples"]) \
+        and int(options["seed_offset"]) >= 0 \
         and int(options["seed_offset"]) <= 500000 \
         and int(options["seed_step"]) >= 1 \
         and int(options["seed_step"]) <= 10000 \
@@ -368,6 +370,14 @@ func _run() -> void:
                 Time.get_ticks_usec() - batch_started) / 1000.0, 0.001)
         }, "  ") + "\n")
         progress_file.close()
+    # Отдельный порог пригодности не подменяет проверку инвариантов.
+    # Для исследовательских выборок по умолчанию он равен нулю.
+    if int(selection["eligible"]) < int(options["min_eligible"]):
+        push_error("Пригодных карт %d из %d, требуется не менее %d" % [
+            int(selection["eligible"]), count, int(options["min_eligible"])
+        ])
+        quit(1)
+        return
     if not failures.is_empty():
         push_error("Многосидовая пространственная проверка нарушила инварианты")
         quit(1)
