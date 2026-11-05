@@ -10,10 +10,14 @@ const SHORE_SUBDIVISIONS := ShoreVisual.SUBDIVISIONS
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
-		c: Vector3, d: Vector3, tint: Color, ice: float = 0.0) -> void:
+		c: Vector3, d: Vector3, tint: Color, ice: float = 0.0,
+		flow: Vector2 = Vector2.ZERO) -> void:
+	## UV2 несёт только направление реального речного стока.
+	## Нулевой вектор означает стоячую воду; вершины не смещаются.
 	tool.set_color(tint)
 	tool.set_normal(Vector3.UP)
 	tool.set_uv(Vector2(1.0, ice))
+	tool.set_uv2(flow)
 	for vertex in [a, b, c, a, c, d]:
 		tool.add_vertex(vertex)
 
@@ -55,6 +59,8 @@ static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 		if absf((b - a).cross(c - a)) < 0.000001:
 			continue
 		for vertex in [polygon[0], polygon[i], polygon[i + 1]]:
+			# Прибрежная вода и открытая гладь не наследуют речной сток.
+			tool.set_uv2(Vector2.ZERO)
 			tool.set_uv(Vector2(vertex.z, ice))
 			tool.add_vertex(world.config.to_scene(
 				Vector2(vertex.x, vertex.y), level + WATER_OFFSET))
@@ -206,10 +212,20 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 		var direction := _river_curve_direction(start, control0, control1, finish, t)
 		var side := Vector2(-direction.y, direction.x) * 0.24
 		var altitude := lerpf(level + WATER_OFFSET, end_level, t)
+		# Соседние русловые звенья согласуют направление по одному
+		# физическому downstream. Амплитуда зависит от давления стока,
+		# но не выдаётся за точно рассчитанную скорость воды.
+		var flow := Vector2.ZERO
+		if next >= 0:
+			var along := (last_dir + direction).normalized()
+			var pressure: float = hydro.flow_pressure_at(index)
+			var intensity := clampf(0.35 + sqrt(maxf(0.0, pressure)) * 0.32,
+				0.35, 1.0)
+			flow = along * intensity
 		_quad(tool, world.config.to_scene(last_center - last_side, last_level),
 			world.config.to_scene(last_center + last_side, last_level),
 			world.config.to_scene(center + side, altitude),
-			world.config.to_scene(center - side, altitude), tint, ice)
+			world.config.to_scene(center - side, altitude), tint, ice, flow)
 		last_center = center
 		last_side = side
 		last_level = altitude
@@ -312,6 +328,9 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 			var depth := maxf(0.0, vertex.z - terrain)
 			var alpha := smoothstep(FLOOD_COVERAGE_THRESHOLD, 0.80, vertex.w)
 			tool.set_color(Color(tint.r, tint.g, tint.b, tint.a * alpha))
+			# Паводковый поток будет уточнён отдельно в W5.
+			# Пока нулевой UV2 не добавляет фиктивное движение поймы.
+			tool.set_uv2(Vector2.ZERO)
 			tool.set_uv(Vector2(clampf(depth / SHORE_FADE_DEPTH, 0.0, 1.0), ice))
 			tool.add_vertex(world.config.to_scene(
 				Vector2(vertex.x, vertex.y), visible_level))
