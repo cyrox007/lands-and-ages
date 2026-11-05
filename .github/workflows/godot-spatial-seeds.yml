@@ -35,6 +35,10 @@ on:
         description: "Сценарий: compact, balanced, spacious; пусто — радиус"
         required: false
         default: "compact"
+      archetype:
+        description: "Целевой архетип (пусто — любой; материк/полуостров/архипелаг/внутреннее море)"
+        required: false
+        default: ""
       seed_start:
         description: "Начальный seed"
         required: true
@@ -50,6 +54,7 @@ jobs:
       MAP_HEIGHT: ${{ github.event_name == 'pull_request' && '80' || inputs.height }}
       RADIUS: ${{ inputs.radius || '12' }}
       PROFILE: ${{ github.event_name == 'pull_request' && 'compact' || inputs.profile }}
+      ARCHETYPE: ${{ inputs.archetype || '' }}
       START_SEED: ${{ inputs.seed_start || '1729' }}
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +83,7 @@ jobs:
             --samples="$SAMPLES" --width="$MAP_WIDTH" \
             --height="$MAP_HEIGHT" --radius="$RADIUS" \
             --profile="$PROFILE" \
+            --archetype="$ARCHETYPE" \
             --seed_start="$START_SEED" 2>&1 | tee /tmp/spatial-seeds.log
           grep -q "Этап 10.0: проверено" /tmp/spatial-seeds.log
           test -s godot/tests/world-spatial-seeds-10.json
