@@ -9,6 +9,9 @@ uniform float ripple_strength : hint_range(0.0, 1.0) = 1.0;
 // Значения берутся из климатического снимка камеры, не создают погоду.
 uniform float wind_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float storm_strength : hint_range(0.0, 1.0) = 0.0;
+// Направление в координатах X/Z карты из пяти проб физического климата.
+// При отсутствии данных остаётся исторический западный поток (+X).
+uniform vec2 wind_direction = vec2(1.0, 0.0);
 // W6: единые часы сцены останавливаются вместе с игрой.
 uniform float wave_time = 0.0;
 // Дальний обзор оставляет крупные блики без дорогих мелких волн.
@@ -94,7 +97,7 @@ void fragment() {
 			flood_highlight = smoothstep(0.40, 0.87, flood_waves) *
 				flood_intensity * flood_fade;
 		}
-		// Климат пока даёт скорость и преобладающий западный ветер.
+		// W7: гребни ориентированы по фактическому вектору ветра.
 		// Океан получает длинные волны, озеро — более короткую рябь.
 		// Геометрия и физический уровень воды остаются неизменными.
 		// На физически мелком берегу разгон волн меньше, чем на глубине.
@@ -104,10 +107,16 @@ void fragment() {
 		float wind_energy = clamp(wind_strength * 0.8 +
 			storm_strength * 0.45, 0.0, 1.0) * standing * shoreline_shelter;
 		if (wind_energy > 0.01) {
+			// Направление не меняет длину волны и не влияет на
+			// гидрологию; поворачивается лишь рисунок поверхности.
+			vec2 along_wind = normalize(wind_direction);
+			vec2 across_wind = vec2(-along_wind.y, along_wind.x);
 			float along = mix(1.10, 0.46, ocean);
-			float wind_phase = dot(water_position, vec2(along, 0.12)) -
+			vec2 main_wave = along_wind * along + across_wind * 0.12;
+			vec2 side_wave = along_wind * -0.22 + across_wind * 0.73;
+			float wind_phase = dot(water_position, main_wave) -
 				wave_time * (0.38 + wind_strength * 0.9 + storm_strength * 0.5);
-			float side_phase = dot(water_position, vec2(-0.22, 0.73)) +
+			float side_phase = dot(water_position, side_wave) +
 				wave_time * (0.14 + wind_strength * 0.3);
 			float wind_fade = 1.0 - smoothstep(0.55, 1.75,
 				max(fwidth(wind_phase), fwidth(side_phase)));
@@ -115,8 +124,8 @@ void fragment() {
 				sin(side_phase) * 0.22;
 			ripple += large_wave * wind_energy * wind_fade *
 				mix(0.45, 0.85, ocean);
-			slopes += (vec2(along, 0.12) * cos(wind_phase) * 0.78 +
-				vec2(-0.22, 0.73) * cos(side_phase) * 0.22) *
+			slopes += (main_wave * cos(wind_phase) * 0.78 +
+				side_wave * cos(side_phase) * 0.22) *
 				wind_energy * wind_fade * mix(0.5, 1.0, ocean);
 			wind_highlight = smoothstep(0.52, 0.96, large_wave) *
 				wind_energy * wind_fade;
