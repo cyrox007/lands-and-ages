@@ -69,8 +69,12 @@ void fragment() {
 		// Климат пока даёт скорость и преобладающий западный ветер.
 		// Океан получает длинные волны, озеро — более короткую рябь.
 		// Геометрия и физический уровень воды остаются неизменными.
+		// На физически мелком берегу разгон волн меньше, чем на глубине.
+		// Полную ветровую тень за островами добавим после модели 11.3.
+		float shoreline_shelter = mix(0.42, 1.0,
+			clamp(UV.x, 0.0, 1.0));
 		float wind_energy = clamp(wind_strength * 0.8 +
-			storm_strength * 0.45, 0.0, 1.0) * standing;
+			storm_strength * 0.45, 0.0, 1.0) * standing * shoreline_shelter;
 		if (wind_energy > 0.01) {
 			float along = mix(1.10, 0.46, ocean);
 			float wind_phase = dot(water_position, vec2(along, 0.12)) -
