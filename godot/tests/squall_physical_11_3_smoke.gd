@@ -93,7 +93,7 @@ func _test_real_game() -> void:
     var tree_id: int = int(tree["id"])
     var cell := Vector2i(int(tree["x"]), int(tree["y"]))
     var before_wood := int(tree["wood_units"]) + int(tree["fallen_wood"])
-    var preserved := JSON.parse_string(JSON.stringify(nature.to_data()))
+    var preserved: Dictionary = JSON.parse_string(JSON.stringify(nature.to_data()))
     var at_edge := Nature.new(world, hydro, surface, climate)
     _check(at_edge.load_data(preserved), "Создана исходная копия леса")
 
