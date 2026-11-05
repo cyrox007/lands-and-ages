@@ -1,0 +1,123 @@
+name: Этап 11.2 — ближние тени ландшафта и леса
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_shadow_lod.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/world_shadows_l2_smoke.gd"
+      - "godot/tests/world_shadows_l2_capture.gd"
+      - ".github/workflows/godot-shadows-l2.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_shadow_lod.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/world_shadows_l2_smoke.gd"
+      - "godot/tests/world_shadows_l2_capture.gd"
+      - ".github/workflows/godot-shadows-l2.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: godot-shadow-l2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shadow-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-shadow.zip
+          unzip -q /tmp/godot-shadow.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Компиляция и импорт
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit \
+            2>&1 | tee /tmp/shadow-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/shadow-import.log; then
+            exit 1
+          fi
+      - name: "Тени: бюджет, LOD и неизменность физики"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_shadows_l2_smoke.gd \
+            2>&1 | tee /tmp/shadow-smoke.log
+          grep -q "Этап 11.2/L2: ограниченные тени рельефа и леса — успешно" /tmp/shadow-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-smoke.log; then
+            exit 1
+          fi
+      - name: Регрессия PBR и света
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_pbr_macro_smoke.gd \
+            2>&1 | tee /tmp/shadow-pbr.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-pbr.log; then
+            exit 1
+          fi
+      - name: Сохранить логи
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-l2-smoke
+          path: /tmp/shadow-*.log
+          if-no-files-found: ignore
+
+  shadow-capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Программный OpenGL и Godot 4.7.2
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-shadow.zip
+          unzip -q /tmp/godot-shadow.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт текстур и сцен
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/shadow-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load" /tmp/shadow-gl-import.log; then
+            exit 1
+          fi
+      - name: "Реальные PNG: горная сцена с тенями и без"
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/shadow-l2-png
+          timeout 300s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/world_shadows_l2_capture.gd \
+            -- --out=/tmp/shadow-l2-png 2>&1 | tee /tmp/shadow-gl.log
+          grep -q "Этап 11.2/L2: реальные кадры теней — успешно" /tmp/shadow-gl.log
+          test -s /tmp/shadow-l2-png/горы_с_тенями.png
+          test -s /tmp/shadow-l2-png/горы_без_теней.png
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-gl.log; then
+            exit 1
+          fi
+      - name: Сохранить кадры для художественной приёмки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-l2-software-gl
+          path: |
+            /tmp/shadow-l2-png/
+            /tmp/shadow-gl.log
+            /tmp/shadow-gl-import.log
+          if-no-files-found: ignore
+          retention-days: 30
