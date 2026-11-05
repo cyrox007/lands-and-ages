@@ -97,7 +97,7 @@ static func _water_cell(tool: SurfaceTool, world: RefCounted,
 	# Делим только береговые полигоны: открытая вода не усложняется.
 	# Соседние клетки получают одинаковые точки на общей границе.
 	return _subdivided_shore(tool, world, cell, level, tint, ice,
-		water_kind, ha, hb, hc, hd)
+		ha, hb, hc, hd, water_kind)
 
 
 static func _terrain_height(ha: float, hb: float, hc: float,
@@ -108,7 +108,8 @@ static func _terrain_height(ha: float, hb: float, hc: float,
 
 static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, level: float, tint: Color, ice: float,
-		water_kind: Vector2, ha: float, hb: float, hc: float, hd: float) -> int:
+		ha: float, hb: float, hc: float, hd: float,
+		water_kind: Vector2 = Vector2.ZERO) -> int:
 	var added := 0
 	for j in range(SHORE_SUBDIVISIONS):
 		for i in range(SHORE_SUBDIVISIONS):
