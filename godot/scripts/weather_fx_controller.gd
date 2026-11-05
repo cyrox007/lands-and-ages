@@ -96,11 +96,25 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		return
 	var distance := clampf(zoom * 0.7, 10.0, 70.0)
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
+	# Ветровой снос наследует нормализованное направление пяти
+	# климатических проб. При ручных старых снимках без направления
+	# вертикальные осадки остаются совместимыми.
+	var airflow := Vector2(float(state.get("wind_x", 0.0)),
+		float(state.get("wind_y", 0.0)))
+	if airflow.length_squared() > 0.000001:
+		airflow = airflow.normalized()
+	var gust := clampf(float(state.get("gust", state.get("wind", 0.0))),
+		0.0, 1.0)
 	for emitter in [_rain, _snow]:
 		# Область осадков следует за камерой и не растёт до размера карты.
 		emitter.position = Vector3(center.x, altitude + 22.0, center.y)
 		var material: ParticleProcessMaterial = emitter.process_material
 		material.emission_box_extents = Vector3(distance, 5.0, distance)
+		# Медленные снежинки сносит сильнее, чем капли дождя.
+		# Сила зависит от физического порыва, а не качества частиц.
+		var drift := gust * (1.25 if emitter == _snow else 0.42)
+		material.direction = Vector3(
+			airflow.x * drift, -1.0, airflow.y * drift).normalized()
 		emitter.seed = seed
 	_rain.amount_ratio = clampf(float(state.get("rain", 0.0))
 		* quality_factor, 0.0, 1.0)
