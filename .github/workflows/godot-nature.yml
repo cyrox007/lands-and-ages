@@ -25,6 +25,7 @@ on:
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
       - "godot/tests/nature_windfall_11_3_smoke.gd"
+      - "godot/tests/storm_visible_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
@@ -56,6 +57,7 @@ on:
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
       - "godot/tests/nature_windfall_11_3_smoke.gd"
+      - "godot/tests/storm_visible_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
@@ -131,6 +133,18 @@ jobs:
             | tee /tmp/nature-windfall.log
           grep -q "Этап 11.3:.*успешно" /tmp/nature-windfall.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-windfall.log; then
+            exit 1
+          fi
+      - name: "11.3/V2.3 — видимый шторм и физические последствия"
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/storm_visible_11_3_smoke.gd 2>&1 \
+            | tee /tmp/nature-storm-visible.log
+          grep -q "11.3/V2.3:.*успешно" /tmp/nature-storm-visible.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-storm-visible.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
