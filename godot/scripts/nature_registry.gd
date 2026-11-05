@@ -16,6 +16,7 @@ const STUMP_DECAY_DAYS := 6 * 96
 const CUT_THRESHOLD := 1000
 const GRID_STEP := 3
 const MAX_OBJECTS := 200000
+const MAX_VISIBLE_WINDFALL_RECORDS := 64
 const TREE_SPECIES := ["сосна", "ель", "берёза", "дуб"]
 
 var world: RefCounted
@@ -25,6 +26,9 @@ var climate: RefCounted
 var last_day := 0
 var revision := 0
 var generated := false
+# Переходы только последнего дня для анимации после фоновой физики.
+# События не сериализуются: дерево и его упавший ствол уже сохранены.
+var last_windfalls: Array[Dictionary] = []
 
 var _objects: Dictionary = {}
 var _chunks: Dictionary = {}
@@ -514,6 +518,10 @@ func _damage_from_events(hazards: Array[Dictionary],
                 windfall = Terrain.hash2(cell.x, cell.y,
                     world.config.world_seed + climate.day * 31 + 3173) < chance
 
+            # До перехода сохраняем ровно то дерево, которое было
+            # видно перед падением. Визуализация получит его после
+            # завершения рабочего потока, но не изменит физический лес.
+            var before: Dictionary = item.duplicate(true) if windfall else {}
             item["health"] = maxi(0, int(item["health"]) - int(event["damage"]))
             if windfall:
                 # Древесина переходит из стоящего ствола в лежащий ресурс.
@@ -531,6 +539,13 @@ func _damage_from_events(hazards: Array[Dictionary],
                 var direction: Vector2 = climate.wind_direction_at_index(wind_index)
                 item["fall_angle_deg"] = posmod(roundi(rad_to_deg(
                     atan2(-direction.y, direction.x))), 360)
+                if last_windfalls.size() < MAX_VISIBLE_WINDFALL_RECORDS:
+                    # Только исходные данные и угол, без сцен и GPU.
+                    last_windfalls.append({
+                        "before": before,
+                        "fall_angle_deg": int(item["fall_angle_deg"]),
+                        "cell": cell
+                    })
             elif int(item["health"]) == 0:
                 # Не поваленное погибшее дерево остаётся сухостоем.
                 item["state"] = "сухостой"
@@ -546,6 +561,9 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
         strikes: Array[Dictionary] = []) -> int:
     if not generated or day <= last_day or day != climate.day:
         return 0
+    # Транзитные анимации относятся только к завершённому дню.
+    # Не повторяем падения после сохранения или последующего тика.
+    last_windfalls.clear()
     var changed := {}
     var updates := 0
     for id in _objects.keys():
@@ -786,6 +804,7 @@ func load_data(data: Dictionary) -> bool:
         return false
     _objects = restored
     _chunks = by_chunk
+    last_windfalls.clear()
     generated = bool(data["generated"])
     last_day = int(day)
     revision += 1
