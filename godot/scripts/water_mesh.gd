@@ -11,6 +11,8 @@ const SHORE_SUBDIVISIONS := ShoreVisual.SUBDIVISIONS
 # Шейдер выбирает разные волны для озёр и моря без дополнительных мешей.
 const STANDING_LAKE := Vector2(0.0, 2.0)
 const STANDING_OCEAN := Vector2(2.0, 0.0)
+# Отдельная метка поймы не пересекается с UV2 русел и стоячих водоёмов.
+const FLOOD_MARKER_X := -2.0
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
@@ -313,9 +315,40 @@ static func _clip_flood_coverage(triangle: PackedVector4Array) -> PackedVector4A
 	return polygon
 
 
+static func _flood_motion_at(hydro: RefCounted, point: Vector2) -> float:
+	## Вычисляем только визуальную силу паводка из готовой гидрологии.
+	## Никакой анимационный параметр не меняет уровень воды или сток.
+	if hydro == null:
+		return 0.0
+	var center_space := point - Vector2(0.5, 0.5)
+	var base := Vector2i(floori(center_space.x), floori(center_space.y))
+	var u := center_space.x - floorf(center_space.x)
+	var v := center_space.y - floorf(center_space.y)
+	var result := 0.0
+	for dy in range(2):
+		for dx in range(2):
+			var index: int = hydro.cell_index(base + Vector2i(dx, dy))
+			if not hydro.flooded_at(index):
+				continue
+			# Соседние вершины и чанки читают одни и те же физические
+			# клетки; степень турбулентности плавно убывает у сухого края.
+			var weight: float = (u if dx == 1 else 1.0 - u) * \
+				(v if dy == 1 else 1.0 - v)
+			var depth: float = hydro.flood_depth_at(index)
+			var pressure := 0.0
+			# Старые тестовые реализации гидрологии знают глубину,
+			# но не обязаны предоставлять величину расхода.
+			if hydro.has_method("flow_pressure_at"):
+				pressure = float(hydro.flow_pressure_at(index))
+			var energy := clampf(depth * 0.55 +
+				maxf(0.0, pressure - 0.55) * 0.28, 0.0, 1.0)
+			result += energy * weight
+	return clampf(result, 0.0, 1.0)
+
+
 static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, polygon: PackedVector4Array, heights: PackedFloat32Array,
-		tint: Color, ice: float) -> int:
+		tint: Color, ice: float, hydro: RefCounted = null) -> int:
 	if polygon.size() < 3:
 		return 0
 	var added := 0
@@ -337,9 +370,11 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 			var depth := maxf(0.0, vertex.z - terrain)
 			var alpha := smoothstep(FLOOD_COVERAGE_THRESHOLD, 0.80, vertex.w)
 			tool.set_color(Color(tint.r, tint.g, tint.b, tint.a * alpha))
-			# Паводковый поток будет уточнён отдельно в W5.
-			# Пока нулевой UV2 не добавляет фиктивное движение поймы.
-			tool.set_uv2(Vector2.ZERO)
+			# W5: отрицательная метка отмечает пойму, а Y хранит
+			# интенсивность только реального затопления по глубине/расходу.
+			# Нулевой Y у сухой кромки не создаёт фиктивный паводок.
+			var motion := _flood_motion_at(hydro, Vector2(vertex.x, vertex.y))
+			tool.set_uv2(Vector2(FLOOD_MARKER_X, motion))
 			tool.set_uv(Vector2(clampf(depth / SHORE_FADE_DEPTH, 0.0, 1.0), ice))
 			tool.add_vertex(world.config.to_scene(
 				Vector2(vertex.x, vertex.y), visible_level))
@@ -388,7 +423,7 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 			]:
 				var polygon := _clip_flood_coverage(triangle)
 				added += _add_flood_polygon(
-					tool, world, cell, polygon, heights, tint, ice)
+					tool, world, cell, polygon, heights, tint, ice, hydro)
 	return added
 
 
