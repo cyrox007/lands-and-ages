@@ -23,3 +23,26 @@ static func from_snapshot(snapshot: Dictionary) -> Dictionary:
 		"cloud_coverage": clampf(maxf(cloud, storm * 0.88), 0.0, 1.0),
 		"wind": clampf(float(snapshot.get("wind", 0.0)), 0.0, 1.0)
 	}
+
+
+static func blend(current: Dictionary, target: Dictionary, delta: float) -> Dictionary:
+	## Сглаживаем только визуальные параметры при перемещении камеры
+	## или смене физического погодного фронта; источник Climate не трогаем.
+	## Экспоненциальная доля почти независима от FPS и не скачет,
+	## когда снимок климата обновился не на границе игрового кадра.
+	if target.is_empty():
+		return current.duplicate(true)
+	if current.is_empty():
+		return target.duplicate(true)
+	if not is_finite(delta) or delta <= 0.0:
+		return current.duplicate(true)
+	var alpha := 1.0 - exp(-minf(delta, 5.0) / 0.85)
+	var result := {}
+	for key in target:
+		# Color и float поддерживают одинаковую логику интерполяции.
+		# Эти величины уходят только в uniform-ы и источники света.
+		if target[key] is Color:
+			result[key] = (current[key] as Color).lerp(target[key], alpha)
+		else:
+			result[key] = lerpf(float(current[key]), float(target[key]), alpha)
+	return result
