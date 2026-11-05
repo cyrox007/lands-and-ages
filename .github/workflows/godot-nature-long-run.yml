@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/godot-nature-long-run.yml"
       - "godot/tests/nature_long_run_10_7.gd"
+      - "godot/tests/nature_integration_10_7.gd"
       - "godot/scripts/world_day_runner.gd"
       - "godot/scripts/world_save.gd"
       - "godot/scripts/nature_registry.gd"
