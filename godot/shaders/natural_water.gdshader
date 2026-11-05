@@ -2,9 +2,12 @@ shader_type spatial;
 render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_ggx;
 
 // UV.x — реальная глубина у берега, UV.y — доля льда из Surface.
-// UV2 — направление/относительная сила реального речного стока из Hydrology.
+// UV2 — речной сток (длина <= 1), озеро (0, 2) либо море (2, 0).
 // Волны и бегущие блики не смещают геометрию и не меняют уровень воды.
 uniform float ripple_strength : hint_range(0.0, 1.0) = 1.0;
+// Значения берутся из климатического снимка камеры, не создают погоду.
+uniform float wind_strength : hint_range(0.0, 1.0) = 0.0;
+uniform float storm_strength : hint_range(0.0, 1.0) = 0.0;
 varying vec2 water_position;
 
 
@@ -19,7 +22,12 @@ void fragment() {
 	float nearshore = 1.0 - smoothstep(0.01, 0.42, UV.x);
 	float ripple = 0.0;
 	float river_highlight = 0.0;
-	float river_strength = clamp(length(UV2), 0.0, 1.0) * liquid;
+	float wind_highlight = 0.0;
+	float ocean = step(1.5, UV2.x);
+	float lake = step(1.5, UV2.y);
+	float standing = clamp(ocean + lake, 0.0, 1.0);
+	float river_strength = clamp(length(UV2), 0.0, 1.0) *
+		(1.0 - standing) * liquid;
 
 	// Сумма разнонаправленных волн вместо произведения двух синусов:
 	// произведение давало отчётливую шахматную сетку на поверхности.
@@ -58,6 +66,33 @@ void fragment() {
 			slopes += flow_direction * cos(river_phase) *
 				0.38 * river_strength * river_fade;
 		}
+		// Климат пока даёт скорость и преобладающий западный ветер.
+		// Океан получает длинные волны, озеро — более короткую рябь.
+		// Геометрия и физический уровень воды остаются неизменными.
+		// На физически мелком берегу разгон волн меньше, чем на глубине.
+		// Полную ветровую тень за островами добавим после модели 11.3.
+		float shoreline_shelter = mix(0.42, 1.0,
+			clamp(UV.x, 0.0, 1.0));
+		float wind_energy = clamp(wind_strength * 0.8 +
+			storm_strength * 0.45, 0.0, 1.0) * standing * shoreline_shelter;
+		if (wind_energy > 0.01) {
+			float along = mix(1.10, 0.46, ocean);
+			float wind_phase = dot(water_position, vec2(along, 0.12)) -
+				TIME * (0.38 + wind_strength * 0.9 + storm_strength * 0.5);
+			float side_phase = dot(water_position, vec2(-0.22, 0.73)) +
+				TIME * (0.14 + wind_strength * 0.3);
+			float wind_fade = 1.0 - smoothstep(0.55, 1.75,
+				max(fwidth(wind_phase), fwidth(side_phase)));
+			float large_wave = sin(wind_phase) * 0.78 +
+				sin(side_phase) * 0.22;
+			ripple += large_wave * wind_energy * wind_fade *
+				mix(0.45, 0.85, ocean);
+			slopes += (vec2(along, 0.12) * cos(wind_phase) * 0.78 +
+				vec2(-0.22, 0.73) * cos(side_phase) * 0.22) *
+				wind_energy * wind_fade * mix(0.5, 1.0, ocean);
+			wind_highlight = smoothstep(0.52, 0.96, large_wave) *
+				wind_energy * wind_fade;
+		}
 		float amplitude = 0.025 * ripple_strength * liquid * wave_fade;
 		vec3 water_normal = normalize(vec3(
 			-slopes.x * amplitude, 1.0, -slopes.y * amplitude));
@@ -81,10 +116,12 @@ void fragment() {
 		foam * 0.20);
 	liquid_color += vec3(0.008, 0.012, 0.013) * ripple *
 		ripple_strength * liquid;
-	// Живые блики относятся только к руслам, реально отмеченным Hydrology.
-	// Моря и озёра получают независимую ветровую систему в W3.
+	// Направленные блики рек и ветровые блики водоёмов независимы.
+	// При нулевом ветре/грозе добавочная ветровая волна отсутствует.
 	liquid_color += vec3(0.032, 0.043, 0.040) *
 		river_highlight * ripple_strength;
+	liquid_color += vec3(0.036, 0.050, 0.052) *
+		wind_highlight * ripple_strength * liquid;
 	vec3 ice_color = vec3(0.78, 0.87, 0.90);
 	ALBEDO = clamp(mix(liquid_color, ice_color, ice),
 		vec3(0.0), vec3(1.0));
