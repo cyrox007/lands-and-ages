@@ -74,7 +74,48 @@ static func for_radius(radius: int) -> Dictionary:
 static func scale_candidates(height_scale: float) -> Dictionary:
     var result := []
     for meters_per_cell in [2.0, 3.0, 4.0]:
+        var cell_area := meters_per_cell * meters_per_cell
+        var settlements: Array[Dictionary] = []
+        for name in names():
+            var measured: Dictionary = profile(name)
+            settlements.append({
+                "profile": name,
+                "radius_meters": int(measured["radius"]) * meters_per_cell,
+                "influence_hectares": snappedf(
+                    int(measured["diamond_influence_cells"]) * cell_area
+                    / 10000.0, 0.0001),
+                "building_footprints_m2": int(
+                    measured["building_footprint_cells"]) * cell_area,
+                "required_buildable_m2": int(
+                    measured["required_buildable_cells"]) * cell_area,
+                "required_walkable_m2": int(
+                    measured["required_walkable_cells"]) * cell_area,
+                "thirty_influence_hectares": snappedf(
+                    int(measured["diamond_influence_cells"]) * cell_area
+                    * TARGET_STATES * TARGET_CENTERS_PER_STATE
+                    / 10000.0, 0.0001),
+                "house_plot_side_meters": 2.0 * meters_per_cell,
+                "workshop_plot_side_meters": 3.0 * meters_per_cell,
+                "field_plot_side_meters": 4.0 * meters_per_cell,
+                "area_is_hypothetical": true
+            })
+        var maps: Array[Dictionary] = []
+        for dimensions in [[256, 192], [512, 384],
+                [768, 576], [1024, 768]]:
+            var width: int = dimensions[0]
+            var height: int = dimensions[1]
+            maps.append({
+                "cells": [width, height],
+                "width_km": snappedf(
+                    width * meters_per_cell / 1000.0, 0.001),
+                "height_km": snappedf(
+                    height * meters_per_cell / 1000.0, 0.001),
+                "area_km2": snappedf(
+                    width * height * cell_area / 1000000.0, 0.0001)
+            })
         result.append({
+            "mature_settlement_areas": settlements,
+            "map_dimensions": maps,
             "meters_per_cell": meters_per_cell,
             "human_height_scene_units": snappedf(
                 OBJECT_METERS["human_height"] / meters_per_cell, 0.001),
