@@ -1,0 +1,48 @@
+name: Этап 10.0 — многосидовый аудит ёмкости
+
+# Регистрация ручного запуска в основной ветке.
+# Полный аудит выполняется из develop, где находится код Godot.
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Количество seed, если отключена пакетная серия"
+        required: true
+        default: "100"
+      width:
+        description: "Ширина карты (64–1024)"
+        required: true
+        default: "768"
+      height:
+        description: "Высота карты (64–768)"
+        required: true
+        default: "576"
+      radius:
+        description: "Гипотетический радиус (6–40)"
+        required: true
+        default: "16"
+      profile:
+        description: "Экспериментальный профиль: compact, balanced, spacious"
+        required: true
+        default: "balanced"
+      archetype:
+        description: "Целевой тип географии; пусто — любой"
+        required: false
+        default: ""
+      seed_start:
+        description: "Начальный seed"
+        required: true
+        default: "1729"
+      large_series:
+        description: "Проверить 100 больших карт в десяти заданиях"
+        type: boolean
+        default: true
+
+jobs:
+  choose-develop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Использовать реализацию из develop
+        run: |
+          echo "::error::Выберите ветку develop в меню Run workflow. В main находится только регистрация запуска."
+          exit 1
