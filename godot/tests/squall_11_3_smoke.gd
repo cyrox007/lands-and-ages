@@ -78,6 +78,17 @@ func _run() -> void:
             _revision: int) -> void:
         changed_chunks.append_array(chunks))
 
+    # Прямые проверки узкой полосы: впереди по ветру, не поперёк
+    # и не дальше её физической границы.
+    var right := Vector2.RIGHT
+    _check(Nature.squall_reaches(Vector2(7.0, 0.0), right)
+        and Nature.squall_reaches(Vector2(-1.0, 1.0), right),
+        "Шквал повреждает клетки вдоль воздушного потока")
+    _check(not Nature.squall_reaches(Vector2(2.0, 4.0), right)
+        and not Nature.squall_reaches(Vector2(-3.0, 0.0), right)
+        and not Nature.squall_reaches(Vector2(10.0, 0.0), right),
+        "Лес за боковой границей и далеко за фронтом не повреждается")
+
     # Диагностическое событие должно войти в обычный Runner, а не
     # вызывать метод повреждения леса напрямую из визуального теста.
     runner.test_squall_cell = cell
