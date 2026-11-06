@@ -182,7 +182,7 @@ func _run() -> void:
 			view._weather_fx.apply_snapshot(state, place["center"],
 				0.0, float(place["zoom"]), view._world_model.config.world_seed)
 			var started := Time.get_ticks_usec()
-			var filename := str(place["name"]) + "_" + weather_name
+			var filename: String = str(place["name"]) + "_" + str(weather_name)
 			var shot: Image = await _capture(folder, filename)
 			frame_intervals.append(float(Time.get_ticks_usec() - started) / 1000.0)
 			var changed := 0
