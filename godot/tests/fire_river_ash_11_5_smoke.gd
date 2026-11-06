@@ -26,7 +26,7 @@ func _check(ok: bool, message: String) -> void:
 func _models() -> Dictionary:
     # Создаём настоящий водосбор с лесом и климатом, без вручную
     # нарисованного потока и отключения гидрологических правил.
-    var world := Map.new(Config.new(96, 80, 1729, 16, 32))
+    var world := Map.new(Config.new(192, 160, 1729, 16, 32))
     var hydro := Hydro.new(world)
     hydro.rebuild()
     var surface := Surface.new(world, hydro)
@@ -46,52 +46,23 @@ func _models() -> Dictionary:
 
 
 func _bank(world: RefCounted, hydro: RefCounted) -> Dictionary:
-    # Находим сухой берег, чей самый низкий сосед — настоящее
-    # речное русло. Сравниваем одну и ту же геометрию WorldMap,
-    # которую использует FireRegistry, а не искусственную реку.
+    # Ищем прямой переход из настоящего сухопутного водосбора
+    # в речное русло по рассчитанному Hydrology.downstream_of.
+    # Проверяем непосредственное соседство, не создаём путь
+    # через диагональ и не подменяем генератор воды.
     for y in range(8, world.config.height - 8):
         for x in range(8, world.config.width - 8):
             var cell := Vector2i(x, y)
             var index: int = hydro.cell_index(cell)
             if hydro.has_water(index) or hydro.flooded_at(index):
                 continue
-            var height: float = world.height_at(
-                Vector2(cell) + Vector2(0.5, 0.5))
-            if not is_finite(height):
+            var downstream: int = hydro.downstream_of(index)
+            if downstream < 0 or not hydro.has_water(downstream) \
+                    or not hydro.river_at(downstream):
                 continue
-            var lowest: float = height - 0.02
-            var river := Vector2i(-1, -1)
-            # Сперва выбирается нижний сухой сосед, как в F4.
-            for offset in [
-                    Vector2i(1, 0), Vector2i(0, 1),
-                    Vector2i(-1, 0), Vector2i(0, -1)]:
-                var next: Vector2i = cell + offset
-                if not world.config.contains_cell(next):
-                    continue
-                var ni: int = hydro.cell_index(next)
-                if hydro.has_water(ni) or hydro.flooded_at(ni):
-                    continue
-                var next_height: float = world.height_at(
-                    Vector2(next) + Vector2(0.5, 0.5))
-                if is_finite(next_height) and next_height < lowest:
-                    lowest = next_height
-            # Более низкий речной участок выигрывает у сухого,
-            # иначе зола идёт по прежнему сухопутному маршруту.
-            for offset in [
-                    Vector2i(1, 0), Vector2i(0, 1),
-                    Vector2i(-1, 0), Vector2i(0, -1)]:
-                var next: Vector2i = cell + offset
-                if not world.config.contains_cell(next):
-                    continue
-                var ni: int = hydro.cell_index(next)
-                if not hydro.river_at(ni) or not hydro.has_water(ni):
-                    continue
-                var next_height: float = world.height_at(
-                    Vector2(next) + Vector2(0.5, 0.5))
-                if is_finite(next_height) and next_height < lowest:
-                    lowest = next_height
-                    river = next
-            if river.x >= 0:
+            var river: Vector2i = hydro.cell_from_index(downstream)
+            var step: Vector2i = river - cell
+            if absi(step.x) + absi(step.y) == 1:
                 return {"source": cell, "river": river}
     return {}
 
@@ -123,7 +94,7 @@ func _test_suspension() -> void:
     var nature: RefCounted = m["nature"]
     var fire: RefCounted = m["fire"]
     var bank: Dictionary = _bank(world, hydro)
-    _check(not bank.is_empty(), "На реальной карте найден берег реки")
+    _check(not bank.is_empty(), "На карте 192×160 найден берег реки по направлению водосбора")
     if bank.is_empty():
         return
     var source: Vector2i = bank["source"]
