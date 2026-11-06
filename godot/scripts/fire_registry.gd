@@ -146,6 +146,95 @@ func _recover_ground(changed: Dictionary) -> void:
         changed[world.config.chunk_of(cell)] = true
 
 
+func _wash_ash(changed: Dictionary) -> void:
+    # Дождевой сток переносит уже существующую золу вниз по суше.
+    # Вода и затопленные клетки пока не принимают осадок: отдельная
+    # модель речной взвеси не должна появляться как побочный эффект.
+    var outgoing := {}
+    var incoming := {}
+    var source_dates := {}
+    var indices: Array[int] = []
+    for key in _scorched.keys():
+        indices.append(int(key))
+    indices.sort()
+
+    for index in indices:
+        var runoff: float = surface.runoff_at_index(index)
+        if runoff < 0.35:
+            continue
+        var cell := Vector2i(index % world.config.width,
+            index / world.config.width)
+        var origin_height: float = world.height_at(
+            Vector2(cell) + Vector2(0.5, 0.5))
+        if not is_finite(origin_height):
+            continue
+
+        # Берём единственный наиболее низкий соседний участок.
+        # Обход всегда в одном порядке: одинаковый seed и дождь
+        # дают одинаковые результаты вне зависимости от FPS.
+        var destination := -1
+        var lowest := origin_height - 0.02
+        for offset in [
+                Vector2i(1, 0), Vector2i(0, 1),
+                Vector2i(-1, 0), Vector2i(0, -1)]:
+            var next: Vector2i = cell + offset
+            if not world.config.contains_cell(next):
+                continue
+            var target_index: int = hydro.cell_index(next)
+            if hydro.has_water(target_index) or hydro.flooded_at(target_index):
+                continue
+            var height: float = world.height_at(
+                Vector2(next) + Vector2(0.5, 0.5))
+            if is_finite(height) and height < lowest:
+                destination = target_index
+                lowest = height
+        if destination < 0:
+            continue
+
+        # Перенос в один проход не может увеличить массу золы.
+        # Входящие порции учитываем заранее, чтобы два соседа
+        # не переполнили одну принимающую клетку.
+        var existing := int(_scorched.get(destination, {}).get("ash", 0))
+        var capacity := 1000 - existing - int(incoming.get(destination, 0))
+        if capacity <= 0:
+            continue
+        if not _scorched.has(destination) \
+                and _scorched.size() + incoming.size() >= MAX_SCORCHED_CELLS:
+            continue
+        var request := mini(int(_scorched[index]["ash"]),
+            clampi(roundi(runoff * 65.0), 0, 160))
+        var amount := mini(request, maxi(0, capacity))
+        if amount <= 0:
+            continue
+        outgoing[index] = amount
+        incoming[destination] = int(incoming.get(destination, 0)) + amount
+        source_dates[destination] = maxi(
+            int(source_dates.get(destination, 0)),
+            int(_scorched[index]["last_burn"]))
+        changed[world.config.chunk_of(cell)] = true
+        var target_cell := Vector2i(destination % world.config.width,
+            destination / world.config.width)
+        changed[world.config.chunk_of(target_cell)] = true
+        _record("зольный сток", -1, cell)
+
+    # Все исходящие порции списываются до входящих. Зола,
+    # перенесённая сегодня, не сможет переместиться второй раз
+    # в рамках тех же физических суток.
+    for index in outgoing.keys():
+        var entry: Dictionary = _scorched[index]
+        entry["ash"] = int(entry["ash"]) - int(outgoing[index])
+        if int(entry["ash"]) <= 0:
+            _scorched.erase(index)
+        else:
+            _scorched[index] = entry
+    for index in incoming.keys():
+        var entry: Dictionary = _scorched.get(index, {})
+        entry["ash"] = int(entry.get("ash", 0)) + int(incoming[index])
+        entry["last_burn"] = maxi(int(entry.get("last_burn", 0)),
+            int(source_dates[index]))
+        _scorched[index] = entry
+
+
 static func litter_spread_chance(dryness: float,
         gust: float, wind_alignment: float) -> float:
     # Ветер поднимает вероятность по потоку. Встречный поток
@@ -387,6 +476,9 @@ func advance_day(day: int, strikes: Array = [],
     # не исчезает в тот же физический день, когда образовался.
     var ground_changed := {}
     _recover_ground(ground_changed)
+    # Сначала естественная убыль золы, затем дождевой перенос.
+    # Масса при переносе остаётся на суше без нового источника пепла.
+    _wash_ash(ground_changed)
     _advance_litter(ground_changed)
     for id in burning_ids():
         var item: Dictionary = nature.object_at(id)
