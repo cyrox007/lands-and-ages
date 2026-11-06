@@ -534,6 +534,10 @@ func _damage_from_events(hazards: Array[Dictionary],
     var events: Array[Dictionary] = []
     for event in hazards:
         var kind := str(event.get("kind", ""))
+        # Пыльная буря переносит осадочный грунт в Surface, а не
+        # валит деревья и не превращает лес в сухостой без ветровала.
+        if kind == "пыльная буря":
+            continue
         var squall := kind == "шквал"
         var hurricane := kind == "ураган"
         var tornado := kind == "смерч"

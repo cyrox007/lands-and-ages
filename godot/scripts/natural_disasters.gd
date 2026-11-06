@@ -14,7 +14,7 @@ const DIRECTIONS := [
 	Vector2i(-1, 0), Vector2i(1, 0),
 	Vector2i(0, -1), Vector2i(0, 1)
 ]
-const KINDS := ["шторм", "шквал", "ураган", "смерч", "паводок", "засуха", "лавина",
+const KINDS := ["шторм", "шквал", "ураган", "смерч", "пыльная буря", "паводок", "засуха", "лавина",
 	"сель", "оползень", "землетрясение"]
 
 var world: RefCounted
@@ -145,6 +145,16 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 		clampf((storm - 0.65) / 0.30, 0.0, 1.0)
 	if covered:
 		tornado_risk = 0.0
+	# Пыль поднимается над сухим открытым рыхлым грунтом.
+	# Вода, снег и дождь гасят риск, даже при сильном порыве.
+	var dust_risk := clampf((wind - 15.0) / 14.0, 0.0, 1.0) \
+		* clampf((0.27 - moisture) / 0.22, 0.0, 1.0) \
+		* clampf((0.09 - snow) / 0.09, 0.0, 1.0) \
+		* clampf((0.13 - liquid) / 0.13, 0.0, 1.0) \
+		* clampf(depth / 0.65, 0.0, 1.0)
+	if covered or not surface.exposed_at_index(i) \
+			or surface.frost_at_index(i) >= 0.55:
+		dust_risk = 0.0
 	var flood_risk := clampf(hydro.flood_depth_at(i) / 0.45, 0.0, 1.0)
 	var drought_risk := clampf((0.32 - moisture) / 0.32, 0.0, 1.0) \
 		* clampf((air - 15.0) / 17.0, 0.0, 1.0) \
@@ -165,7 +175,7 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 	return {
 		"шторм": storm_risk, "шквал": squall_risk,
 		"ураган": hurricane_risk, "смерч": tornado_risk,
-		"паводок": flood_risk,
+		"пыльная буря": dust_risk, "паводок": flood_risk,
 		"засуха": drought_risk, "лавина": avalanche_risk,
 		"сель": mudflow_risk, "оползень": slide_risk,
 		"землетрясение": fault_risk_at(cell),
@@ -204,6 +214,60 @@ func _record(kind: String, cell: Vector2i, severity: float,
 	last_events.append(event)
 	total_events += 1
 	disaster_occurred.emit(event.duplicate())
+
+
+func dust_source_ready(cell: Vector2i) -> bool:
+	# Единое правило для естественного зарождения и кнопки испытания:
+	# скала, вода, снег и влажная поверхность не могут дать пыль.
+	if not world.config.contains_cell(cell):
+		return false
+	var index: int = hydro.cell_index(cell)
+	if hydro.has_water(index) or not surface.exposed_at_index(index):
+		return false
+	if surface.moisture_at_index(index) >= 0.27 \
+			or surface.snow_at_index(index) >= 0.09 \
+			or surface.frost_at_index(index) >= 0.55:
+		return false
+	return surface.soil_depth_at_index(index) >= 0.06
+
+
+func apply_dust_storm(cell: Vector2i, severity: float) -> Dictionary:
+	# Применяем настоящий перенос осадочного материала, не создавая
+	# новую массу и не изменяя объекты GPU. Каждая пара исходной и
+	# конечной клеток проходит через общий Surface.transfer_sediment.
+	if not dust_source_ready(cell):
+		return {}
+	var direction: Vector2 = climate.wind_direction_at_index(
+		hydro.cell_index(cell))
+	if direction.length_squared() < 0.000001:
+		return {}
+	var forward := Vector2i(roundi(direction.x * 3.0),
+		roundi(direction.y * 3.0))
+	var side := Vector2i(-roundi(direction.y), roundi(direction.x))
+	if forward == Vector2i.ZERO:
+		return {}
+	var amount := clampf(severity * 0.014, 0.004, 0.014)
+	var moved := 0
+	for lane in [0, -1, 1]:
+		# Ограничиваем работу тремя полосами. Это не обход всей карты
+		# и не дорогостоящая глобальная симуляция пылевых частиц.
+		var source: Vector2i = cell + side * lane
+		var target: Vector2i = source + forward
+		if not dust_source_ready(source) \
+				or not world.config.contains_cell(target):
+			continue
+		if hydro.has_water(hydro.cell_index(target)):
+			continue
+		if surface.transfer_sediment(source, target, amount):
+			moved += 1
+	if moved == 0:
+		return {}
+	# Не превышаем допустимый объём 0.05 в формате событий v1:
+	# максимум 3 × 0.014 = 0.042, версия сохранений не меняется.
+	return {
+		"vertices": moved * 2,
+		"sediment_volume": float(moved) * amount
+	}
 
 
 func _slope_event(kind: String, cell: Vector2i, risk: float) -> Dictionary:
@@ -256,6 +320,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 	# Шторм, паводок, засуха и напряжение обновляются ежедневно.
 	var check_slopes := day % 5 == 0 or day % 7 == 0 or day % 19 == 0
 	var terrain_changed := false
+	var dust_occurred := false
 	for ry in range(dimensions.y):
 		for rx in range(dimensions.x):
 			var index := ry * dimensions.x + rx
@@ -264,6 +329,7 @@ func advance_day(day: int) -> Array[Dictionary]:
 			var squall: Dictionary = found["шквал"]
 			var hurricane: Dictionary = found["ураган"]
 			var tornado: Dictionary = found["смерч"]
+			var dust: Dictionary = found["пыльная буря"]
 			var flood: Dictionary = found["паводок"]
 			var drought: Dictionary = found["засуха"]
 			_storms[index] = _streak(_storms[index], storm["score"], 0.34)
@@ -297,6 +363,19 @@ func advance_day(day: int) -> Array[Dictionary]:
 					and Terrain.hash2(rx, ry,
 						world.config.world_seed + day * 79 + 4417) < 0.42:
 				_record("шквал", squall["cell"], squall["score"], 1)
+			# Одна пыльная буря за день: землёй распоряжается только
+			# Surface; событие записываем, только если грунт перенесён.
+			if not dust_occurred and last_events.size() < MAX_EVENTS_PER_DAY \
+					and float(dust["score"]) >= 0.65 \
+					and Terrain.hash2(rx, ry,
+						world.config.world_seed + day * 89 + 7321) < 0.45:
+				var dust_impact: Dictionary = apply_dust_storm(
+					dust["cell"], float(dust["score"]))
+				if not dust_impact.is_empty():
+					_record("пыльная буря", dust["cell"],
+						float(dust["score"]), 1, dust_impact)
+					dust_occurred = true
+					terrain_changed = true
 			if _floods[index] == 2:
 				_record("чрезвычайный паводок", flood["cell"],
 					flood["score"], _floods[index])

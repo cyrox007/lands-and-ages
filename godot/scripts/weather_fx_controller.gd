@@ -9,12 +9,14 @@ const SNOW_PARTICLES := 320
 var _rain: GPUParticles3D
 var _snow: GPUParticles3D
 var _gusts: GPUParticles3D
+var _dust: GPUParticles3D
 var _event_life := 0.0
 var _event_severity := 0.0
 var _event_direction := Vector2.ZERO
 var _event_squall := false
 var _event_hurricane := false
 var _event_tornado := false
+var _event_dust := false
 var _enabled := true
 var _last_state: Dictionary = {}
 var _quality := 1
@@ -37,6 +39,14 @@ func _ready() -> void:
 	gust_motion.spread = 12.0
 	gust_motion.initial_velocity_min = 9.0
 	gust_motion.initial_velocity_max = 18.0
+	# Отдельный фиксированный GPU-эмиттер для цветной низкой
+	# пылевой завесы; количество узлов не растёт с площадью мира.
+	_dust = _make_emitter("Пылевая завеса",
+		Color(0.73, 0.58, 0.35, 0.24),
+		Vector2(0.95, 0.46), 220, 13.0, 2.1)
+	var dust_motion: ParticleProcessMaterial = _dust.process_material
+	dust_motion.gravity = Vector3(0.0, 0.12, 0.0)
+	dust_motion.spread = 11.0
 
 
 func _process(delta: float) -> void:
@@ -50,6 +60,9 @@ func _process(delta: float) -> void:
 		_event_squall = false
 		_event_hurricane = false
 		_event_tornado = false
+		_event_dust = false
+		if _dust != null:
+			_dust.emitting = false
 
 
 func show_storm_event(severity: float, direction: Vector2,
@@ -60,6 +73,7 @@ func show_storm_event(severity: float, direction: Vector2,
 	_event_squall = false
 	_event_hurricane = false
 	_event_tornado = false
+	_event_dust = false
 	_event_severity = clampf(severity, 0.0, 1.0)
 	_event_direction = direction.normalized() if direction.length_squared() > 0.0 		else Vector2.RIGHT
 
@@ -86,6 +100,14 @@ func show_tornado_event(severity: float, direction: Vector2,
 	# физического смерча. Отрисовка не создаёт деревьям ущерб.
 	show_storm_event(severity, direction, duration)
 	_event_tornado = true
+
+
+func show_dust_storm_event(severity: float, direction: Vector2,
+		duration: float = 5.0) -> void:
+	# Цветное облако показываем только для уже перенесённого грунта.
+	# Эффект не меняет климат и не создаёт дополнительный осадок.
+	show_storm_event(severity, direction, duration)
+	_event_dust = true
 
 
 func _make_emitter(title: String, color: Color, size: Vector2,
@@ -142,6 +164,8 @@ func set_effects_enabled(enabled: bool) -> void:
 		_snow.emitting = false
 		if _gusts != null:
 			_gusts.emitting = false
+		if _dust != null:
+			_dust.emitting = false
 
 
 func sync_world(climate: RefCounted, world: RefCounted,
@@ -227,6 +251,17 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		_gusts.amount_ratio = maxf(_gusts.amount_ratio,
 			_event_severity * quality_factor)
 	_gusts.emitting = _enabled and _gusts.amount_ratio >= 0.08
+	# Сухая буря рисуется низко над грунтом. Ширина и число частиц
+	# зависят от приближения камеры и уровня качества, а не от FPS.
+	_dust.position = Vector3(center.x, altitude + 4.5, center.y)
+	var dust_motion: ParticleProcessMaterial = _dust.process_material
+	dust_motion.emission_box_extents = Vector3(distance * 0.78,
+		2.0, distance * 0.46)
+	dust_motion.direction = Vector3(airflow.x, 0.13, airflow.y).normalized()
+	_dust.seed = seed + 71
+	_dust.amount_ratio = _event_severity * quality_factor \
+		if _event_dust and _event_life > 0.0 else 0.0
+	_dust.emitting = _enabled and _dust.amount_ratio >= 0.08
 
 
 func debug_state() -> Dictionary:
