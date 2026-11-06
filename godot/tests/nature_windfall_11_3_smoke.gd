@@ -162,6 +162,45 @@ func _run() -> void:
     _check(restored.to_data() == nature.to_data(),
         "После загрузки совпадают деревья, ресурсы и даты")
 
+    # После частичного сбора бревно по-прежнему существует и должно
+    # сохранять ветровой угол. Полный сбор убирает геометрию ствола,
+    # иначе JSON v4 отклонит угол у пустого пня при следующей загрузке.
+    var harvested := Nature.new(world, hydro, surface, climate)
+    _check(harvested.load_data(saved),
+        "Для проверки сбора загружен отдельный сохранённый ветровал")
+    var stock: int = int(harvested.object_at(tree_id)["fallen_wood"])
+    _check(stock > 0, "После ветровала есть физическая древесина")
+    if stock > 1:
+        _check(harvested.take_fallen_wood(tree_id, 1),
+            "Частичный сбор реально уменьшает запас")
+        var partial: Dictionary = harvested.object_at(tree_id)
+        _check(int(partial["fallen_wood"]) == stock - 1
+            and int(partial["fall_angle_deg"]) == expected_angle
+            and not Geometry.log_footprint(partial, world.config).is_empty(),
+            "Неполный сбор оставляет угол и физическое бревно")
+    var remainder: int = int(harvested.object_at(tree_id)["fallen_wood"])
+    _check(harvested.take_fallen_wood(tree_id, remainder),
+        "Оставшуюся древесину можно полностью вывезти")
+    var empty_stump: Dictionary = harvested.object_at(tree_id)
+    _check(int(empty_stump["fallen_wood"]) == 0
+        and int(empty_stump["fall_angle_deg"]) == -1
+        and Geometry.log_footprint(empty_stump, world.config).is_empty(),
+        "После полного сбора нет ни бревна, ни устаревшего угла")
+    var clear_colliders := Collisions.create_chunk(world, harvested, chunk)
+    _check(_parts(clear_colliders, tree_id) == ["пень"],
+        "Коллизия бревна исчезла, коллизия пня осталась")
+    clear_colliders.free()
+
+    # Критическая регрессия: сохранение с пустым пнём должно
+    # приниматься тем же строгим загрузчиком без ослабления правил.
+    var harvested_save: Dictionary = JSON.parse_string(JSON.stringify(
+        harvested.to_data()))
+    var reloaded_harvest := Nature.new(world, hydro, surface, climate)
+    _check(reloaded_harvest.load_data(harvested_save),
+        "JSON после полного сбора ветровала успешно загружается")
+    _check(reloaded_harvest.to_data() == harvested.to_data(),
+        "Повторная загрузка сохраняет пень и отсутствие бревна")
+
     # Версия 3 хранила даты, но не знала направление. Старые карты
     # продолжают открываться с прежней геометрией лежащих брёвен.
     var old_snapshot: Dictionary = saved.duplicate(true)
