@@ -71,12 +71,16 @@ func _bank(world: RefCounted, hydro: RefCounted) -> Dictionary:
                 var ni: int = hydro.cell_index(next)
                 var next_height: float = world.height_at(
                     Vector2(next) + Vector2(0.5, 0.5))
-                if not is_finite(next_height) or next_height >= lowest:
+                if not is_finite(next_height) \
+                        or next_height >= height - 0.02:
                     continue
+                # Сухая клетка имеет приоритет даже в том случае,
+                # если дно соседней реки ещё ниже её высоты.
                 if not hydro.has_water(ni) and not hydro.flooded_at(ni):
                     has_lower_land = true
                     break
-                if hydro.river_at(ni) and hydro.has_water(ni):
+                if hydro.river_at(ni) and hydro.has_water(ni) \
+                        and next_height < lowest:
                     lowest = next_height
                     bank = next
             if not has_lower_land and bank.x >= 0:
