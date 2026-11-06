@@ -227,6 +227,13 @@ func _test_runner_and_fx() -> void:
         _check(event["kind"] == "пыльная буря" and event["cell"] == source,
             "Runner создал именно материальную пыльную бурю")
         moved = float(event["sediment_volume"])
+    if count != 1 or moved <= 0.0:
+        # При отказе показываем реальные условия, чтобы отличить
+        # мокрый грунт от отсутствующего подветренного приёмника.
+        printerr("11.3/V2.7 диагностика: клетка=", source,
+            " почва=", surface.profile_at(source),
+            " погода=", climate.weather_at(source),
+            " день=", climate.day, " событий=", count)
     _check(count == 1 and moved > 0.0 and runner.test_dust_cell.x < 0,
         "Физическое испытание переносит грунт ровно один раз")
 
