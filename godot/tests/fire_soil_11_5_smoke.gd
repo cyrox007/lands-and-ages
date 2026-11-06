@@ -73,7 +73,10 @@ func _day(models: Dictionary, day: int, moisture: float,
     surface._moisture.fill(moisture)
     surface._snow.fill(0.0)
     climate._rain.fill(0.0)
-    plants.advance_day(day, [], [], fire)
+    # GDScript различает Array и Array[Dictionary] даже тогда,
+    # когда контейнер пуст; суточный реестр принимает типизированный.
+    var events: Array[Dictionary] = []
+    plants.advance_day(day, events, events, fire)
 
 
 func _test_fertility() -> void:
@@ -160,6 +163,9 @@ func _test_fertility() -> void:
 
     # Отклоняем дубликаты и невалидные величины до замены реестра.
     var initial: Dictionary = fire.to_data()
+    if initial["soil_damage"].is_empty():
+        _check(false, "После горения существует сохраняемый ожог почвы")
+        return
     var duplicate: Dictionary = initial.duplicate(true)
     duplicate["soil_damage"].append(
         duplicate["soil_damage"][0].duplicate())
