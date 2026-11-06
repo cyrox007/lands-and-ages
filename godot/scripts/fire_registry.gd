@@ -3,9 +3,11 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 2
+const FORMAT_VERSION := 3
 const MAX_FIRES := 1024
 const MAX_SCORCHED_CELLS := 4096
+const MAX_EMBERS := 512
+const MAX_LITTER_FUEL := 360
 const ASH_RECOVERY_PER_DAY := 12
 const MAX_EVENTS_PER_DAY := 64
 
@@ -19,6 +21,7 @@ var total_ignitions := 0
 var last_events: Array[Dictionary] = []
 var _burning: Dictionary = {}
 var _scorched: Dictionary = {}
+var _embers: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -46,6 +49,32 @@ func burning_ids() -> Array[int]:
         ids.append(int(id))
     ids.sort()
     return ids
+
+
+func smolder_count() -> int:
+    return _embers.size()
+
+
+func is_smoldering(cell: Vector2i) -> bool:
+    # Тлеющий слой привязан к физической клетке, а не к дереву или FX.
+    if not world.config.contains_cell(cell):
+        return false
+    return _embers.has(hydro.cell_index(cell))
+
+
+func smolder_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
+    # Рендеру передаются лишь активные клетки в видимом чанке.
+    # Во всём мире остаётся ограниченное число записей подстилки.
+    var result: Array[Dictionary] = []
+    var rect: Rect2i = world.config.chunk_rect(chunk)
+    for y in range(rect.position.y, rect.end.y):
+        for x in range(rect.position.x, rect.end.x):
+            var cell := Vector2i(x, y)
+            if not is_smoldering(cell):
+                continue
+            var fuel: int = int(_embers[hydro.cell_index(cell)]["fuel"])
+            result.append({"cell": cell, "heat": float(fuel) / MAX_LITTER_FUEL})
+    return result
 
 
 func scorched_count() -> int:
@@ -115,6 +144,103 @@ func _recover_ground(changed: Dictionary) -> void:
         var cell := Vector2i(index % world.config.width,
             index / world.config.width)
         changed[world.config.chunk_of(cell)] = true
+
+
+static func litter_spread_chance(dryness: float,
+        gust: float, wind_alignment: float) -> float:
+    # Ветер поднимает вероятность по потоку. Встречный поток
+    # не распространяет тление против ветра, а мокрый грунт
+    # даёт ровно нулевую вероятность.
+    if dryness <= 0.0 or wind_alignment < -0.25:
+        return 0.0
+    return clampf(dryness * (0.08 + clampf(gust, 0.0, 60.0) / 90.0
+        + maxf(0.0, wind_alignment) * 0.28), 0.0, 0.90)
+
+
+func _ignite_litter(cell: Vector2i, changed: Dictionary) -> bool:
+    # Запас подстилки появляется из реального плодородия и лесного
+    # полога только при первом воспламенении сухой клетки. Сгоревший
+    # участок с пеплом не получает бесконечные порции топлива.
+    if not world.config.contains_cell(cell):
+        return false
+    var index: int = hydro.cell_index(cell)
+    if _embers.has(index) or _embers.size() >= MAX_EMBERS \
+            or _flammability(cell) < 0.20 or scorched_at(cell) > 0.15:
+        return false
+    var soil: Dictionary = surface.profile_at(cell)
+    if soil.is_empty() or soil.get("substrate", "") == "скала":
+        return false
+    var fertility: float = clampf(float(soil.get("fertility", 0.0)),
+        0.0, 1.0)
+    var canopy: float = nature.canopy_pressure_at(cell)
+    var cover: float = clampf(fertility * 0.35 + canopy * 0.40, 0.0, 1.0)
+    if cover < 0.15:
+        return false
+    _embers[index] = {
+        "fuel": clampi(roundi(60.0 + cover * 285.0),
+            60, MAX_LITTER_FUEL),
+        "since": last_day
+    }
+    changed[world.config.chunk_of(cell)] = true
+    _record("подстилка загорелась", -1, cell)
+    return true
+
+
+func _spread_litter(cell: Vector2i, source_index: int,
+        changed: Dictionary) -> void:
+    # Один тлеющий участок способен передать огонь максимум одной
+    # соседней клетке за сутки. Детерминированный хеш исключает
+    # зависимость результата от FPS, порядка рендера и чанков.
+    if _embers.size() >= MAX_EMBERS:
+        return
+    var wind: Vector2 = climate.wind_direction_at_index(source_index)
+    var gust: float = climate.wind_gust_at_index(source_index)
+    for offset in [
+            Vector2i(1, 0), Vector2i(0, 1),
+            Vector2i(-1, 0), Vector2i(0, -1)]:
+        var next: Vector2i = cell + offset
+        if not world.config.contains_cell(next):
+            continue
+        var probability := litter_spread_chance(_flammability(next),
+            gust, wind.dot(Vector2(offset)))
+        if Terrain.hash2(next.x, next.y, world.config.world_seed
+                + last_day * 79 + source_index * 13) >= probability:
+            continue
+        if _ignite_litter(next, changed):
+            return
+
+
+func _advance_litter(changed: Dictionary) -> void:
+    # Обрабатываем снимок индексов, чтобы заново зажжённая соседняя
+    # клетка начала тлеть только на следующий день. Дождь и снег
+    # полностью гасят жар, но не обнуляют уже образовавшийся пепел.
+    var indices: Array[int] = []
+    for key in _embers.keys():
+        indices.append(int(key))
+    indices.sort()
+    for index in indices:
+        if not _embers.has(index):
+            continue
+        var cell := Vector2i(index % world.config.width,
+            index / world.config.width)
+        var dryness := _flammability(cell)
+        if dryness < 0.12:
+            _embers.erase(index)
+            changed[world.config.chunk_of(cell)] = true
+            _record("тление потушено", -1, cell)
+            continue
+        var state: Dictionary = _embers[index]
+        var heat := clampi(roundi(20.0 + dryness * 65.0), 20, 85)
+        state["fuel"] = maxi(0, int(state["fuel"]) - heat)
+        _scorch(cell, heat, changed)
+        _record("тление", -1, cell)
+        if int(state["fuel"]) == 0:
+            _embers.erase(index)
+            changed[world.config.chunk_of(cell)] = true
+            _record("угли остыли", -1, cell)
+            continue
+        _embers[index] = state
+        _spread_litter(cell, index, changed)
 
 
 func _flammability(cell: Vector2i) -> float:
@@ -261,6 +387,7 @@ func advance_day(day: int, strikes: Array = [],
     # не исчезает в тот же физический день, когда образовался.
     var ground_changed := {}
     _recover_ground(ground_changed)
+    _advance_litter(ground_changed)
     for id in burning_ids():
         var item: Dictionary = nature.object_at(id)
         if item.is_empty():
@@ -277,8 +404,9 @@ func advance_day(day: int, strikes: Array = [],
         var fuel: Dictionary = _burning[id]
         var heat := clampi(roundi(80.0 + dryness * 135.0), 40, 220)
         if nature.burn_object(id, heat, day):
-            # Зола привязана к клетке и переживёт естественный распад
-            # обгоревшего дерева или кустарника.
+            # До появления золы подхватываем сухую лесную подстилку,
+            # затем её запас расходуется независимо от живого ствола.
+            _ignite_litter(cell, ground_changed)
             _scorch(cell, heat, ground_changed)
         fuel["fuel"] = maxi(0, int(fuel["fuel"]) - heat)
         _record("горение", id, cell)
@@ -320,10 +448,19 @@ func to_data() -> Dictionary:
     for index in indices:
         var ash: Dictionary = _scorched[index]
         ash_entries.append([index, int(ash["ash"]), int(ash["last_burn"])])
+    var ember_entries := []
+    var ember_indices: Array[int] = []
+    for index in _embers.keys():
+        ember_indices.append(int(index))
+    ember_indices.sort()
+    for index in ember_indices:
+        var ember: Dictionary = _embers[index]
+        ember_entries.append([index, int(ember["fuel"]), int(ember["since"])])
     return {
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
-        "fires": entries, "scorched": ash_entries
+        "fires": entries, "scorched": ash_entries,
+        "embers": ember_entries
     }
 
 
@@ -337,10 +474,10 @@ func load_data(data: Dictionary) -> bool:
             or not is_finite(float(raw_version)):
         return false
     var version := int(raw_version)
-    # JSON восстанавливает 1 и 2 как 1.0/2.0: проверяем числовое
+    # JSON восстанавливает 1–3 как вещественные числа; проверяем
     # значение явно, иначе Array.has() сравнивает типы слишком строго.
     if float(version) != float(raw_version) \
-            or (version != 1 and version != FORMAT_VERSION):
+            or version not in [1, 2, FORMAT_VERSION]:
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -381,7 +518,7 @@ func load_data(data: Dictionary) -> bool:
     # Физический след проверяется целиком до изменения действующего
     # реестра: битые индексы, даты и дубли не портят текущую карту.
     var parsed_scorched := {}
-    if int(data["version"]) == FORMAT_VERSION:
+    if version >= 2:
         var marks: Variant = data.get("scorched")
         if not (marks is Array) or marks.size() > MAX_SCORCHED_CELLS:
             return false
@@ -403,8 +540,35 @@ func load_data(data: Dictionary) -> bool:
             parsed_scorched[index] = {
                 "ash": ash, "last_burn": burned_on
             }
+    # Тление — самостоятельный сохраняемый реестр. Старые v1/v2
+    # не содержали углей и продолжают загружаться с пустым слоем.
+    var parsed_embers := {}
+    if version == FORMAT_VERSION:
+        var raw_embers: Variant = data.get("embers")
+        if not (raw_embers is Array) or raw_embers.size() > MAX_EMBERS:
+            return false
+        for mark in raw_embers:
+            if not (mark is Array) or mark.size() != 3:
+                return false
+            for value in mark:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)):
+                    return false
+            var cell_index := int(mark[0])
+            var fuel := int(mark[1])
+            var since := int(mark[2])
+            if cell_index < 0 \
+                    or cell_index >= world.config.width * world.config.height \
+                    or parsed_embers.has(cell_index) or fuel <= 0 \
+                    or fuel > MAX_LITTER_FUEL or since < 0 or since > day:
+                return false
+            parsed_embers[cell_index] = {
+                "fuel": fuel, "since": since
+            }
     _burning = parsed
     _scorched = parsed_scorched
+    _embers = parsed_embers
     last_day = day
     total_ignitions = total
     last_events.clear()

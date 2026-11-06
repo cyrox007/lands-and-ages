@@ -1735,8 +1735,11 @@ func _update_hud() -> void:
 		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
 	_status.text += "%s\n" % _weather_status
 	if _fire != null:
-		_status.text += "Огонь: очагов %d · возгораний всего %d\n" % [
-			_fire.burning_count(), _fire.total_ignitions]
+		# Тление живёт отдельно от пламени: после выгорания дерева
+		# остаточный жар подстилки остаётся на карте до тушения.
+		_status.text += "Огонь: очагов %d · тлеет %d · возгораний %d\n" % [
+			_fire.burning_count(), _fire.smolder_count(),
+			_fire.total_ignitions]
 	_status.text += "%s · событий всего %d\n" % [
 		_disaster_status, _natural_disasters.total_events]
 	_status.text += "%s\n" % _process_status
