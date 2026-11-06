@@ -78,7 +78,7 @@ func _test_physics_and_save() -> void:
     var id := int(chosen["id"])
     var cell := Vector2i(int(chosen["x"]), int(chosen["y"]))
     var chunk: Vector2i = world.config.chunk_of(cell)
-    var original_wood := nature.wood_total()
+    var original_wood: int = nature.wood_total()
 
     climate.set_day(2)
     surface.advance_climate_day(climate)
@@ -148,7 +148,7 @@ func _test_physics_and_save() -> void:
     surface._snow.fill(0.0)
     climate._rain.fill(0.0)
     nature.advance_day(3)
-    var before_burn := nature.object_at(id)
+    var before_burn: Dictionary = nature.object_at(id)
     var total_before_burn: int = nature.wood_total()
     fire.advance_day(3)
     var after_burn: Dictionary = nature.object_at(id)
