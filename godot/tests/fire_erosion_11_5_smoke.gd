@@ -1,5 +1,5 @@
 extends SceneTree
-## 11.5/F5a: выгоревшая земля повышает риск реальной эрозии.
+## 11.5/F5a–F5b2a: зола и устойчивый ожог повышают риск эрозии.
 
 const Config = preload("res://scripts/world_config.gd")
 const Map = preload("res://scripts/world_map.gd")
@@ -86,11 +86,13 @@ func _test_burned_slope() -> void:
     _check(float(natural.estimate_at(cell)["fire_exposure"]) == 0.0,
         "В старом мире без пожаров риск не содержит фиктивной гари")
 
-    # Сохраняемый пепел — единственный источник усиления эрозии.
-    # Не подменяем рельеф, влажность или скорость ветра ради теста.
+    # Один пожар оставляет независимые следы золы и ожога.
+    # Рельеф, влажность и скорость ветра ради теста не меняются.
     var saved: Dictionary = fire.to_data()
     saved["scorched"] = [[index, 1000, 1]]
-    _check(fire.load_data(saved), "Зола загружена через строгий формат v3")
+    saved["soil_damage"] = [[index, 850, 1]]
+    _check(fire.load_data(saved),
+        "Зола и ожог загружены через строгий формат v4")
     var runner := Runner.new(world, hydro, surface, climate,
         Weather.new(world, climate, surface, hydro),
         natural, Disasters.new(world, hydro, surface, climate),
@@ -133,14 +135,41 @@ func _test_burned_slope() -> void:
                     - float(burned[kind])) < 0.00001,
                 "После загрузки сохраняется связь огня и риска эрозии")
 
-    # Убрав зольный слой при неизменных погоде, воде и рельефе,
-    # получаем прежнюю оценку без остаточного коэффициента.
+    # Дождь смывает пепел, но оставляет обожжённую почву.
+    # Риск должен снижаться постепенно, а не исчезать за сутки.
     saved["scorched"] = []
-    _check(fire.load_data(saved), "Восстановленный грунт принят реестром")
+    _check(fire.load_data(saved), "Ожог без золы принят реестром")
+    var after_runoff: Dictionary = natural.estimate_at(cell)
+    _check(fire.scorched_at(cell) == 0.0
+        and absf(fire.soil_damage_at(cell) - 0.85) < 0.00001
+        and absf(float(after_runoff["fire_exposure"]) - 0.85) < 0.00001,
+        "Смыв золы не удаляет физическое повреждение почвы")
+    _check(float(after_runoff[kind]) > base + 0.00001
+        and float(after_runoff[kind]) < float(burned[kind]),
+        "Сохраняется промежуточный риск до регенерации грунта")
+
+    # Проверяем длительный след и после полной загрузки мира.
+    var washed_snapshot: Dictionary = Save.capture(state)
+    _check(not washed_snapshot.is_empty(),
+        "Мир без золы, но с почвенным ожогом сохраняется")
+    if not washed_snapshot.is_empty():
+        var washed_world: Dictionary = Save.restore(
+            JSON.parse_string(JSON.stringify(washed_snapshot)))
+        _check(not washed_world.is_empty(),
+            "Мир после зольного смыва загружается")
+        if not washed_world.is_empty():
+            var risk_after_load: Dictionary = washed_world["natural"].estimate_at(cell)
+            _check(absf(float(risk_after_load[kind])
+                - float(after_runoff[kind])) < 0.00001,
+                "Ожог продолжает влиять на эрозию после загрузки")
+
+    # Только восстановление обоих следов возвращает исходный риск.
+    saved["soil_damage"] = []
+    _check(fire.load_data(saved), "Зажившая почва принята реестром")
     var recovered: Dictionary = natural.estimate_at(cell)
     _check(absf(float(recovered[kind]) - base) < 0.00001
         and float(recovered["fire_exposure"]) == 0.0,
-        "После исчезновения гари риск возвращается к исходному")
+        "После восстановления почвы риск возвращается к исходному")
     natural.fire = null
     _check(absf(float(natural.estimate_at(cell)[kind]) - base) < 0.00001,
         "Мир без системы пожаров продолжает прежнюю физику")

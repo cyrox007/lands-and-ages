@@ -50,13 +50,17 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 	var runoff: float = surface.runoff_at_index(i)
 	var flow: float = hydro.discharge_at_index(i)
 	var resistant := 0.0 if surface.rock_at_index(i) else 1.0
-	# После пожара подстилка перестаёт удерживать верхний грунт.
-	# Слой золы уже сохранён в FireRegistry, отдельный источник
-	# риска не требуется. Восстановление золы снижает риск обратно.
-	var ash_exposure := 0.0
+	# Пепел может уйти с дождевым стоком раньше восстановления
+	# повреждённой почвы. Оба физических следа пожара повышают
+	# уязвимость грунта независимо от камеры и текущих эффектов.
+	var fire_exposure := 0.0
 	if fire != null:
-		ash_exposure = clampf(fire.scorched_at(cell), 0.0, 1.0)
-	var exposure_multiplier := 1.0 + ash_exposure * 0.75
+		var ash_exposure: float = clampf(fire.scorched_at(cell), 0.0, 1.0)
+		var soil_exposure: float = clampf(fire.soil_damage_at(cell), 0.0, 1.0)
+		# Берём более сильный след вместо суммы: двойной учёт одного
+		# пожара не должен увеличивать предел риска свыше 1.75.
+		fire_exposure = maxf(ash_exposure, soil_exposure)
+	var exposure_multiplier := 1.0 + fire_exposure * 0.75
 	# Сопоставимая шкала рисков: речной поток может переносить грунт
 	# даже при небольшом уклоне, а не всегда проигрывать ветру.
 	var water_risk := clampf(2.5 * resistant \
@@ -106,7 +110,7 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 		"slide": slide_risk, "coast": coast_risk, "delta": delta_risk,
 		"downstream": next, "wind_target": east,
 		"coast_target": coast_target, "delta_target": delta_target,
-		"drop": drop, "fire_exposure": ash_exposure
+		"drop": drop, "fire_exposure": fire_exposure
 	}
 
 
