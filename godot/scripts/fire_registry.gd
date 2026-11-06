@@ -332,7 +332,15 @@ func load_data(data: Dictionary) -> bool:
     # Это защищает уже открытый мир от повреждённого JSON.
     # Версия F1 содержала только очаги. Её читаем без пепла,
     # чтобы не терять ранние миры после обновления игры.
-    if data.get("version") not in [1, FORMAT_VERSION]:
+    var raw_version: Variant = data.get("version")
+    if not (raw_version is int or raw_version is float) \
+            or not is_finite(float(raw_version)):
+        return false
+    var version := int(raw_version)
+    # JSON восстанавливает 1 и 2 как 1.0/2.0: проверяем числовое
+    # значение явно, иначе Array.has() сравнивает типы слишком строго.
+    if float(version) != float(raw_version) \
+            or (version != 1 and version != FORMAT_VERSION):
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
