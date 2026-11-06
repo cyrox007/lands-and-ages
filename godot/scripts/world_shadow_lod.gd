@@ -3,8 +3,8 @@ extends RefCounted
 ## Здесь нет обращений к физике — на удалённых чанках меняются
 ## исключительно свойства рендера, а не высоты и коллизии.
 
-const MAX_SHADOW_ZOOM := 76.0
-const FADE_START_ZOOM := 60.0
+const MAX_SHADOW_ZOOM := 62.0
+const FADE_START_ZOOM := 50.0
 const TERRAIN_RADIUS := 2
 const NATURE_RADIUS := 1
 
@@ -12,11 +12,11 @@ const NATURE_RADIUS := 1
 static func active(zoom: float, mode: int) -> bool:
 	## Полные тени включены только в природном режиме при ближнем
 	## масштабе. Диагностические виды и обзорная карта дешевле.
-	return is_finite(zoom) and zoom <= MAX_SHADOW_ZOOM and mode == 0
+	return is_finite(zoom) and zoom < MAX_SHADOW_ZOOM and mode == 0
 
 
 static func shadow_opacity_for_zoom(zoom: float, mode: int) -> float:
-	## Плавно скрываем геометрические тени до выключения карты на 76.
+	## Плавно скрываем геометрические тени до отсечки карты.
 	## Переход считается из абсолютного размера камеры: результат не
 	## зависит от порядка приближения и от количества кадров.
 	if not active(zoom, mode):
@@ -52,5 +52,5 @@ static func configure_chunk(chunk: Node3D, ground_casts: bool,
 	for child in forest.get_children():
 		# У рендера природы по одному MultiMesh на группу пород.
 		# Не создаём объекты света или тени для отдельных деревьев.
-		if child is GeometryInstance3D:
+		if child is GeometryInstance3D and child.name != "дым":
 			child.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON 				if nature_casts else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

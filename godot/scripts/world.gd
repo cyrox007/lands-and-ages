@@ -789,6 +789,8 @@ func _update_shadow_lod() -> void:
 		var opacity: float = ShadowLOD.shadow_opacity_for_zoom(zoom, _view_mode)
 		if _world_light.shadow_opacity != opacity:
 			_world_light.shadow_opacity = opacity
+			if _ground_material != null:
+				_ground_material.set_shader_parameter("geometry_shadow_opacity", opacity)
 		if _world_light.shadow_enabled != enabled:
 			_world_light.shadow_enabled = enabled
 	if _shadow_active == enabled and _shadow_center_chunk == center_chunk:

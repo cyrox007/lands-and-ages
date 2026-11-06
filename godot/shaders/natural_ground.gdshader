@@ -4,6 +4,7 @@ render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
 // Атласы CC0: по шесть PBR-покрытий. Веса берём из физической карты.
 uniform sampler2D terrain_albedo : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform sampler2D terrain_normal_roughness : filter_linear_mipmap_anisotropic, repeat_disable;
+uniform float geometry_shadow_opacity = 1.0;
 uniform float detail_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float macro_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float texture_density : hint_range(0.05, 2.0) = 0.35;
@@ -69,6 +70,7 @@ vec2 domain_warp(vec2 position, vec2 signal, float strength) {
 
 
 void add_layer(int material, float influence, vec3 position, vec3 normal,
+		vec3 dx, vec3 dy,
 		inout vec3 albedo_sum, inout vec3 bump_sum,
 		inout float roughness_sum) {
 	if (influence < 0.008) {
@@ -76,14 +78,17 @@ void add_layer(int material, float influence, vec3 position, vec3 normal,
 	}
 
 	vec2 uv = atlas_uv(position.xz, material);
-	vec3 albedo = texture(terrain_albedo, uv).rgb;
+	vec2 scale = vec2(3.0, 2.0);
+	vec2 dx_xz = dx.xz / scale;
+	vec2 dy_xz = dy.xz / scale;
+	vec3 albedo = textureGrad(terrain_albedo, uv, dx_xz, dy_xz).rgb;
 	// Вдали мелкая нормаль уже не участвует в освещении. Сохраняем
 	// типичную шероховатость покрытия без чтения атласа по каждому слою.
 	bool use_pbr_detail = detail_strength > 0.01;
 	float base_roughness = material == 5 ? 0.76 : 0.88;
 	vec3 packed = vec3(0.5, 0.5, base_roughness);
 	if (use_pbr_detail) {
-		packed = mix(packed, texture(terrain_normal_roughness, uv).rgb,
+		packed = mix(packed, textureGrad(terrain_normal_roughness, uv, dx_xz, dy_xz).rgb,
 			smoothstep(0.01, 0.20, detail_strength));
 	}
 
@@ -98,16 +103,20 @@ void add_layer(int material, float influence, vec3 position, vec3 normal,
 		tri /= max(tri.x + tri.y + tri.z, 0.0001);
 		vec2 uv_x = atlas_uv(position.zy, material);
 		vec2 uv_z = atlas_uv(position.xy, material);
-		vec3 color_x = texture(terrain_albedo, uv_x).rgb;
-		vec3 color_z = texture(terrain_albedo, uv_z).rgb;
+		vec2 dx_zy = dx.zy / scale;
+		vec2 dy_zy = dy.zy / scale;
+		vec2 dx_xy = dx.xy / scale;
+		vec2 dy_xy = dy.xy / scale;
+		vec3 color_x = textureGrad(terrain_albedo, uv_x, dx_zy, dy_zy).rgb;
+		vec3 color_z = textureGrad(terrain_albedo, uv_z, dx_xy, dy_xy).rgb;
 		vec3 packed_x = packed;
 		vec3 packed_z = packed;
 		if (use_pbr_detail) {
 			float pbr_detail = smoothstep(0.01, 0.20, detail_strength);
 			packed_x = mix(vec3(0.5, 0.5, base_roughness),
-				texture(terrain_normal_roughness, uv_x).rgb, pbr_detail);
+				textureGrad(terrain_normal_roughness, uv_x, dx_zy, dy_zy).rgb, pbr_detail);
 			packed_z = mix(vec3(0.5, 0.5, base_roughness),
-				texture(terrain_normal_roughness, uv_z).rgb, pbr_detail);
+				textureGrad(terrain_normal_roughness, uv_z, dx_xy, dy_xy).rgb, pbr_detail);
 		}
 		vec3 normal_x = vec3(0.0, packed_x.g * 2.0 - 1.0,
 			packed_x.r * 2.0 - 1.0);
@@ -173,20 +182,25 @@ void fragment() {
 		0.35 * detail_strength, 0.0, 1.0);
 	float sum = max(grass + soil + sand + rock + gravel + snow, 0.0001);
 
+	// Производные берём до fract и до ветвлений по материалам.
+	// Тогда на границе повторения атласа не возникает ложный скачок mip.
+	vec3 atlas_position = position * (texture_density * 368.0 / 384.0);
+	vec3 dx = dFdx(atlas_position);
+	vec3 dy = dFdy(atlas_position);
 	vec3 albedo_sum = vec3(0.0);
 	vec3 bump_sum = vec3(0.0);
 	float roughness_sum = 0.0;
-	add_layer(0, grass / sum, position, ground_world_normal,
+	add_layer(0, grass / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
-	add_layer(1, soil / sum, position, ground_world_normal,
+	add_layer(1, soil / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
-	add_layer(2, sand / sum, position, ground_world_normal,
+	add_layer(2, sand / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
-	add_layer(3, rock / sum, position, ground_world_normal,
+	add_layer(3, rock / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
-	add_layer(4, gravel / sum, position, ground_world_normal,
+	add_layer(4, gravel / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
-	add_layer(5, snow / sum, position, ground_world_normal,
+	add_layer(5, snow / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
 
 	// Небольшая геологическая слоистость на камнях, без смещения сетки.
@@ -223,7 +237,8 @@ void fragment() {
 	// L3: дешёвая панорамная светотень использует настоящую
 	// геометрическую нормаль и направление DirectionalLight3D.
 	// При приближении вклад плавно исчезает, не дублируя ближние тени.
-	float far_blend = clamp(1.0 - detail_strength, 0.0, 1.0);
+	float far_blend = mix(1.0 - detail_strength, 1.0,
+		0.65 * (1.0 - geometry_shadow_opacity));
 	float sun_facing = dot(normalize(ground_world_normal),
 		normalize(far_light_direction));
 	float slope_light = smoothstep(0.02, 0.78, sun_facing);

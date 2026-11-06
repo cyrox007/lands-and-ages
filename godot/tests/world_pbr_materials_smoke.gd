@@ -121,7 +121,7 @@ func _test_physical_weights() -> void:
 
 func _test_scene() -> void:
 	_check(GroundShader.code.contains("terrain_albedo")
-		and GroundShader.code.contains("texture(")
+		and GroundShader.code.contains("textureGrad(")
 		and GroundShader.code.contains("terrain_normal_roughness"),
 		"Шейдер выбирает реальные PBR-изображения")
 	_check(GroundShader.code.contains("ground_steepness") and

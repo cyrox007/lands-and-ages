@@ -53,6 +53,18 @@ func _ready() -> void:
 	_gusts = _make_emitter("Порывы ветра",
 		Color(0.83, 0.87, 0.76, 0.23),
 		Vector2(0.92, 0.035), 300, 16.0, 1.1)
+	# Прозрачные края порывов смягчают штрихи на фоне грунта.
+	var gust_gradient := Gradient.new()
+	gust_gradient.offsets = PackedFloat32Array([0.0, 0.42, 1.0])
+	gust_gradient.colors = PackedColorArray([
+		Color(1.0, 1.0, 1.0, 0.0), Color.WHITE, Color(1.0, 1.0, 1.0, 0.0)])
+	var gust_texture := GradientTexture2D.new()
+	gust_texture.width = 32
+	gust_texture.height = 1
+	gust_texture.gradient = gust_gradient
+	var gust_mesh := _gusts.draw_pass_1 as QuadMesh
+	var gust_material := gust_mesh.material as StandardMaterial3D
+	gust_material.albedo_texture = gust_texture
 	var gust_motion: ParticleProcessMaterial = _gusts.process_material
 	gust_motion.gravity = Vector3.ZERO
 	gust_motion.spread = 12.0
