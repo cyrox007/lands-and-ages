@@ -3,6 +3,7 @@ extends RefCounted
 ## Вне видимых чанков узлы/анимация не создаются.
 
 const Wind = preload("res://shaders/nature_wind.gdshader")
+const FireSmoke = preload("res://shaders/fire_smoke.gdshader")
 const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
 const Felling = preload("res://scripts/nature_felling_visual.gd")
@@ -31,6 +32,14 @@ static func set_wind_direction(direction: Vector2) -> void:
 static func _mesh(kind: String) -> Mesh:
     if _meshes.has(kind):
         return _meshes[kind]
+    if kind == "дым":
+        var quad := QuadMesh.new()
+        var smoke := ShaderMaterial.new()
+        smoke.shader = FireSmoke
+        smoke.set_shader_parameter("wind_direction", _wind_direction)
+        quad.material = smoke
+        _meshes[kind] = quad
+        return quad
     var mesh: PrimitiveMesh
     if kind == "зарубка":
         var mark := BoxMesh.new()
@@ -210,12 +219,14 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             # Огонь визуализируется только из реестра физических
             # очагов. При удалении камеры или загрузке не появляется
             # независимое вымышленное бедствие.
+            var fire_scale := 0.8 if item["kind"] == "кустарник" else 1.35
+            var fire_basis := Basis.IDENTITY.scaled(Vector3.ONE * fire_scale)
             _push(groups, "пламя",
-                Transform3D(Basis.IDENTITY.scaled(
-                    Vector3.ONE * (0.8 if item["kind"] == "кустарник"
-                    else 1.35)),
-                    origin + Vector3(0.0, 0.55, 0.0)),
+                Transform3D(fire_basis, origin + Vector3(0.0, 0.55, 0.0)),
                 Color(1.0, 0.38, 0.08), phase)
+            _push(groups, "дым",
+                Transform3D(fire_basis, origin + Vector3(0.0, 0.85, 0.0)),
+                Color.WHITE, phase, wind)
         if item["kind"] == "дерево":
             if state == "пень":
                 _push(groups, "пень",
@@ -421,5 +432,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             if legacy_wind != null:
                 node.material_override = legacy_wind
         node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+        if kind == "дым":
+            node.extra_cull_margin = 6.0
         result.add_child(node)
     return result

@@ -32,7 +32,7 @@ func _test_shadow_transitions(world: RefCounted) -> void:
 	view.add_child(camera)
 	view._camera = camera
 	var previous := 1.01
-	for zoom in [32.0, 58.0, 60.0, 64.0, 68.0, 72.0, 75.0, 76.0, 77.0, 96.0]:
+	for zoom in [32.0, 49.0, 50.0, 54.0, 58.0, 61.0, 62.0, 66.0, 96.0]:
 		camera.size = zoom
 		view._update_shadow_lod()
 		var opacity: float = view._world_light.shadow_opacity
@@ -44,10 +44,10 @@ func _test_shadow_transitions(world: RefCounted) -> void:
 		_check(view._world_light.shadow_enabled == Shadow.active(zoom, 0),
 			"Карты теней выключаются только после полного затухания")
 		previous = opacity
-	_check(is_equal_approx(Shadow.shadow_opacity_for_zoom(60.0, 0), 1.0)
-		and is_equal_approx(Shadow.shadow_opacity_for_zoom(76.0, 0), 0.0),
+	_check(is_equal_approx(Shadow.shadow_opacity_for_zoom(50.0, 0), 1.0)
+		and is_equal_approx(Shadow.shadow_opacity_for_zoom(62.0, 0), 0.0),
 		"На границах перехода непрерывны сила тени и дальний рельеф")
-	_check(Shadow.shadow_opacity_for_zoom(76.0 - 0.001, 0) < 0.00001,
+	_check(Shadow.shadow_opacity_for_zoom(62.0 - 0.001, 0) < 0.00001,
 		"Перед выключением карты нет резкого тёмного скачка")
 	_check(Shadow.shadow_opacity_for_zoom(48.0, 2) == 0.0,
 		"Диагностическая палитра не получает геометрические тени")
@@ -56,7 +56,7 @@ func _test_shadow_transitions(world: RefCounted) -> void:
 
 	# Поворот и перемещение камеры не должны изменить абсолютный
 	# коэффициент тени без смены зума или режима представления.
-	camera.size = 68.0
+	camera.size = 56.0
 	view._center = Vector2(14.0, 12.0)
 	view._update_shadow_lod()
 	var first: float = view._world_light.shadow_opacity

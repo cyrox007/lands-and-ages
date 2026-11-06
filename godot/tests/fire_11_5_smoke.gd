@@ -153,7 +153,7 @@ func _test_physics_and_save() -> void:
 
     var visible: Node3D = Renderer.create_chunk(
         world, nature, chunk, 1.0, fire)
-    _check(visible.get_node_or_null("пламя") != null,
+    _check(visible.get_node_or_null("пламя") != null and visible.has_node("дым"),
         "Физическое горение видно в чанке без отдельного очага FX")
     visible.free()
 
@@ -185,7 +185,7 @@ func _test_physics_and_save() -> void:
         "Мокрый грунт тушит горящий объект на следующий день")
     var empty_visual: Node3D = Renderer.create_chunk(
         world, nature, chunk, 1.0, fire)
-    _check(empty_visual.get_node_or_null("пламя") == null,
+    _check(empty_visual.get_node_or_null("пламя") == null and not empty_visual.has_node("дым"),
         "После тушения не остаётся фиктивного пламени")
     empty_visual.free()
     var unchanged: Dictionary = fire.to_data()
