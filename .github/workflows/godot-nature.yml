@@ -30,6 +30,7 @@ on:
       - "godot/tests/hurricane_11_3_smoke.gd"
       - "godot/tests/tornado_11_3_smoke.gd"
       - "godot/tests/dust_storm_11_3_smoke.gd"
+      - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
@@ -66,6 +67,7 @@ on:
       - "godot/tests/hurricane_11_3_smoke.gd"
       - "godot/tests/tornado_11_3_smoke.gd"
       - "godot/tests/dust_storm_11_3_smoke.gd"
+      - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
@@ -201,6 +203,18 @@ jobs:
             | tee /tmp/nature-dust.log
           grep -q "11.3/V2.7:.*успешно" /tmp/nature-dust.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-dust.log; then
+            exit 1
+          fi
+      - name: "11.3/V2.9 — воздействие ветра и пыли на кустарники"
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/shrub_weather_11_3_smoke.gd 2>&1 \
+            | tee /tmp/nature-shrubs-weather.log
+          grep -q "11.3/V2.9:.*успешно" /tmp/nature-shrubs-weather.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-shrubs-weather.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
