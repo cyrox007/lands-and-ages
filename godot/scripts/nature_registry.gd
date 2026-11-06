@@ -288,7 +288,7 @@ func ground_cover_at(cell: Vector2i,
         return 0.0
     # Выгоревшая земля медленно восстанавливает плодородие.
     # Старые вызовы без FireRegistry используют обычную почву.
-    var damage := fire.soil_damage_at(cell) if fire != null else 0.0
+    var damage: float = float(fire.soil_damage_at(cell)) if fire != null else 0.0
     var soil: Dictionary = surface.profile_at(cell, damage)
     if soil.is_empty():
         return 0.0
@@ -500,7 +500,7 @@ func _spread_seeds(day: int, changed: Dictionary,
             continue
         # Молодые деревья не расселяются на свежей выгоревшей
         # почве так же успешно, как на ещё плодородном участке.
-        var damage := fire.soil_damage_at(next) if fire != null else 0.0
+        var damage: float = float(fire.soil_damage_at(next)) if fire != null else 0.0
         var soil: Dictionary = surface.profile_at(next, damage)
         if float(soil.get("growth_potential", 0.0)) < 0.20 \
                 or float(soil.get("waterlogging", 0.0)) > 0.72:
@@ -860,7 +860,7 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
             stress += 24
         # После физического пожара корни и микрофлора восстанавливаются
         # по суточному слою почвенного ожога, а не по дымовым частицам.
-        var soil_scar := fire.soil_damage_at(cell) if fire != null else 0.0
+        var soil_scar: float = float(fire.soil_damage_at(cell)) if fire != null else 0.0
         if soil_scar > 0.0 and item["state"] == "целое":
             var sensitivity := 13.0 if int(item["age_days"]) < 7 * 96 else 6.0
             stress += roundi(soil_scar * sensitivity)
