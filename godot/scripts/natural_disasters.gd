@@ -152,7 +152,8 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 		* clampf((0.09 - snow) / 0.09, 0.0, 1.0) \
 		* clampf((0.13 - liquid) / 0.13, 0.0, 1.0) \
 		* clampf(depth / 0.65, 0.0, 1.0)
-	if covered or not surface.exposed_at_index(i):
+	if covered or not surface.exposed_at_index(i) \
+			or surface.frost_at_index(i) >= 0.55:
 		dust_risk = 0.0
 	var flood_risk := clampf(hydro.flood_depth_at(i) / 0.45, 0.0, 1.0)
 	var drought_risk := clampf((0.32 - moisture) / 0.32, 0.0, 1.0) \
@@ -224,7 +225,8 @@ func dust_source_ready(cell: Vector2i) -> bool:
 	if hydro.has_water(index) or not surface.exposed_at_index(index):
 		return false
 	if surface.moisture_at_index(index) >= 0.27 \
-			or surface.snow_at_index(index) >= 0.09:
+			or surface.snow_at_index(index) >= 0.09 \
+			or surface.frost_at_index(index) >= 0.55:
 		return false
 	return surface.soil_depth_at_index(index) >= 0.06
 
