@@ -1,5 +1,5 @@
 extends Node3D
-## Этап 11.0: лёгкий камерный рендер дождя и снега.
+## Этап 11.0: камерный рендер всех осадков, ветра и пылевых завес.
 ## Узел никогда не изменяет климат, грунт, гидрологию и природные объекты.
 
 const VisualState = preload("res://scripts/weather_visual_state.gd")
@@ -117,7 +117,11 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	# Всплеск строго ограничен временем и относится к уже случившемуся
 	# физическому событию. При скрытом режиме не изменяем модель ветра.
-	if _event_life <= 0.0:
+	if _event_life <= 0.0 or not is_finite(delta) or delta <= 0.0:
+		return
+	if is_inside_tree() and get_tree().paused:
+		# Игровая пауза не должна сокращать визуальную жизнь
+		# уже завершённого физического шторма.
 		return
 	_event_life = maxf(0.0, _event_life - delta)
 	if _event_life == 0.0 and _gusts != null:
@@ -225,17 +229,34 @@ func set_effects_enabled(enabled: bool) -> void:
 	## не останавливая суточные события, урон или изменения ландшафта.
 	_enabled = enabled
 	if not enabled and _rain != null:
-		_rain.emitting = false
-		_snow.emitting = false
-		for emitter in [_wet_snow, _hail, _splashes, _snowdrift]:
+		# Прячем уже рожденные частицы и остатки события:
+		# обычное emitting=false само по себе не гасит старый кадр.
+		for emitter in [_rain, _snow, _wet_snow, _hail,
+				_splashes, _snowdrift, _gusts, _dust]:
 			emitter.emitting = false
-			emitter.hide()
-		_rain.hide()
-		_snow.hide()
-		if _gusts != null:
-			_gusts.emitting = false
-		if _dust != null:
-			_dust.emitting = false
+			emitter.visible = false
+		_event_life = 0.0
+		_event_squall = false
+		_event_hurricane = false
+		_event_tornado = false
+		_event_dust = false
+
+
+func clear_visuals() -> void:
+	# После загрузки или замены мира запрещаем утечку старых
+	# масок фронта, эмиттеров и незавершённых штормовых эффектов.
+	# При следующем sync_world строится снимок нового Climate.
+	var was_enabled := _enabled
+	set_effects_enabled(false)
+	_last_state.clear()
+	_mask_climate = null
+	_mask_revision = -1
+	_mask_peak = Vector2.ZERO
+	_mask_special_peak = Vector2.ZERO
+	_mask_origin = Vector2.ZERO
+	# Оставляем настройку качества: это пользовательское предпочтение.
+	# Новую физику и сохранения этот сброс не затрагивает.
+	_enabled = was_enabled
 
 
 func sync_world(climate: RefCounted, world: RefCounted,
@@ -396,7 +417,9 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		# сохраняя установленный пользователем уровень качества.
 		_gusts.amount_ratio = maxf(_gusts.amount_ratio,
 			_event_severity * quality_factor)
+	_gusts.amount_ratio *= precipitation_lod
 	_gusts.emitting = _enabled and _gusts.amount_ratio >= 0.08
+	_gusts.visible = _gusts.emitting
 	# Сухая буря рисуется низко над грунтом. Ширина и число частиц
 	# зависят от приближения камеры и уровня качества, а не от FPS.
 	_dust.position = Vector3(center.x, altitude + 4.5, center.y)
@@ -407,7 +430,9 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	_dust.seed = world_seed + 71
 	_dust.amount_ratio = _event_severity * quality_factor \
 		if _event_dust and _event_life > 0.0 else 0.0
+	_dust.amount_ratio *= precipitation_lod
 	_dust.emitting = _enabled and _dust.amount_ratio >= 0.08
+	_dust.visible = _dust.emitting
 
 
 func _apply_precipitation_details(state: Dictionary, center: Vector2,

@@ -25,8 +25,7 @@ const LandscapeEvents = preload("res://scripts/landscape_events.gd")
 const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
-const WeatherFX = preload("res://scripts/weather_fx_controller.gd")
-const LightningFX = preload("res://scripts/lightning_fx_controller.gd")
+const Atmosphere = preload("res://scripts/weather_atmosphere_controller.gd")
 const WeatherLighting = preload("res://scripts/weather_lighting_state.gd")
 const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
@@ -79,6 +78,8 @@ var _sky_environment: Environment
 var _shadow_center_chunk := Vector2i(-100000, -100000)
 var _shadow_active := false
 var _shadow_quality := 1
+var _atmosphere_quality := 1
+var _atmosphere: Node3D
 var _lightning_life := 0.0
 var _weather_fx: Node3D
 var _weather_fx_cooldown := 0.0
@@ -238,11 +239,15 @@ func _ready() -> void:
 		_display_camera.make_current()
 		_loading_label.text = "Собираем первый вид"
 		_loading_progress.indeterminate = false
-	# Атмосферный рендер живёт отдельно от физики и чанков карты.
-	_weather_fx = WeatherFX.new()
-	_weather_fx.name = "Атмосферные эффекты"
-	add_child(_weather_fx)
-	_weather_fx.sync_world(_climate, _world_model, _center, _camera.size)
+	# Общая оболочка владеет эффектами погоды, молниями и громом.
+	# Вся физика по-прежнему живёт отдельно в Climate/WeatherEvents.
+	_atmosphere = Atmosphere.new()
+	_atmosphere.name = "Контроллер атмосферы"
+	add_child(_atmosphere)
+	_weather_fx = _atmosphere.precipitation
+	_lightning_fx = _atmosphere.lightning
+	_atmosphere.set_quality(_atmosphere_quality)
+	_atmosphere.sync_world(_climate, _world_model, _center, _camera.size)
 	_sync_water_weather()
 	_setup_interface()
 	_refresh_visible(true)
@@ -325,11 +330,6 @@ func _setup_environment() -> void:
 	_lightning_light.light_energy = 5.0
 	_lightning_light.visible = false
 	add_child(_lightning_light)
-	# Канал разряда, повторная вспышка и отложенный гром — только
-	# представление подтверждённого WeatherEvents события.
-	_lightning_fx = LightningFX.new()
-	_lightning_fx.name = "Визуальные молнии и гром"
-	add_child(_lightning_fx)
 	# Настоящий направленный свет создаём один раз. Карта теней
 	# включается только в ближнем масштабе через ShadowLOD.
 	_world_light = DirectionalLight3D.new()
@@ -438,6 +438,14 @@ func _setup_interface() -> void:
 	shadow_quality.select(_shadow_quality)
 	shadow_quality.item_selected.connect(_set_shadow_quality)
 	_debug_details.add_child(shadow_quality)
+	# Атмосферный профиль регулирует все GPU-частицы и число
+	# одновременных молний, независимо от качества теней.
+	var weather_quality := OptionButton.new()
+	for name in Atmosphere.QUALITY_NAMES:
+		weather_quality.add_item("Атмосфера · " + name)
+	weather_quality.select(_atmosphere_quality)
+	weather_quality.item_selected.connect(_set_atmosphere_quality)
+	_debug_details.add_child(weather_quality)
 	var benchmark_button := Button.new()
 	benchmark_button.text = "Измерить производительность камеры (8.8)"
 	benchmark_button.pressed.connect(_run_device_benchmark)
@@ -506,10 +514,6 @@ func _process(delta: float) -> void:
 	_record_frame(delta)
 	_advance_water_animation(delta)
 	_advance_weather_lighting(delta)
-	if _lightning_life > 0.0:
-		_lightning_life -= delta
-		if _lightning_life <= 0.0:
-			_lightning_light.visible = false
 	var movement := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
 		movement.x -= 1.0
@@ -569,14 +573,15 @@ func _process(delta: float) -> void:
 		_sync_nature_colliders()
 		# Пока физическая задача работает в потоке, климат не читаем.
 		# Снимок осадков обновляем редко, не при каждом графическом кадре.
-		if _weather_fx != null:
+		if _atmosphere != null:
 			_weather_fx_cooldown -= delta
 			if _weather_fx_cooldown <= 0.0:
-				_weather_fx.set_effects_enabled(
+				# Скрытие частиц и грома не отменяет физическую погоду.
+				_atmosphere.set_effects_enabled(
 					_view_mode == 0 and not _benchmark_running)
 				var weather_center := _display_center if _display_camera != null else _center
 				var weather_zoom := _display_camera.size if _display_camera != null else _camera.size
-				_weather_fx.sync_world(_climate, _world_model, weather_center, weather_zoom)
+				_atmosphere.sync_world(_climate, _world_model, weather_center, weather_zoom)
 				_sync_water_weather()
 				_weather_fx_cooldown = 0.35
 	# Обновление мешей откладывается до конца перемотки,
@@ -790,6 +795,15 @@ func _render_zoom() -> float:
 func _set_shadow_quality(preset: int) -> void:
 	_shadow_quality = clampi(preset, 0, 2)
 	_update_shadow_lod()
+
+
+func _set_atmosphere_quality(preset: int) -> void:
+	# Переключение графического профиля обновляет только GPU и звук.
+	# Очередь игровых дней, сохранения и физические параметры не меняем.
+	_atmosphere_quality = clampi(preset, 0, 2)
+	if _atmosphere != null:
+		_atmosphere.set_quality(_atmosphere_quality)
+	_weather_fx_cooldown = 0.0
 
 
 func _contact_shadow_direction() -> Vector2:
@@ -1660,8 +1674,8 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_lightning_light.visible = false
 	# При загрузке история физических ударов остаётся в WeatherEvents,
 	# но визуальные кадры и гром прошлого дня не воспроизводятся.
-	if _lightning_fx != null:
-		_lightning_fx.clear(_weather_events.last_day)
+	if _atmosphere != null:
+		_atmosphere.clear_after_load(_weather_events.last_day)
 	_weather_status = "Молний всего %d" % _weather_events.total_strikes
 	_disaster_status = "Стихийных событий всего %d" % _natural_disasters.total_events
 	_process_status = "Природные процессы восстановлены до дня %d" % \
@@ -1754,18 +1768,12 @@ func _complete_day(result: Dictionary) -> void:
 		var visible_zoom: float = _display_camera.size \
 			if _display_camera != null else _camera.size
 		var allow_fx := _view_mode == 0 and _days_pending <= 1
-		var shown := 0
-		if _lightning_fx != null:
-			shown = _lightning_fx.show_strikes(strikes, _world_model,
+		if _atmosphere != null:
+			# Единственный путь к графике разряда: координирующий узел.
+			# Не включаем старый дополнительный свет для первого
+			# удара — он мог находиться далеко от видимой камеры.
+			_atmosphere.show_lightning(strikes, _world_model,
 				visible_camera, visible_zoom, int(result["day"]), allow_fx)
-		if shown > 0:
-			# Старый источник света оставлен совместимым с L4-тестами.
-			# Позицию берём только у настоящего удара вблизи камеры.
-			var point := Vector2(hit) + Vector2(0.5, 0.5)
-			_lightning_light.position = _world_model.config.to_scene(point,
-				_world_model.height_at(point) + 8.0)
-			_lightning_light.visible = true
-			_lightning_life = 0.28
 	var fire_events: Array[Dictionary] = result.get("fire_events", [])
 	if not fire_events.is_empty():
 		var fire_last: Dictionary = fire_events[fire_events.size() - 1]
@@ -1813,21 +1821,8 @@ func _complete_day(result: Dictionary) -> void:
 			continue
 		var direction: Vector2 = _climate.wind_direction_at_index(
 			_hydro.cell_index(storm_cell))
-		if wind_kind == "шквал":
-			_weather_fx.show_squall_event(
-				float(hazard["severity"]), direction)
-		elif wind_kind == "ураган":
-			_weather_fx.show_hurricane_event(
-				float(hazard["severity"]), direction)
-		elif wind_kind == "смерч":
-			_weather_fx.show_tornado_event(
-				float(hazard["severity"]), direction)
-		elif wind_kind == "пыльная буря":
-			_weather_fx.show_dust_storm_event(
-				float(hazard["severity"]), direction)
-		else:
-			_weather_fx.show_storm_event(
-				float(hazard["severity"]), direction)
+		if _atmosphere != null:
+			_atmosphere.show_hazard(hazard, direction)
 	if bool(result.get("dust_test_failed", false)):
 		# Фактический снег и дождь имеют приоритет над кнопкой
 		# испытания; пользователь видит, почему грунт не перенесён.

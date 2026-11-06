@@ -131,7 +131,12 @@ func _run() -> void:
 	var events: Array[Dictionary] = [hit]
 	_check(fx.show_strikes(events, map, Vector2(16, 12), 52, 7) == 1,
 		"Для съёмки запущен именно зарегистрированный удар")
+	# Программный OpenGL может тратить на кадр больше 0.28 с:
+	# фиксируем фазу вспышки именно для контрольного PNG.
+	# В реальной игре _process продолжает анимацию как прежде.
+	fx.set_process(false)
 	var after: Image = await _save_capture(folder, "разряд")
+	fx.set_process(true)
 	var changed := _pixel_difference(before, after)
 	_check(changed >= 15,
 		"Молния и свет должны менять изображение заметно")
