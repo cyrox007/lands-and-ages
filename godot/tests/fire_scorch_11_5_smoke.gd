@@ -88,7 +88,7 @@ func _test_persistent_ash() -> void:
         return
     var id := int(chosen["id"])
     var cell := Vector2i(int(chosen["x"]), int(chosen["y"]))
-    var chunk := world.config.chunk_of(cell)
+    var chunk: Vector2i = world.config.chunk_of(cell)
     var dirty: Array[Vector2i] = []
     nature.objects_changed.connect(func(chunks: Array[Vector2i],
             _revision: int) -> void:
