@@ -626,6 +626,10 @@ func _damage_from_events(hazards: Array[Dictionary],
             if item["kind"] not in ["дерево", "кустарник"] \
                     or item["state"] != "целое":
                 continue
+            if item["kind"] == "кустарник" and str(event["kind"]) not in [
+                    "шторм", "шквал", "ураган", "смерч", "пыльная буря"]:
+                # Другие бедствия сохраняют прежние правила для кустов.
+                continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
             var offset := Vector2(cell - center)
             var distance := offset.length()
@@ -668,6 +672,8 @@ func _damage_from_events(hazards: Array[Dictionary],
                     280.0 if is_dust else (1150.0 if is_tornado else (
                     1050.0 if is_hurricane else (
                     850.0 if is_squall else 520.0)))))
+                if shrub_damage <= 0:
+                    continue
                 item["health"] = maxi(0, int(item["health"]) - shrub_damage)
                 if int(item["health"]) == 0:
                     item["state"] = "сухостой"
