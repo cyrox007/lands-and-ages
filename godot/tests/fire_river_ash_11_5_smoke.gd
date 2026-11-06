@@ -46,9 +46,9 @@ func _models() -> Dictionary:
 
 
 func _bank(world: RefCounted, hydro: RefCounted) -> Dictionary:
-    # Ищем берег, у которого нет нижнего сухого соседа, зато есть
-    # расположенное ниже реальное речное дно. Тогда F4 не забирает
-    # всю золу в сухопутное русло до входа в воду.
+    # Находим сухой берег, чей самый низкий сосед — настоящее
+    # речное русло. Сравниваем одну и ту же геометрию WorldMap,
+    # которую использует FireRegistry, а не искусственную реку.
     for y in range(8, world.config.height - 8):
         for x in range(8, world.config.width - 8):
             var cell := Vector2i(x, y)
@@ -60,8 +60,8 @@ func _bank(world: RefCounted, hydro: RefCounted) -> Dictionary:
             if not is_finite(height):
                 continue
             var lowest: float = height - 0.02
-            var bank := Vector2i(-1, -1)
-            var has_lower_land := false
+            var river := Vector2i(-1, -1)
+            # Сперва выбирается нижний сухой сосед, как в F4.
             for offset in [
                     Vector2i(1, 0), Vector2i(0, 1),
                     Vector2i(-1, 0), Vector2i(0, -1)]:
@@ -69,24 +69,31 @@ func _bank(world: RefCounted, hydro: RefCounted) -> Dictionary:
                 if not world.config.contains_cell(next):
                     continue
                 var ni: int = hydro.cell_index(next)
+                if hydro.has_water(ni) or hydro.flooded_at(ni):
+                    continue
                 var next_height: float = world.height_at(
                     Vector2(next) + Vector2(0.5, 0.5))
-                if not is_finite(next_height) \
-                        or next_height >= height - 0.02:
-                    continue
-                # Сухая клетка имеет приоритет даже в том случае,
-                # если дно соседней реки ещё ниже её высоты.
-                if not hydro.has_water(ni) and not hydro.flooded_at(ni):
-                    has_lower_land = true
-                    break
-                if hydro.river_at(ni) and hydro.has_water(ni) \
-                        and next_height < lowest:
+                if is_finite(next_height) and next_height < lowest:
                     lowest = next_height
-                    bank = next
-            if not has_lower_land and bank.x >= 0:
-                return {"source": cell, "river": bank}
+            # Более низкий речной участок выигрывает у сухого,
+            # иначе зола идёт по прежнему сухопутному маршруту.
+            for offset in [
+                    Vector2i(1, 0), Vector2i(0, 1),
+                    Vector2i(-1, 0), Vector2i(0, -1)]:
+                var next: Vector2i = cell + offset
+                if not world.config.contains_cell(next):
+                    continue
+                var ni: int = hydro.cell_index(next)
+                if not hydro.river_at(ni) or not hydro.has_water(ni):
+                    continue
+                var next_height: float = world.height_at(
+                    Vector2(next) + Vector2(0.5, 0.5))
+                if is_finite(next_height) and next_height < lowest:
+                    lowest = next_height
+                    river = next
+            if river.x >= 0:
+                return {"source": cell, "river": river}
     return {}
-
 
 func _advance_day(m: Dictionary, day: int, source: Vector2i,
         runoff: float) -> Array[Dictionary]:
