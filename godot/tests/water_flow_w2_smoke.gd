@@ -87,6 +87,21 @@ func _run() -> void:
 	var surface := Surface.new(world, hydro)
 	surface.rebuild()
 	hydro.apply_rainfall_map(surface.runoff_map())
+	var moved := 0
+	for y in range(world.config.height):
+		for x in range(world.config.width):
+			var cell := Vector2i(x, y)
+			var index: int = hydro.cell_index(cell)
+			if not hydro.river_at(index):
+				continue
+			var frame: Vector4 = Water._river_frame(world, hydro, cell)
+			var anchor := Vector2(frame.x, frame.y)
+			var offset := anchor.distance_to(Vector2(cell) + Vector2(0.5, 0.5))
+			if offset > 0.0001:
+				moved += 1
+				_check(offset < 0.221 and world.height_at(anchor) <= hydro.level_at(index),
+					"Сглаживание удерживает ось внутри мокрой клетки")
+	_check(moved > 0, "На ступенчатых поворотах ось русла сглажена")
 	var world_before: Dictionary = world.to_data()
 	var hydro_before: Dictionary = hydro.to_snapshot()
 	var surface_before: Dictionary = surface.to_snapshot()

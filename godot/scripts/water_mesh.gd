@@ -143,16 +143,19 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 const RIVER_SEGMENTS := 4
 
 
-static func _river_direction(hydro: RefCounted, cell: Vector2i) -> Vector2:
+static func _river_frame(world: RefCounted, hydro: RefCounted, cell: Vector2i) -> Vector4:
+	var center := Vector2(cell) + Vector2(0.5, 0.5)
 	var index: int = hydro.cell_index(cell)
 	if index < 0:
-		return Vector2(0.0, 1.0)
+		return Vector4(center.x, center.y, 0.0, 1.0)
 	var downstream: int = hydro.downstream_of(index)
 	var outgoing := Vector2.ZERO
 	if downstream >= 0:
 		var target: Vector2i = hydro.cell_from_index(downstream)
 		outgoing = Vector2(target - cell).normalized()
 	var upstream := Vector2.ZERO
+	var river_upstream := Vector2i.ZERO
+	var river_branches := 0
 	var greatest := -1.0
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
@@ -162,16 +165,27 @@ static func _river_direction(hydro: RefCounted, cell: Vector2i) -> Vector2:
 			var candidate: int = hydro.cell_index(upstream_cell)
 			if candidate < 0 or hydro.downstream_of(candidate) != index:
 				continue
+			if hydro.river_at(candidate):
+				river_upstream = upstream_cell
+				river_branches += 1
 			var flow: float = hydro.discharge_at_index(candidate)
 			if flow > greatest:
 				greatest = flow
 				upstream = Vector2(cell - upstream_cell).normalized()
-	if outgoing == Vector2.ZERO:
-		return upstream if upstream != Vector2.ZERO else Vector2(0.0, 1.0)
-	if upstream == Vector2.ZERO:
-		return outgoing
-	var average := upstream + outgoing
-	return average.normalized() if average.length_squared() > 0.0001 else outgoing
+	# На ступенчатом участке немного срезаем угол внутри мокрой
+	# клетки. Истоки, устья и места слияния сохраняют общий центр.
+	if river_branches == 1 and hydro.river_at(index) and downstream >= 0 \
+			and hydro.river_at(downstream):
+		var next_cell: Vector2i = hydro.cell_from_index(downstream)
+		var bend := Vector2(river_upstream + next_cell - 2 * cell) * 0.24
+		var shifted := center + bend.limit_length(0.22)
+		if world.height_at(shifted) <= hydro.level_at(index):
+			center = shifted
+	var direction := upstream + outgoing
+	if direction.length_squared() <= 0.0001:
+		direction = outgoing if outgoing != Vector2.ZERO else Vector2.DOWN
+	direction = direction.normalized()
+	return Vector4(center.x, center.y, direction.x, direction.y)
 
 
 static func _river_curve(p0: Vector2, p1: Vector2,
@@ -193,13 +207,18 @@ static func _river_curve_direction(p0: Vector2, p1: Vector2,
 static func _render_river(tool: SurfaceTool, world: RefCounted,
 		hydro: RefCounted, cell: Vector2i, index: int,
 		level: float, tint: Color, ice: float) -> int:
-	var start := Vector2(cell) + Vector2(0.5, 0.5)
+	var start_frame := _river_frame(world, hydro, cell)
+	var start := Vector2(start_frame.x, start_frame.y)
+	var direction_start := Vector2(start_frame.z, start_frame.w)
+	var direction_end := direction_start
 	var next: int = hydro.downstream_of(index)
 	var finish := start + Vector2(0.0, 0.18)
 	var end_level := level + WATER_OFFSET
 	if next >= 0:
 		var target: Vector2i = hydro.cell_from_index(next)
-		finish = Vector2(target) + Vector2(0.5, 0.5)
+		var end_frame := _river_frame(world, hydro, target)
+		finish = Vector2(end_frame.x, end_frame.y)
+		direction_end = Vector2(end_frame.z, end_frame.w)
 		if hydro.has_water(next):
 			end_level = hydro.level_at(next) + WATER_OFFSET
 		else:
@@ -207,10 +226,6 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	var span: float = start.distance_to(finish)
 	if span < 0.00001:
 		return 0
-	var direction_start := _river_direction(hydro, cell)
-	var direction_end := direction_start
-	if next >= 0:
-		direction_end = _river_direction(hydro, hydro.cell_from_index(next))
 	var control0 := start + direction_start * span * 0.35
 	var control1 := finish - direction_end * span * 0.35
 	var last_dir := _river_curve_direction(start, control0, control1, finish, 0.0)
