@@ -16,6 +16,7 @@ on:
       - "godot/tests/weather_visual_11_0_smoke.gd"
       - "godot/tests/weather_precipitation_11_1_smoke.gd"
       - "godot/tests/lightning_11_4_smoke.gd"
+      - "godot/tests/lightning_visual_11_4.gd"
       - "godot/scripts/lightning_fx_controller.gd"
       - "godot/scripts/nature_registry.gd"
       - "godot/tests/weather_precipitation_visual_11_1.gd"
@@ -36,6 +37,7 @@ on:
       - "godot/tests/weather_visual_11_0_smoke.gd"
       - "godot/tests/weather_precipitation_11_1_smoke.gd"
       - "godot/tests/lightning_11_4_smoke.gd"
+      - "godot/tests/lightning_visual_11_4.gd"
       - "godot/scripts/lightning_fx_controller.gd"
       - "godot/scripts/nature_registry.gd"
       - "godot/tests/weather_precipitation_visual_11_1.gd"
@@ -104,6 +106,46 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-lightning-11-4.log; then
             exit 1
           fi
+
+      - name: "11.4 — видимый канал молнии в реальном Godot OpenGL"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/lightning-11-4
+          timeout 210s xvfb-run -a -s "-screen 0 1280x720x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/lightning_visual_11_4.gd \
+            -- --out=/tmp/lightning-11-4 \
+            2>&1 | tee /tmp/weather-lightning-11-4-gl.log
+          grep -q "Этап 11.4/GL:.*успешно" /tmp/weather-lightning-11-4-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-lightning-11-4-gl.log; then
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("/tmp/lightning-11-4")
+          report = json.loads((root / "manifest.json").read_text())
+          assert report["stage"] == "11.4"
+          assert report["checks_passed"] and report["changed_sample_pixels"] >= 15
+          assert not report["hardware_accepted"]
+          for name in report["captures"]:
+              assert (root / name).stat().st_size > 10000
+          print("Этап 11.4/GL: реальные PNG и геометрия молнии — успешно")
+          PY
+
+      - name: "11.4 — сохранить изображения разряда"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lightning-11-4-opengl-captures
+          path: |
+            /tmp/lightning-11-4/
+            /tmp/weather-lightning-11-4-gl.log
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: "11.3/V2: физическое направление и порывы ветра"
         run: |
