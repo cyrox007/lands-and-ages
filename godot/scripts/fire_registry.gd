@@ -3,7 +3,7 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 5
+const FORMAT_VERSION := 6
 const MAX_FIRES := 1024
 const MAX_SCORCHED_CELLS := 4096
 const MAX_EMBERS := 512
@@ -13,6 +13,8 @@ const SOIL_HEAL_PER_DAY := 4
 const MAX_SOIL_SCARS := 4096
 const MAX_CHARCOAL_CELLS := 4096
 const MAX_CHARCOAL_UNITS := 1000
+const MAX_SUSPENDED_CELLS := 4096
+const MAX_SUSPENDED_UNITS := 1000
 const MAX_EVENTS_PER_DAY := 64
 
 var world: RefCounted
@@ -28,6 +30,7 @@ var _scorched: Dictionary = {}
 var _embers: Dictionary = {}
 var _soil_damage: Dictionary = {}
 var _charcoal: Dictionary = {}
+var _suspended_ash: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -144,6 +147,94 @@ func _deposit_charcoal(cell: Vector2i, amount: int,
     var old: int = int(_charcoal.get(index, 0))
     _charcoal[index] = mini(MAX_CHARCOAL_UNITS, old + amount)
     changed[world.config.chunk_of(cell)] = true
+
+
+func suspended_ash_at(cell: Vector2i) -> int:
+    # Взвесь — отдельная конечная масса золы в воде, не грязь
+    # из геологического слоя. Физика доступна даже вне камеры.
+    if not world.config.contains_cell(cell):
+        return 0
+    return int(_suspended_ash.get(hydro.cell_index(cell), 0))
+
+
+func suspended_ash_total() -> int:
+    # Баланс учитывает все водоёмы, включая нижние течения,
+    # даже если игрок не видит их и не строит графический чанк.
+    var total := 0
+    for amount in _suspended_ash.values():
+        total += int(amount)
+    return total
+
+
+func suspended_ash_cell_count() -> int:
+    # Разрежённый слой не выделяет массив размером с мир.
+    return _suspended_ash.size()
+
+
+func ash_mass_total() -> int:
+    # Только баланс переносимой золы: естественная суточная
+    # убыль на суше считается отдельно; уголь и почвенный ожог
+    # не превращаются в золу при переносе.
+    var total := suspended_ash_total()
+    for record in _scorched.values():
+        total += int(record["ash"])
+    return total
+
+
+func _advance_suspended_ash(changed: Dictionary) -> void:
+    # Перемещаем старую водную взвесь на одну клетку вниз по
+    # рассчитанному руслу. Порции, поступившие сегодня с суши,
+    # попадут в воду позже и не пройдут две клетки за сутки.
+    var outgoing := {}
+    var incoming := {}
+    var indices: Array[int] = []
+    for key in _suspended_ash.keys():
+        indices.append(int(key))
+    indices.sort()
+    for index in indices:
+        # Когда русло осохло, бывшая взвесь остаётся в запасе до
+        # возобновления воды: вещество не исчезает из реестра.
+        # Более подробное осаждение будет отдельной задачей.
+        if not hydro.has_water(index):
+            continue
+        var destination: int = hydro.downstream_of(index)
+        if destination < 0 or destination == index \
+                or not hydro.has_water(destination):
+            continue
+        var existing: int = int(_suspended_ash.get(destination, 0))
+        var capacity := MAX_SUSPENDED_UNITS - existing \
+            - int(incoming.get(destination, 0))
+        if capacity <= 0:
+            continue
+        if not _suspended_ash.has(destination) \
+                and _suspended_ash.size() + incoming.size() \
+                >= MAX_SUSPENDED_CELLS:
+            continue
+        # Скорость ограничивается водным расходом из Hydrology;
+        # даже крупная река не переносит произвольный запас
+        # через несколько участков за один игровой день.
+        var flow: float = hydro.discharge_at_index(index)
+        var request := mini(int(_suspended_ash[index]),
+            clampi(roundi(flow * 7.0), 0, 160))
+        var amount := mini(request, capacity)
+        if amount <= 0:
+            continue
+        outgoing[index] = amount
+        incoming[destination] = int(incoming.get(destination, 0)) + amount
+        changed[world.config.chunk_of(hydro.cell_from_index(index))] = true
+        changed[world.config.chunk_of(hydro.cell_from_index(destination))] = true
+
+    # Два независимых словаря исключают повторное продвижение
+    # только что пришедшей воды и сохраняют общую массу взвеси.
+    for index in outgoing.keys():
+        var rest := int(_suspended_ash[index]) - int(outgoing[index])
+        if rest == 0:
+            _suspended_ash.erase(index)
+        else:
+            _suspended_ash[index] = rest
+    for index in incoming.keys():
+        _suspended_ash[index] = int(_suspended_ash.get(index, 0)) \
+            + int(incoming[index])
 
 
 func soil_scar_count() -> int:
@@ -290,11 +381,12 @@ func _recover_soil(changed: Dictionary) -> void:
 
 
 func _wash_ash(changed: Dictionary) -> void:
-    # Дождевой сток переносит уже существующую золу вниз по суше.
-    # Вода и затопленные клетки пока не принимают осадок: отдельная
-    # модель речной взвеси не должна появляться как побочный эффект.
+    # Дождевой сток переносит существующую золу вниз по суше,
+    # а у русла передаёт массу в отдельную водную взвесь.
+    # Озёра, океан и разлив не считаются фиктивной рекой-источником.
     var outgoing := {}
     var incoming := {}
+    var incoming_water := {}
     var source_dates := {}
     var indices: Array[int] = []
     for key in _scorched.keys():
@@ -331,7 +423,64 @@ func _wash_ash(changed: Dictionary) -> void:
             if is_finite(height) and height < lowest:
                 destination = target_index
                 lowest = height
+        # Уклон выбирает самое низкое соседнее дно независимо
+        # от того, сухое оно или речное: вода не должна проигрывать
+        # более высокому сухому склону только из-за типа клетки.
+        # Озёра, океан и пойма пока не принимают речную взвесь.
+        var into_water := false
+        for offset in [
+                Vector2i(1, 0), Vector2i(0, 1),
+                Vector2i(-1, 0), Vector2i(0, -1)]:
+            var next: Vector2i = cell + offset
+            if not world.config.contains_cell(next):
+                continue
+            var target: int = hydro.cell_index(next)
+            if not hydro.river_at(target) or not hydro.has_water(target):
+                continue
+            var height: float = world.height_at(
+                Vector2(next) + Vector2(0.5, 0.5))
+            if is_finite(height) and height < lowest:
+                destination = target
+                lowest = height
+                into_water = true
+        # Hydrology уже учитывает заполненные впадины и водосборы.
+        # Если её непосредственный нижний сосед — реальное русло,
+        # принимаем этот маршрут даже при более высоком сухом дне:
+        # перепад потенциала воды определяется spill, не голой высотой.
+        var river_route: int = hydro.downstream_of(index)
+        if river_route >= 0 and hydro.river_at(river_route) \
+                and hydro.has_water(river_route):
+            var river_cell: Vector2i = hydro.cell_from_index(river_route)
+            var step: Vector2i = river_cell - cell
+            if absi(step.x) + absi(step.y) == 1:
+                destination = river_route
+                into_water = true
         if destination < 0:
+            continue
+        if into_water:
+            # Резервируем вместимость воды до списания на суше.
+            # Новый водный участок обязан оставаться внутри лимита.
+            var filled: int = int(_suspended_ash.get(destination, 0))
+            var capacity := MAX_SUSPENDED_UNITS - filled \
+                - int(incoming_water.get(destination, 0))
+            if capacity <= 0:
+                continue
+            if not _suspended_ash.has(destination) \
+                    and _suspended_ash.size() + incoming_water.size() \
+                    >= MAX_SUSPENDED_CELLS:
+                continue
+            var request := mini(int(_scorched[index]["ash"]),
+                clampi(roundi(runoff * 65.0), 0, 160))
+            var amount := mini(request, capacity)
+            if amount <= 0:
+                continue
+            outgoing[index] = amount
+            incoming_water[destination] = int(incoming_water.get(
+                destination, 0)) + amount
+            changed[world.config.chunk_of(cell)] = true
+            changed[world.config.chunk_of(
+                hydro.cell_from_index(destination))] = true
+            _record("зола в речную взвесь", -1, cell)
             continue
 
         # Перенос в один проход не может увеличить массу золы.
@@ -376,6 +525,11 @@ func _wash_ash(changed: Dictionary) -> void:
         entry["last_burn"] = maxi(int(entry.get("last_burn", 0)),
             int(source_dates[index]))
         _scorched[index] = entry
+    # После списания золы с суши река принимает точно ту же массу.
+    # Взвесь, поступившая за день, не переносится до следующего.
+    for index in incoming_water.keys():
+        _suspended_ash[index] = int(_suspended_ash.get(index, 0)) \
+            + int(incoming_water[index])
 
 
 static func litter_spread_chance(dryness: float,
@@ -645,8 +799,10 @@ func advance_day(day: int, strikes: Array = [],
     var ground_changed := {}
     _recover_ground(ground_changed)
     _recover_soil(ground_changed)
-    # Сначала естественная убыль золы, затем дождевой перенос.
-    # Масса при переносе остаётся на суше без нового источника пепла.
+    # Сначала перемещаем вчерашнюю взвесь по течению, потом
+    # смываем сегодняшнюю золу с суши. Двухфазный порядок
+    # исключает дополнительный переход в те же сутки.
+    _advance_suspended_ash(ground_changed)
     _wash_ash(ground_changed)
     _advance_litter(ground_changed)
     for id in burning_ids():
@@ -740,12 +896,19 @@ func to_data() -> Dictionary:
     charcoal_indices.sort()
     for index in charcoal_indices:
         charcoal_entries.append([index, int(_charcoal[index])])
+    var suspended_entries := []
+    var water_indices: Array[int] = []
+    for key in _suspended_ash.keys():
+        water_indices.append(int(key))
+    water_indices.sort()
+    for index in water_indices:
+        suspended_entries.append([index, int(_suspended_ash[index])])
     return {
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
         "fires": entries, "scorched": ash_entries,
         "embers": ember_entries, "soil_damage": scar_entries,
-        "charcoal": charcoal_entries
+        "charcoal": charcoal_entries, "suspended_ash": suspended_entries
     }
 
 
@@ -759,10 +922,10 @@ func load_data(data: Dictionary) -> bool:
             or not is_finite(float(raw_version)):
         return false
     var version := int(raw_version)
-    # JSON восстанавливает 1–5 как вещественные числа; проверяем
+    # JSON восстанавливает 1–6 как вещественные числа; проверяем
     # значение явно, иначе Array.has() сравнивает типы слишком строго.
     if float(version) != float(raw_version) \
-            or version not in [1, 2, 3, 4, FORMAT_VERSION]:
+            or version not in [1, 2, 3, 4, 5, FORMAT_VERSION]:
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -901,11 +1064,36 @@ func load_data(data: Dictionary) -> bool:
                     or amount > MAX_CHARCOAL_UNITS:
                 return false
             parsed_charcoal[index] = amount
+    # Взвесь появилась в v6 и должна быть конечной массой.
+    # Старые v1–v5 не содержали водной золы; никакого переноса
+    # при загрузке не выполняем и физику прошлых суток не повторяем.
+    var parsed_suspended := {}
+    if version >= 6:
+        var raw_suspended: Variant = data.get("suspended_ash")
+        if not (raw_suspended is Array) \
+                or raw_suspended.size() > MAX_SUSPENDED_CELLS:
+            return false
+        for record in raw_suspended:
+            if not (record is Array) or record.size() != 2:
+                return false
+            for value in record:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)):
+                    return false
+            var index := int(record[0])
+            var amount := int(record[1])
+            if index < 0 or index >= world.config.width * world.config.height \
+                    or parsed_suspended.has(index) or amount <= 0 \
+                    or amount > MAX_SUSPENDED_UNITS:
+                return false
+            parsed_suspended[index] = amount
     _burning = parsed
     _scorched = parsed_scorched
     _embers = parsed_embers
     _soil_damage = parsed_soil
     _charcoal = parsed_charcoal
+    _suspended_ash = parsed_suspended
     last_day = day
     total_ignitions = total
     last_events.clear()

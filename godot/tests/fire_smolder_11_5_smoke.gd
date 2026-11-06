@@ -100,7 +100,7 @@ func _test_smolder() -> void:
     _check(fire.smolder_count() >= 1 and fire.is_smoldering(cell),
         "Расход древесины поджигает существующую лесную подстилку")
     var initial: Dictionary = fire.to_data()
-    _check(int(initial["version"]) == 5
+    _check(int(initial["version"]) == 6
         and initial["embers"].size() >= 1,
         "Подстилка имеет самостоятельный конечный запас топлива")
 
