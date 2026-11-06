@@ -52,5 +52,5 @@ static func configure_chunk(chunk: Node3D, ground_casts: bool,
 	for child in forest.get_children():
 		# У рендера природы по одному MultiMesh на группу пород.
 		# Не создаём объекты света или тени для отдельных деревьев.
-		if child is GeometryInstance3D and child.name not in ["дым", "пламя"]:
+		if child is GeometryInstance3D and child.name not in ["дым", "пламя", "Контактные тени"]:
 			child.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON 				if nature_casts else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
