@@ -246,6 +246,7 @@ func clear_visuals() -> void:
 	# После загрузки или замены мира запрещаем утечку старых
 	# масок фронта, эмиттеров и незавершённых штормовых эффектов.
 	# При следующем sync_world строится снимок нового Climate.
+	var was_enabled := _enabled
 	set_effects_enabled(false)
 	_last_state.clear()
 	_mask_climate = null
@@ -255,7 +256,7 @@ func clear_visuals() -> void:
 	_mask_origin = Vector2.ZERO
 	# Оставляем настройку качества: это пользовательское предпочтение.
 	# Новую физику и сохранения этот сброс не затрагивает.
-	_enabled = true
+	_enabled = was_enabled
 
 
 func sync_world(climate: RefCounted, world: RefCounted,
