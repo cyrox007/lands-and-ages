@@ -373,6 +373,7 @@ func _run() -> void:
 
     var rendered_objects := 0
     var rendered_grass := 0
+    var rendered_shadows := 0
     var rendered_glb := 0
     var rendered_stylized_trees := 0
     var chunk_count: Vector2i = original["world"].config.chunk_count()
@@ -387,6 +388,10 @@ func _run() -> void:
                 _check(instance.multimesh.instance_count > 0,
                     "Пустой MultiMesh не расходует GPU-ресурсы")
                 rendered_objects += instance.multimesh.instance_count
+                if instance.name == "Контактные тени":
+                    rendered_shadows += instance.multimesh.instance_count
+                    _check(instance.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+                        "Контактные тени не участвуют в карте теней")
                 if instance.name.begins_with("glb_"):
                     rendered_glb += instance.multimesh.instance_count
                     if Models.STYLIZED.has(instance.name.substr(4)):
@@ -396,6 +401,7 @@ func _run() -> void:
             visible_chunk.free()
     _check(rendered_objects > 0 and rendered_grass > 0,
         "Трава и природные объекты создаются в видимых чанках")
+    _check(rendered_shadows > 0, "Природные объекты получают контактные тени")
     _check(rendered_glb > 0 and rendered_stylized_trees > 0,
         "На видимых чанках присутствуют новые деревья, а не только заглушки")
 

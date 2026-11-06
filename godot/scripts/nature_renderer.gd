@@ -3,6 +3,7 @@ extends RefCounted
 ## Вне видимых чанков узлы/анимация не создаются.
 
 const Wind = preload("res://shaders/nature_wind.gdshader")
+const ContactShadow = preload("res://shaders/nature_contact_shadow.gdshader")
 const FireSmoke = preload("res://shaders/fire_smoke.gdshader")
 const FireFlame = preload("res://shaders/fire_flame.gdshader")
 const MAX_SMOLDER_PLUMES_PER_CHUNK := 8
@@ -26,7 +27,7 @@ static func set_wind_direction(direction: Vector2) -> void:
     Models.set_wind_direction(_wind_direction)
     for mesh in _meshes.values():
         var material: Material = mesh.material
-        if material is ShaderMaterial:
+        if material is ShaderMaterial and material.shader != ContactShadow:
             material.set_shader_parameter(
                 "wind_direction", _wind_direction)
 
@@ -42,6 +43,13 @@ static func _mesh(kind: String) -> Mesh:
         quad.material = plume
         _meshes[kind] = quad
         return quad
+    if kind == "Контактные тени":
+        var plane := PlaneMesh.new()
+        var shadow := ShaderMaterial.new()
+        shadow.shader = ContactShadow
+        plane.material = shadow
+        _meshes[kind] = plane
+        return plane
     var mesh: PrimitiveMesh
     if kind == "зарубка":
         var mark := BoxMesh.new()
@@ -176,9 +184,28 @@ static func _place_model(groups: Dictionary, key: String, origin: Vector3,
     return true
 
 
+static func _place_contact_shadow(groups: Dictionary, world: RefCounted,
+        point: Vector2, origin: Vector3, kind: String, state: String,
+        scale_factor: float, direction: Vector2) -> void:
+    var radius := 0.37
+    var length := 0.46
+    if kind == "дерево":
+        radius = 0.20 if state == "пень" else 0.31 + scale_factor * 0.32
+        length = 0.32 if state == "пень" else 0.38 + scale_factor * 0.88
+    var normal: Vector3 = world.normal_at(Vector2i(point.round()))
+    var along := Vector3(direction.x, 0.0, direction.y).slide(normal).normalized()
+    var across := normal.cross(along).normalized()
+    # Эллипс ориентирован по солнцу и лежит на касательной к грунту.
+    var basis := Basis(across * radius, normal, along * length)
+    var center := origin + along * length * 0.48 + Vector3.UP * 0.065
+    _push(groups, "Контактные тени", Transform3D(basis, center),
+        Color(1.0, 1.0, 1.0, 0.40), 0.0)
+
+
 static func create_chunk(world: RefCounted, nature: RefCounted,
         coord: Vector2i, detail: float = 1.0,
-        fire: RefCounted = null) -> Node3D:
+        fire: RefCounted = null,
+        shadow_direction: Vector2 = Vector2(0.59, -0.81)) -> Node3D:
     var result := Node3D.new()
     result.name = "Природные объекты"
     if nature == null or not nature.generated:
@@ -203,6 +230,10 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var wind: float = smoothstep(6.0, 32.0,
             nature.climate.wind_gust_at_index(index))
         var snow: float = nature.surface.snow_at_index(index)
+        if detail >= SPARSE_GROUND_COVER_DETAIL and item["kind"] in [
+                "дерево", "кустарник", "валун"]:
+            _place_contact_shadow(groups, world, position, origin,
+                item["kind"], state, scale_factor, shadow_direction)
         if fire != null and fire.is_burning(int(item["id"])):
             # Огонь визуализируется только из реестра физических
             # очагов. При удалении камеры или загрузке не появляется

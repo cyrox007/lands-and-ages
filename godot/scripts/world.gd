@@ -785,6 +785,11 @@ func _set_shadow_quality(preset: int) -> void:
 	_update_shadow_lod()
 
 
+func _contact_shadow_direction() -> Vector2:
+	var sun := _world_light.transform.basis.z
+	return Vector2(-sun.x, -sun.z).normalized()
+
+
 func _shadow_zoom() -> float:
 	# Меняем дальность теневой карты независимо от камеры и геометрии.
 	return _render_zoom() * [1.5, 1.0, 0.82][_shadow_quality]
@@ -1194,7 +1199,7 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 	if _view_mode == 0 and _nature != null:
 		var nature_started := Time.get_ticks_usec()
 		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord,
-			_detail_for_zoom(_camera.size), _fire))
+			_detail_for_zoom(_camera.size), _fire, _contact_shadow_direction()))
 		_total_nature_attach_us += Time.get_ticks_usec() - nature_started
 	# Новый чанк получает корректный бюджет теней до добавления в сцену.
 	# При движении камеры существующие чанки перенастраиваются без пересборки.
@@ -1239,7 +1244,7 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 		chunk_node.remove_child(previous)
 		previous.queue_free()
 	chunk_node.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
-		_detail_for_zoom(_camera.size), _fire))
+		_detail_for_zoom(_camera.size), _fire, _contact_shadow_direction()))
 	# После обновления растений восстанавливаем тени без задержки кадра.
 	if _camera != null:
 		ShadowLOD.configure_chunk(chunk_node,
