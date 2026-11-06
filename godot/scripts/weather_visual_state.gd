@@ -45,6 +45,7 @@ static func from_weather(weather: Dictionary) -> Dictionary:
 		"wind_x": direction.x, "wind_y": direction.y,
 		"storm": storm,
 		"cloud": clouds,
+		"humidity": humidity,
 		"temperature": temperature,
 		"hail": hail, "wet_snow": wet_snow,
 		"blizzard": blizzard, "downpour": downpour,
@@ -72,6 +73,7 @@ static func sample(climate: RefCounted, config: RefCounted,
 	var flow := Vector2.ZERO
 	var total_storm := 0.0
 	var total_cloud := 0.0
+	var total_humidity := 0.0
 	var total_hail := 0.0
 	var total_wet_snow := 0.0
 	var total_blizzard := 0.0
@@ -92,6 +94,7 @@ static func sample(climate: RefCounted, config: RefCounted,
 			float(weather["wind_y"])) * float(weather["wind"])
 		total_storm += float(weather["storm"])
 		total_cloud += float(weather["cloud"])
+		total_humidity += float(weather["humidity"])
 		total_hail += float(weather["hail"])
 		total_wet_snow += float(weather["wet_snow"])
 		total_blizzard += float(weather["blizzard"])
@@ -108,6 +111,7 @@ static func sample(climate: RefCounted, config: RefCounted,
 		"wind_x": direction.x, "wind_y": direction.y,
 		"storm": clampf(total_storm / count, 0.0, 1.0),
 		"cloud": clampf(total_cloud / count, 0.0, 1.0),
+		"humidity": clampf(total_humidity / count, 0.0, 1.0),
 		"hail": clampf(total_hail / count, 0.0, 1.0),
 		"wet_snow": clampf(total_wet_snow / count, 0.0, 1.0),
 		"blizzard": clampf(total_blizzard / count, 0.0, 1.0),
