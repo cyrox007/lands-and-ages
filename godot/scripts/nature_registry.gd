@@ -517,6 +517,17 @@ static func tornado_direction(offset: Vector2, prevailing: Vector2,
     return (front * 0.28 + tangent * 0.72).normalized()
 
 
+static func dust_reaches(offset: Vector2, direction: Vector2) -> bool:
+    # Воздушный перенос повторяет две последовательные полосы грунта
+    # длиной около шести клеток. Поперечные кусты не повреждаются.
+    if direction.length_squared() < 0.000001:
+        return false
+    var wind := direction.normalized()
+    var along := offset.dot(wind)
+    var across := absf(offset.cross(wind))
+    return along >= -1.0 and along <= 7.0 and across <= 1.8
+
+
 static func squall_reaches(offset: Vector2, direction: Vector2) -> bool:
     # Смещение относительно эпицентра проецируем по ветру и поперёк.
     # Порыв повреждает длинную узкую полосу, включая небольшой тыл,
@@ -534,10 +545,10 @@ func _damage_from_events(hazards: Array[Dictionary],
     var events: Array[Dictionary] = []
     for event in hazards:
         var kind := str(event.get("kind", ""))
-        # Пыльная буря переносит осадочный грунт в Surface, а не
-        # валит деревья и не превращает лес в сухостой без ветровала.
-        if kind == "пыльная буря":
-            continue
+        # Пыль по-прежнему переносится в Surface, но открытые
+        # кустарники на её следе могут получать физический урон.
+        # Стволы и камни от самой пыли не повреждаются.
+        var dust := kind == "пыльная буря"
         var squall := kind == "шквал"
         var hurricane := kind == "ураган"
         var tornado := kind == "смерч"
@@ -547,11 +558,12 @@ func _damage_from_events(hazards: Array[Dictionary],
             "cell": event.get("cell"),
             # Большой ураган охватывает несколько природных чанков.
             # Шквал, наоборот, остаётся вытянутой узкой полосой.
-            "radius": 14.0 if hurricane else
-                (13.0 if tornado else (9.0 if squall else 5.0)),
+            "radius": 14.0 if hurricane else (13.0 if tornado else
+                (9.0 if squall else (7.5 if dust else 5.0))),
             "severity": force,
-            "damage": roundi(force * (850.0 if tornado else
-                (720.0 if hurricane else (500.0 if squall else 350.0))))
+            "damage": roundi(force * (850.0 if tornado else (
+                720.0 if hurricane else (500.0 if squall else
+                (280.0 if dust else 350.0)))))
         })
     for strike in strikes:
         events.append({
@@ -570,6 +582,12 @@ func _damage_from_events(hazards: Array[Dictionary],
             continue
         var radius: float = float(event["radius"])
         var is_squall := str(event["kind"]) == "шквал"
+        var is_dust := str(event["kind"]) == "пыльная буря"
+        var dust_direction := Vector2.ZERO
+        if is_dust:
+            # Используем климат того же дня, что перенёс грунт.
+            dust_direction = climate.wind_direction_at_index(
+                hydro.cell_index(center))
         var is_hurricane := str(event["kind"]) == "ураган"
         var is_tornado := str(event["kind"]) == "смерч"
         var tornado_front := Vector2.RIGHT
@@ -605,7 +623,8 @@ func _damage_from_events(hazards: Array[Dictionary],
         affected_ids.sort()
         for id in affected_ids:
             var item: Dictionary = _objects[id]
-            if item["kind"] != "дерево" or item["state"] != "целое":
+            if item["kind"] not in ["дерево", "кустарник"] \
+                    or item["state"] != "целое":
                 continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
             var offset := Vector2(cell - center)
@@ -617,6 +636,10 @@ func _damage_from_events(hazards: Array[Dictionary],
                 continue
             if is_tornado and not tornado_reaches(offset, tornado_front):
                 # Вне узкого извилистого следа лес остаётся нетронутым.
+                continue
+            if is_dust and (item["kind"] != "кустарник" \
+                    or not dust_reaches(offset, dust_direction)):
+                # От пыли деревья, камни и кусты вне следа не страдают.
                 continue
 
             # Выбор упавших деревьев по seed и суткам не зависит
@@ -637,6 +660,22 @@ func _damage_from_events(hazards: Array[Dictionary],
                 var falloff := 0.15 + 0.85 * (1.0 - distance / radius)
                 severity *= falloff
                 damage = roundi(float(damage) * falloff)
+            if item["kind"] == "кустарник":
+                # Кратковременная пыль сушит листву, сильный ветер
+                # способен погубить куст. Нет валки ствола или древесины:
+                # куст сохраняет только здоровье и дату гибели.
+                var shrub_damage := roundi(severity * (
+                    280.0 if is_dust else (1150.0 if is_tornado else (
+                    1050.0 if is_hurricane else (
+                    850.0 if is_squall else 520.0)))))
+                item["health"] = maxi(0, int(item["health"]) - shrub_damage)
+                if int(item["health"]) == 0:
+                    item["state"] = "сухостой"
+                    item["dead_since_day"] = climate.day
+                _objects[id] = item
+                changed[world.config.chunk_of(cell)] = true
+                continue
+
             var windfall := str(event["kind"]) in [
                 "шторм", "шквал", "ураган", "смерч"]
             var threshold := 0.25 if is_tornado else (
