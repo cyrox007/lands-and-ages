@@ -9,6 +9,7 @@ const Hydro = preload("res://scripts/hydrology.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Visual = preload("res://scripts/weather_visual_state.gd")
 const Atmosphere = preload("res://scripts/weather_atmosphere_controller.gd")
+const GameWorld = preload("res://scripts/world.gd")
 
 var failures: Array[String] = []
 
@@ -188,6 +189,52 @@ func _test_camera_and_load(atmosphere: Node3D) -> void:
 		"Полный атмосферный цикл не изменяет физическую карту и климат")
 
 
+func _test_game_world() -> void:
+	# Помимо автономного контроллера запускаем настоящую сцену
+	# стратегии с HUD. Так проверяем, что игровой код действительно
+	# пользуется одной системой, а не оставил старые независимые узлы.
+	var game := GameWorld.new()
+	root.add_child(game)
+	_check(game._atmosphere != null,
+		"Игровой World создаёт общий атмосферный контроллер")
+	if game._atmosphere == null:
+		game.queue_free()
+		return
+	_check(game._weather_fx == game._atmosphere.precipitation
+		and game._lightning_fx == game._atmosphere.lightning,
+		"Осадки и молнии в реальной сцене принадлежат одному владельцу")
+	var controls := 0
+	for control in game._debug_details.get_children():
+		if control is OptionButton and control.get_item_count() == 3:
+			if control.get_item_text(0).begins_with("Атмосфера"):
+				controls += 1
+	_check(controls == 1,
+		"В настоящем игровом интерфейсе есть один переключатель атмосферы")
+
+	var world_before: String = JSON.stringify(game._world_model.to_data())
+	var climate_before: String = JSON.stringify(game._climate.to_data())
+	var water_before: String = JSON.stringify(game._hydro.to_data())
+	game._set_atmosphere_quality(0)
+	_check(int(game._atmosphere.debug_budget()["quality"]) == 0,
+		"Экономная настройка применяется через реальную кнопку World")
+	game._set_atmosphere_quality(2)
+	_check(int(game._atmosphere.debug_budget()["quality"]) == 2,
+		"Подробная настройка применяется без создания нового контроллера")
+	game._atmosphere.set_effects_enabled(false)
+	_check(not game._atmosphere.debug_budget()["enabled"],
+		"Диагностический режим скрывает все семейства вместе")
+	game._atmosphere.set_effects_enabled(true)
+	game._atmosphere.sync_world(game._climate, game._world_model,
+		game._center, game._camera.size)
+	_check(game._weather_fx.debug_state().has("rain"),
+		"Климат игры поступает в атмосферу после восстановления сцены")
+	_check(JSON.stringify(game._world_model.to_data()) == world_before
+		and JSON.stringify(game._climate.to_data()) == climate_before
+		and JSON.stringify(game._hydro.to_data()) == water_before,
+		"Смена качества через игровой HUD не влияет на физический мир")
+	game.queue_free()
+
+
 func _run() -> void:
 	# Сценарий закрывает именно исходные критерии 11.0:
 	# общий контроллер, каталог, LOD, качество, камеры, пауза,
@@ -199,6 +246,7 @@ func _run() -> void:
 	_test_camera_and_load(atmosphere)
 	root.remove_child(atmosphere)
 	atmosphere.free()
+	_test_game_world()
 	if failures.is_empty():
 		print("Этап 11.0: атмосфера, каталог, LOD, пауза и загрузка — успешно")
 		quit(0)
