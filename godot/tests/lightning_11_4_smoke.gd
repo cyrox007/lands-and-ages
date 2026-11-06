@@ -78,14 +78,19 @@ func _test_physical_effect(state: Dictionary, hit: Dictionary) -> void:
 	}
 	var strikes: Array[Dictionary] = [wet_hit]
 	var hazards: Array[Dictionary] = []
-	var changed := {}
 	var before: int = int(nature.object_at(int(target["id"]))["health"])
-	nature._damage_from_events(hazards, strikes, changed)
+	var previous_revision: int = nature.revision
+	# Полный суточный реестр синхронизирует дату и изменения:
+	# JSON проверяется после настоящего природного шага.
+	nature.advance_day(state["climate"].day, hazards, strikes)
 	var after: int = int(nature.object_at(int(target["id"]))["health"])
 	_check(after < before and after >= 0,
 		"Электрический разряд повреждает дерево даже без риска пожара")
-	_check(not changed.is_empty(),
+	_check(nature.revision > previous_revision,
 		"Физическое повреждение помечает чанк для обновления")
+	_check(nature.advance_day(state["climate"].day, hazards, strikes) == 0
+		and int(nature.object_at(int(target["id"]))["health"]) == after,
+		"Повтор расчётного дня не наносит повторный электрический ущерб")
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(nature.to_data()))
 	var loaded := Nature.new(state["map"], state["hydro"],
 		state["surface"], state["climate"])
