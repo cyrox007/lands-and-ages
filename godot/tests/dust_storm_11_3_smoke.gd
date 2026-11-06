@@ -121,8 +121,8 @@ func _test_physics_and_save() -> void:
         "Буря переносит ограниченную массу и меняет рельеф")
     _check(world.revision > before_revision
         and world.vertex_at(source) < before_source
-        and world.vertex_at(target) > before_target,
-        "Грунт физически уходит с наветренной клетки на подветренную")
+        and world.vertex_at(target) >= before_target - 0.00001,
+        "Грунт уходит с наветренной клетки по направлению ветра")
     _check(absf(_total_sediment(surface) - before_mass) < 0.00001,
         "Перемещение не создаёт и не уничтожает массу")
 
@@ -153,6 +153,68 @@ func _test_physics_and_save() -> void:
         and absf(float(restored.profile_at(source)["sediment"]) -
             float(surface.profile_at(source)["sediment"])) < 0.00001,
         "Снятый и нанесённый грунт переживают сохранение")
+
+
+func _test_two_step_track() -> void:
+    # Находим три последовательные сухие открытые клетки, чтобы
+    # проверить именно двухшаговый перенос, а не только факт урона.
+    var models: Dictionary = _models(1729)
+    var world: RefCounted = models["world"]
+    var hydro: RefCounted = models["hydro"]
+    var surface: RefCounted = models["surface"]
+    var climate: RefCounted = models["climate"]
+    climate.set_day(2)
+    surface.advance_climate_day(climate)
+    surface._moisture.fill(0.025)
+    surface._snow.fill(0.0)
+    surface._frost.fill(0.0)
+    climate._wind.fill(34.0)
+    climate._rain.fill(0.0)
+    var disasters := Disasters.new(world, hydro, surface, climate)
+    var chosen := Vector2i(-1, -1)
+    var middle := Vector2i(-1, -1)
+    var last := Vector2i(-1, -1)
+    for y in range(8, world.config.height - 8):
+        if chosen.x >= 0:
+            break
+        for x in range(8, world.config.width - 8):
+            var cell := Vector2i(x, y)
+            if not disasters.dust_source_ready(cell):
+                continue
+            var wind: Vector2 = climate.wind_direction_at_index(
+                hydro.cell_index(cell))
+            var offset := Vector2i(roundi(wind.x * 3.0),
+                roundi(wind.y * 3.0))
+            var next := cell + offset
+            var final := next + offset
+            if not world.config.contains_cell(final) or \
+                    not disasters.dust_source_ready(next) or \
+                    hydro.has_water(hydro.cell_index(final)):
+                continue
+            chosen = cell
+            middle = next
+            last = final
+            break
+    _check(chosen.x >= 0, "На карте есть двухшаговый сухой коридор")
+    if chosen.x < 0:
+        return
+
+    # В середине должно быть почти нулевое изменение высоты:
+    # первая порция пришла и та же порция ушла дальше.
+    var before_first: float = world.vertex_at(chosen)
+    var before_middle: float = world.vertex_at(middle)
+    var before_last: float = world.vertex_at(last)
+    var before_mass := _total_sediment(surface)
+    var impact: Dictionary = disasters.apply_dust_storm(chosen, 1.0)
+    _check(int(impact.get("vertices", 0)) >= 4
+        and float(impact.get("sediment_volume", 0.0)) <= 0.04201,
+        "Два шага остаются внутри прежнего ограничения объёма")
+    _check(world.vertex_at(chosen) < before_first
+        and absf(world.vertex_at(middle) - before_middle) < 0.0001
+        and world.vertex_at(last) > before_last,
+        "Пыль проходит промежуточную клетку и оседает дальше")
+    _check(absf(_total_sediment(surface) - before_mass) < 0.00001,
+        "Двухшаговая траектория сохраняет массу")
 
 
 func _test_natural_origin() -> void:
@@ -290,6 +352,7 @@ func _run() -> void:
     # Обособленные миры исключают зависимость физических проверок
     # от порядка их запуска и от состояния графической сцены.
     _test_physics_and_save()
+    _test_two_step_track()
     _test_natural_origin()
     _test_runner_and_fx()
     if not failures.is_empty():

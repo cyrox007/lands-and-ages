@@ -246,24 +246,33 @@ func apply_dust_storm(cell: Vector2i, severity: float) -> Dictionary:
 	var side := Vector2i(-roundi(direction.y), roundi(direction.x))
 	if forward == Vector2i.ZERO:
 		return {}
-	var amount := clampf(severity * 0.014, 0.004, 0.014)
+	# Два коротких последовательных переноса дают читаемый след
+	# на карте. У каждой полосы масса идёт из клетки в клетку,
+	# а не телепортируется из эпицентра сразу в дальнюю точку.
+	# Максимум шесть переносов по 0.007 = 0.042: прежний JSON v1
+	# и ограничение sediment_volume <= 0.05 остаются совместимы.
+	var amount := clampf(severity * 0.007, 0.002, 0.007)
 	var moved := 0
 	for lane in [0, -1, 1]:
-		# Ограничиваем работу тремя полосами. Это не обход всей карты
-		# и не дорогостоящая глобальная симуляция пылевых частиц.
 		var source: Vector2i = cell + side * lane
-		var target: Vector2i = source + forward
-		if not dust_source_ready(source) \
-				or not world.config.contains_cell(target):
-			continue
-		if hydro.has_water(hydro.cell_index(target)):
-			continue
-		if surface.transfer_sediment(source, target, amount):
+		for step in range(2):
+			# Нельзя брать новый грунт из воды, скалы, снега или
+			# мокрой клетки. Если цепочка оборвалась, дальше не идём.
+			if not dust_source_ready(source):
+				break
+			var target: Vector2i = source + forward
+			if not world.config.contains_cell(target):
+				break
+			if hydro.has_water(hydro.cell_index(target)):
+				break
+			if not surface.transfer_sediment(source, target, amount):
+				break
 			moved += 1
+			# Второй перенос использует тот же физический осадок
+			# на новой клетке и не создаёт дополнительной массы.
+			source = target
 	if moved == 0:
 		return {}
-	# Не превышаем допустимый объём 0.05 в формате событий v1:
-	# максимум 3 × 0.014 = 0.042, версия сохранений не меняется.
 	return {
 		"vertices": moved * 2,
 		"sediment_volume": float(moved) * amount
