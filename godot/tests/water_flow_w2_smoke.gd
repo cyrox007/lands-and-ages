@@ -46,12 +46,14 @@ func _test_river(world: RefCounted, hydro: RefCounted) -> void:
 	var directions: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
 	var ice: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 	_check(triangles > 0 and positions.size() == triangles * 3,
-		"Реальный речной меш сохраняет число физических треугольников")
+		"Реальный речной меш содержит все треугольники поперечника")
 	_check(directions.size() == positions.size(),
 		"Каждая вершина русла получила направленный поток UV2")
 	_check(ice.size() == positions.size() and ice[0].y == 0.0,
 		"Ледяной параметр UV не смешивается с направлением течения")
 
+	_check(ice.has(Vector2.ZERO) and ice.has(Vector2.RIGHT),
+		"У русла раздельно размечены края и середина для плавных берегов")
 	var downstream: Vector2 = Vector2(
 		hydro.cell_from_index(hydro.downstream_of(index)) - river).normalized()
 	var min_forward := 1.0
@@ -94,8 +96,8 @@ func _run() -> void:
 			var index: int = hydro.cell_index(cell)
 			if not hydro.river_at(index):
 				continue
-			var frame: Vector4 = Water._river_frame(world, hydro, cell)
-			var anchor := Vector2(frame.x, frame.y)
+			var frame: Dictionary = Water._river_frame(world, hydro, cell)
+			var anchor: Vector2 = frame["center"]
 			var offset := anchor.distance_to(Vector2(cell) + Vector2(0.5, 0.5))
 			if offset > 0.0001:
 				moved += 1
