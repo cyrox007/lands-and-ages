@@ -277,7 +277,8 @@ func canopy_pressure_at(cell: Vector2i, ignored_id: int = -1) -> float:
     return minf(3.0, pressure)
 
 
-func ground_cover_at(cell: Vector2i) -> float:
+func ground_cover_at(cell: Vector2i,
+        fire: RefCounted = null) -> float:
     # Массовая трава не получает миллион отдельных ID.
     # Её плотность определяется сохранёнными почвой, погодой и деревьями.
     if not world.config.contains_cell(cell):
@@ -285,7 +286,10 @@ func ground_cover_at(cell: Vector2i) -> float:
     var index: int = hydro.cell_index(cell)
     if hydro.has_water(index) or hydro.flooded_at(index):
         return 0.0
-    var soil: Dictionary = surface.profile_at(cell)
+    # Выгоревшая земля медленно восстанавливает плодородие.
+    # Старые вызовы без FireRegistry используют обычную почву.
+    var damage: float = float(fire.soil_damage_at(cell)) if fire != null else 0.0
+    var soil: Dictionary = surface.profile_at(cell, damage)
     if soil.is_empty():
         return 0.0
     var moisture: float = float(soil.get("moisture", 0.0))
@@ -456,7 +460,8 @@ func burn_object(id: int, heat: int, day: int) -> bool:
     return true
 
 
-func _spread_seeds(day: int, changed: Dictionary) -> int:
+func _spread_seeds(day: int, changed: Dictionary,
+        fire: RefCounted = null) -> int:
     # Один сезон расселения за год; выбор места не зависит от камеры.
     if day % 96 != 1 or _objects.size() >= MAX_OBJECTS:
         return 0
@@ -493,7 +498,10 @@ func _spread_seeds(day: int, changed: Dictionary) -> int:
         # Под плотной взрослой кроной молодняку не хватает света.
         if canopy_pressure_at(next) >= 1.10:
             continue
-        var soil: Dictionary = surface.profile_at(next)
+        # Молодые деревья не расселяются на свежей выгоревшей
+        # почве так же успешно, как на ещё плодородном участке.
+        var damage: float = float(fire.soil_damage_at(next)) if fire != null else 0.0
+        var soil: Dictionary = surface.profile_at(next, damage)
         if float(soil.get("growth_potential", 0.0)) < 0.20 \
                 or float(soil.get("waterlogging", 0.0)) > 0.72:
             continue
@@ -799,7 +807,8 @@ func _damage_from_events(hazards: Array[Dictionary],
 
 
 func advance_day(day: int, hazards: Array[Dictionary] = [],
-        strikes: Array[Dictionary] = []) -> int:
+        strikes: Array[Dictionary] = [],
+        fire: RefCounted = null) -> int:
     if not generated or day <= last_day or day != climate.day:
         return 0
     # Транзитные анимации относятся только к завершённому дню.
@@ -849,6 +858,12 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
             stress += 12
         if flood:
             stress += 24
+        # После физического пожара корни и микрофлора восстанавливаются
+        # по суточному слою почвенного ожога, а не по дымовым частицам.
+        var soil_scar: float = float(fire.soil_damage_at(cell)) if fire != null else 0.0
+        if soil_scar > 0.0 and item["state"] == "целое":
+            var sensitivity := 13.0 if int(item["age_days"]) < 7 * 96 else 6.0
+            stress += roundi(soil_scar * sensitivity)
         var competition := 0.0
         if item["kind"] == "дерево" and item["state"] == "целое":
             competition = canopy_pressure_at(cell, int(id))
@@ -867,6 +882,10 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
                 var annual_increment := 3 if int(item["age_days"]) < 60 * 96 else 1
                 if competition > 0.75:
                     annual_increment = maxi(0, annual_increment - 2)
+                # Утрата плодородия сокращает годовой прирост древесины,
+                # но не отбирает уже существующие брёвна из запаса.
+                if soil_scar > 0.40:
+                    annual_increment = maxi(0, annual_increment - 1)
                 item["wood_units"] = int(item["wood_units"]) + annual_increment
             elif item["state"] == "сухостой":
                 if day % 96 < 8:
@@ -890,7 +909,7 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
         updates += 1
         if old_state != str(item["state"]):
             changed[world.config.chunk_of(cell)] = true
-    updates += _spread_seeds(day, changed)
+    updates += _spread_seeds(day, changed, fire)
     _damage_from_events(hazards, strikes, changed)
     last_day = day
     _mark_changes(changed)

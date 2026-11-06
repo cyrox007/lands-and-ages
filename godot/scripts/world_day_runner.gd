@@ -157,7 +157,9 @@ func run_day() -> void:
 	var vegetation_us := 0
 	if nature != null and nature.generated:
 		var plants_started := Time.get_ticks_usec()
-		nature.advance_day(climate.day, hazards, strikes)
+		# Тот же реестр почвенного ожога поступает в рост растений,
+		# восстановление и геологические процессы.
+		nature.advance_day(climate.day, hazards, strikes, fire)
 		vegetation_us = Time.get_ticks_usec() - plants_started
 	# После природного шага огонь изменяет те же физические объекты.
 	# В старых тестовых сценариях без FireRegistry поле остаётся null.
