@@ -143,11 +143,11 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 const RIVER_SEGMENTS := 4
 
 
-static func _river_frame(world: RefCounted, hydro: RefCounted, cell: Vector2i) -> Vector4:
+static func _river_frame(world: RefCounted, hydro: RefCounted, cell: Vector2i) -> Dictionary:
 	var center := Vector2(cell) + Vector2(0.5, 0.5)
 	var index: int = hydro.cell_index(cell)
 	if index < 0:
-		return Vector4(center.x, center.y, 0.0, 1.0)
+		return {"center": center, "direction": Vector2.DOWN, "headwater": true}
 	var downstream: int = hydro.downstream_of(index)
 	var outgoing := Vector2.ZERO
 	if downstream >= 0:
@@ -186,7 +186,7 @@ static func _river_frame(world: RefCounted, hydro: RefCounted, cell: Vector2i) -
 	if direction.length_squared() <= 0.0001:
 		direction = outgoing if outgoing != Vector2.ZERO else Vector2.DOWN
 	direction = direction.normalized()
-	return Vector4(center.x, center.y, direction.x, direction.y)
+	return {"center": center, "direction": direction, "headwater": river_branches == 0}
 
 
 static func _river_curve(p0: Vector2, p1: Vector2,
@@ -209,8 +209,8 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 		hydro: RefCounted, cell: Vector2i, index: int,
 		level: float, tint: Color, ice: float) -> int:
 	var start_frame := _river_frame(world, hydro, cell)
-	var start := Vector2(start_frame.x, start_frame.y)
-	var direction_start := Vector2(start_frame.z, start_frame.w)
+	var start: Vector2 = start_frame["center"]
+	var direction_start: Vector2 = start_frame["direction"]
 	var direction_end := direction_start
 	var next: int = hydro.downstream_of(index)
 	var finish := start + Vector2(0.0, 0.18)
@@ -218,8 +218,8 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	if next >= 0:
 		var target: Vector2i = hydro.cell_from_index(next)
 		var end_frame := _river_frame(world, hydro, target)
-		finish = Vector2(end_frame.x, end_frame.y)
-		direction_end = Vector2(end_frame.z, end_frame.w)
+		finish = end_frame["center"]
+		direction_end = end_frame["direction"]
 		if hydro.has_water(next):
 			end_level = hydro.level_at(next) + WATER_OFFSET
 		else:
@@ -229,34 +229,66 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 		return 0
 	var control0 := start + direction_start * span * 0.35
 	var control1 := finish - direction_end * span * 0.35
-	var last_dir := _river_curve_direction(start, control0, control1, finish, 0.0)
-	var last_side := Vector2(-last_dir.y, last_dir.x) * 0.24
-	var last_center := start
-	var last_level := level + WATER_OFFSET
-	for segment in range(1, RIVER_SEGMENTS + 1):
+	var intensity := 0.0
+	if next >= 0:
+		var pressure: float = hydro.flow_pressure_at(index)
+		intensity = clampf(0.35 + sqrt(maxf(0.0, pressure)) * 0.32, 0.35, 1.0)
+	var last_dir := Vector2.ZERO
+	var last := PackedVector3Array()
+	var last_coverage := 1.0
+	var terminal: bool = next < 0 or not hydro.has_water(next)
+	for segment in range(RIVER_SEGMENTS + 1):
 		var t := float(segment) / float(RIVER_SEGMENTS)
 		var center := _river_curve(start, control0, control1, finish, t)
 		var direction := _river_curve_direction(start, control0, control1, finish, t)
-		var side := Vector2(-direction.y, direction.x) * 0.24
 		var altitude := lerpf(level + WATER_OFFSET, end_level, t)
-		# Соседние русловые звенья согласуют направление по одному
-		# физическому downstream. Амплитуда зависит от давления стока,
-		# но не выдаётся за точно рассчитанную скорость воды.
-		var flow := Vector2.ZERO
-		if next >= 0:
-			var along := (last_dir + direction).normalized()
-			var pressure: float = hydro.flow_pressure_at(index)
-			var intensity := clampf(0.35 + sqrt(maxf(0.0, pressure)) * 0.32,
-				0.35, 1.0)
-			flow = along * intensity
-		_quad(tool, world.config.to_scene(last_center - last_side, last_level),
-			world.config.to_scene(last_center + last_side, last_level),
-			world.config.to_scene(center + side, altitude),
-			world.config.to_scene(center - side, altitude), tint, ice, flow)
-		last_center = center
-		last_side = side
-		last_level = altitude
-	return RIVER_SEGMENTS * 2
+		var section := _river_section(world, center, direction, altitude)
+		var coverage := 1.0
+		if start_frame["headwater"]:
+			coverage *= smoothstep(0.0, 0.65, t)
+		if terminal:
+			coverage *= 1.0 - smoothstep(0.35, 1.0, t)
+		if not last.is_empty():
+			var flow := (last_dir + direction).normalized() * intensity
+			_add_river_section(tool, last, section, tint, ice, flow,
+				Vector2(last_coverage, coverage))
+		last_coverage = coverage
+		last = section
+		last_dir = direction
+	return RIVER_SEGMENTS * 4
+
+
+static func _river_section(world: RefCounted, center: Vector2,
+		direction: Vector2, altitude: float) -> PackedVector3Array:
+	# Одна и та же мировая фаза даёт общий поперечник на стыке звеньев.
+	var normal := Vector2(-direction.y, direction.x)
+	var bend := sin(center.dot(Vector2(0.34, 0.41)))
+	var shifted := center + normal * bend * 0.22
+	if world.height_at(shifted) <= altitude - WATER_OFFSET:
+		center = shifted
+	var width := 0.24 + sin(center.dot(Vector2(0.70, -0.43))) * 0.07
+	var side := normal * width
+	return PackedVector3Array([
+		world.config.to_scene(center - side, altitude),
+		world.config.to_scene(center, altitude),
+		world.config.to_scene(center + side, altitude),
+	])
+
+
+static func _add_river_section(tool: SurfaceTool, start: PackedVector3Array,
+		finish: PackedVector3Array, tint: Color, ice: float, flow: Vector2,
+		coverage: Vector2) -> void:
+	tool.set_color(tint)
+	tool.set_normal(Vector3.UP)
+	tool.set_uv2(flow)
+	for half in range(2):
+		for corner in [0, 1, 2, 0, 2, 3]:
+			var across: int = half + int(corner == 1 or corner == 2)
+			# Отрицательное UV.x отмечает русло; -2 — середина, -1 — берега.
+			var at_start: bool = corner < 2
+			var depth := coverage.x if at_start else coverage.y
+			tool.set_uv(Vector2(-1.0 - depth if across == 1 else -1.0, ice))
+			tool.add_vertex(start[across] if at_start else finish[across])
 
 
 const FLOOD_COVERAGE_THRESHOLD := 0.45

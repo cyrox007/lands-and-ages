@@ -1,7 +1,8 @@
 shader_type spatial;
 render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_ggx;
 
-// UV.x — реальная глубина у берега, UV.y — доля льда из Surface.
+// UV.x — глубина стоячей воды или поперечник русла в диапазоне -2..-1.
+// UV.y — доля льда из Surface.
 // UV2 — речной сток (длина <= 1), озеро (0, 2), море (2, 0)
 // или паводок (-2, интенсивность из реальной глубины и давления).
 // Волны и бегущие блики не смещают геометрию и не меняют уровень воды.
@@ -27,7 +28,10 @@ void vertex() {
 void fragment() {
 	float ice = clamp(UV.y, 0.0, 1.0);
 	float liquid = 1.0 - ice;
-	float nearshore = 1.0 - smoothstep(0.01, 0.42, UV.x);
+	float river = 1.0 - step(0.0, UV.x);
+	float river_depth = clamp(-UV.x - 1.0, 0.0, 1.0);
+	float depth = mix(UV.x, river_depth, river);
+	float nearshore = 1.0 - smoothstep(0.01, 0.42, depth);
 	float ripple = 0.0;
 	float river_highlight = 0.0;
 	float wind_highlight = 0.0;
@@ -140,8 +144,8 @@ void fragment() {
 	// не появляется посреди озера и гаснет точно на обрезке берега.
 	// fwidth сглаживает тонкую полосу при удалении камеры, без муара.
 	float shoreline_aa = max(fwidth(UV.x) * 1.4, 0.012);
-	float foam_band = smoothstep(0.004, 0.055 + shoreline_aa, UV.x) *
-		(1.0 - smoothstep(0.13, 0.30 + shoreline_aa, UV.x));
+	float foam_band = smoothstep(0.004, 0.055 + shoreline_aa, depth) *
+		(1.0 - smoothstep(0.13, 0.30 + shoreline_aa, depth));
 	// У рек сохраняется прежняя слабая пена; прибой усиливает
 	// только действительно стоячие водоёмы (UV2).
 	float shoreline_foam = foam_band * (0.24 + (1.0 - standing) * 0.36) *
@@ -207,5 +211,7 @@ void fragment() {
 	ROUGHNESS = mix(clamp(mix(0.18, 0.32, nearshore) +
 		shoreline_foam * 0.15, 0.0, 1.0), 0.84, ice);
 	METALLIC = 0.0;
-	ALPHA = mix(COLOR.a * (1.0 - nearshore * 0.12), 0.96, ice);
+	float bank_coverage = smoothstep(0.0, 0.39 + shoreline_aa, river_depth);
+	ALPHA = mix(COLOR.a * (1.0 - nearshore * 0.12), 0.96, ice) *
+		mix(1.0, bank_coverage, river);
 }
