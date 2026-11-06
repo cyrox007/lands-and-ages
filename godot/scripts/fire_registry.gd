@@ -213,7 +213,7 @@ func _advance_suspended_ash(changed: Dictionary) -> void:
         # Скорость ограничивается водным расходом из Hydrology;
         # даже крупная река не переносит произвольный запас
         # через несколько участков за один игровой день.
-        var flow := hydro.discharge_at_index(index)
+        var flow: float = hydro.discharge_at_index(index)
         var request := mini(int(_suspended_ash[index]),
             clampi(roundi(flow * 7.0), 0, 160))
         var amount := mini(request, capacity)
@@ -431,7 +431,7 @@ func _wash_ash(changed: Dictionary) -> void:
             for offset in [
                     Vector2i(1, 0), Vector2i(0, 1),
                     Vector2i(-1, 0), Vector2i(0, -1)]:
-                var next := cell + offset
+                var next: Vector2i = cell + offset
                 if not world.config.contains_cell(next):
                     continue
                 var target: int = hydro.cell_index(next)
