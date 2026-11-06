@@ -23,6 +23,20 @@ static func from_weather(weather: Dictionary) -> Dictionary:
 	var precipitation := clampf((rainfall + snowfall) / 2.4, 0.0, 1.0)
 	var clouds := clampf(smoothstep(0.58, 0.92, humidity) * 0.56
 		+ precipitation * 0.34 + storm * 0.42, 0.0, 1.0)
+	# Классы осадков выводим только из существующих погодных полей.
+	# Град — лишь форма изображения мощного дождевого фронта:
+	# здесь нет нового физического удара или собственного таймера.
+	var temperature := float(weather.get("temperature", -20.0))
+	var hail := clampf((storm - 0.53) / 0.37, 0.0, 1.0) \
+		* clampf(rainfall / 1.6, 0.0, 1.0) \
+		* smoothstep(-2.0, 3.0, temperature)
+	var wet_snow := clampf(minf(rainfall, snowfall) / 0.85, 0.0, 1.0) \
+		* (1.0 - smoothstep(1.8, 3.0, absf(temperature)))
+	var blizzard := clampf((gust - 14.0) / 15.0, 0.0, 1.0) \
+		* clampf(snowfall / 1.0, 0.0, 1.0)
+	var downpour := smoothstep(0.75, 1.9, rainfall)
+	var drizzle := clampf(rainfall / 0.28, 0.0, 1.0) \
+		* (1.0 - smoothstep(0.22, 0.72, rainfall))
 	return {
 		"rain": clampf(rainfall / 2.4, 0.0, 1.0),
 		"snow": clampf(snowfall / 2.4, 0.0, 1.0),
@@ -31,6 +45,10 @@ static func from_weather(weather: Dictionary) -> Dictionary:
 		"wind_x": direction.x, "wind_y": direction.y,
 		"storm": storm,
 		"cloud": clouds,
+		"temperature": temperature,
+		"hail": hail, "wet_snow": wet_snow,
+		"blizzard": blizzard, "downpour": downpour,
+		"drizzle": drizzle,
 		"rainfall": rainfall,
 		"snowfall": snowfall
 	}
@@ -54,6 +72,11 @@ static func sample(climate: RefCounted, config: RefCounted,
 	var flow := Vector2.ZERO
 	var total_storm := 0.0
 	var total_cloud := 0.0
+	var total_hail := 0.0
+	var total_wet_snow := 0.0
+	var total_blizzard := 0.0
+	var total_downpour := 0.0
+	var total_drizzle := 0.0
 	for offset in offsets:
 		# Граничные камеры всегда берут корректную существующую клетку.
 		var point: Vector2 = config.clamp_point(center + offset)
@@ -69,6 +92,11 @@ static func sample(climate: RefCounted, config: RefCounted,
 			float(weather["wind_y"])) * float(weather["wind"])
 		total_storm += float(weather["storm"])
 		total_cloud += float(weather["cloud"])
+		total_hail += float(weather["hail"])
+		total_wet_snow += float(weather["wet_snow"])
+		total_blizzard += float(weather["blizzard"])
+		total_downpour += float(weather["downpour"])
+		total_drizzle += float(weather["drizzle"])
 	var count := float(offsets.size())
 	var direction := flow.normalized() if flow.length_squared() > 0.000001 \
 		else Vector2.ZERO
@@ -79,5 +107,10 @@ static func sample(climate: RefCounted, config: RefCounted,
 		"gust": clampf(total_gust / count, 0.0, 1.0),
 		"wind_x": direction.x, "wind_y": direction.y,
 		"storm": clampf(total_storm / count, 0.0, 1.0),
-		"cloud": clampf(total_cloud / count, 0.0, 1.0)
+		"cloud": clampf(total_cloud / count, 0.0, 1.0),
+		"hail": clampf(total_hail / count, 0.0, 1.0),
+		"wet_snow": clampf(total_wet_snow / count, 0.0, 1.0),
+		"blizzard": clampf(total_blizzard / count, 0.0, 1.0),
+		"downpour": clampf(total_downpour / count, 0.0, 1.0),
+		"drizzle": clampf(total_drizzle / count, 0.0, 1.0)
 	}

@@ -9,9 +9,17 @@ const MASK_SIZE := 17
 const MASK_STEP := 6.0
 const MASK_SPAN := MASK_SIZE * MASK_STEP
 const SNOW_PARTICLES := 320
+const WET_SNOW_PARTICLES := 220
+const HAIL_PARTICLES := 180
+const SPLASH_PARTICLES := 240
+const DRIFT_PARTICLES := 180
 
 var _rain: GPUParticles3D
 var _snow: GPUParticles3D
+var _wet_snow: GPUParticles3D
+var _hail: GPUParticles3D
+var _splashes: GPUParticles3D
+var _snowdrift: GPUParticles3D
 var _gusts: GPUParticles3D
 var _dust: GPUParticles3D
 var _event_life := 0.0
@@ -29,6 +37,7 @@ var _mask_origin := Vector2.ZERO
 var _mask_revision := -1
 var _mask_climate: RefCounted
 var _mask_peak := Vector2.ZERO
+var _mask_special_peak := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -38,16 +47,41 @@ func _ready() -> void:
 		Vector2(0.082, 0.71), RAIN_PARTICLES, 17.0, 1.7)
 	_snow = _make_emitter("Снег", Color(0.96, 0.97, 1.0, 0.86),
 		Vector2(0.24, 0.24), SNOW_PARTICLES, 3.4, 5.5)
-	for emitter in [_rain, _snow]:
+	# Мокрые крупные хлопья, плотные градины, брызги и позёмка
+	# отделены силуэтом, но не имеют собственной физики погоды.
+	_wet_snow = _make_emitter("Мокрый снег",
+		Color(0.85, 0.90, 0.96, 0.84),
+		Vector2(0.31, 0.48), WET_SNOW_PARTICLES, 8.0, 2.4)
+	_hail = _make_emitter("Град", Color(0.95, 0.96, 0.99, 0.93),
+		Vector2(0.115, 0.16), HAIL_PARTICLES, 24.0, 1.4)
+	_splashes = _make_emitter("Брызги дождя",
+		Color(0.76, 0.86, 0.97, 0.48),
+		Vector2(0.38, 0.18), SPLASH_PARTICLES, 2.5, 0.72)
+	_snowdrift = _make_emitter("Снежная взвесь",
+		Color(0.89, 0.95, 1.0, 0.46),
+		Vector2(0.85, 0.12), DRIFT_PARTICLES, 8.0, 1.4)
+	var emitters := [_rain, _snow, _wet_snow, _hail, _splashes, _snowdrift]
+	for kind in range(emitters.size()):
+		# Один GPU-шейдер использует шесть форм; количество
+		# узлов и их максимум фиксируются при создании контроллера.
+		var emitter: GPUParticles3D = emitters[kind]
 		var quad := emitter.draw_pass_1 as QuadMesh
 		var previous := quad.material as StandardMaterial3D
 		var material := ShaderMaterial.new()
 		material.shader = PrecipitationShader
 		material.set_shader_parameter("particle_color", previous.albedo_color)
-		material.set_shader_parameter("snow", emitter == _snow)
+		material.set_shader_parameter("particle_kind", kind)
+		material.set_shader_parameter("snow", kind == 1)
 		quad.material = material
 		emitter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		emitter.local_coords = false
+	var splash_motion := _splashes.process_material as ParticleProcessMaterial
+	splash_motion.direction = Vector3.UP
+	splash_motion.spread = 55.0
+	splash_motion.gravity = Vector3(0.0, -8.0, 0.0)
+	var drift_motion := _snowdrift.process_material as ParticleProcessMaterial
+	drift_motion.gravity = Vector3.ZERO
+	drift_motion.spread = 12.0
 	# Разреженные горизонтальные полосы показывают порывы над картой.
 	# Это один GPU-эмиттер, а не отдельный Node3D на каждую частицу.
 	_gusts = _make_emitter("Порывы ветра",
@@ -193,6 +227,9 @@ func set_effects_enabled(enabled: bool) -> void:
 	if not enabled and _rain != null:
 		_rain.emitting = false
 		_snow.emitting = false
+		for emitter in [_wet_snow, _hail, _splashes, _snowdrift]:
+			emitter.emitting = false
+			emitter.hide()
 		_rain.hide()
 		_snow.hide()
 		if _gusts != null:
@@ -211,6 +248,8 @@ func sync_world(climate: RefCounted, world: RefCounted,
 		_update_precipitation_mask(climate, world.config, center)
 		snapshot["rain"] = _mask_peak.x
 		snapshot["snow"] = _mask_peak.y
+		snapshot["hail"] = _mask_special_peak.x
+		snapshot["wet_snow"] = _mask_special_peak.y
 	var height: float = world.height_at(center)
 	var altitude: float = world.config.to_scene(center, height).y
 	apply_snapshot(snapshot, center, altitude, zoom, world.config.world_seed)
@@ -227,7 +266,9 @@ func _update_precipitation_mask(climate: RefCounted, config: RefCounted,
 	_mask_revision = climate.revision
 	_mask_climate = climate
 	_mask_peak = Vector2.ZERO
-	var image := Image.create_empty(MASK_SIZE, MASK_SIZE, false, Image.FORMAT_RG8)
+	_mask_special_peak = Vector2.ZERO
+	var image := Image.create_empty(MASK_SIZE, MASK_SIZE, false,
+		Image.FORMAT_RGBA8)
 	for y in range(MASK_SIZE):
 		for x in range(MASK_SIZE):
 			var point := origin + (Vector2(x, y) + Vector2(0.5, 0.5)) * MASK_STEP
@@ -236,13 +277,17 @@ func _update_precipitation_mask(climate: RefCounted, config: RefCounted,
 			var weather: Dictionary = climate.weather_at(config.cell_at(point))
 			var rain := clampf(float(weather["rainfall"]) / 2.4, 0.0, 1.0)
 			var snow := clampf(float(weather["snowfall"]) / 2.4, 0.0, 1.0)
+			var kinds: Dictionary = VisualState.from_weather(weather)
+			var hail: float = float(kinds["hail"])
+			var wet: float = float(kinds["wet_snow"])
 			_mask_peak = _mask_peak.max(Vector2(rain, snow))
-			image.set_pixel(x, y, Color(rain, snow, 0.0))
+			_mask_special_peak = _mask_special_peak.max(Vector2(hail, wet))
+			image.set_pixel(x, y, Color(rain, snow, hail, wet))
 	if _mask_texture == null:
 		_mask_texture = ImageTexture.create_from_image(image)
 	else:
 		_mask_texture.update(image)
-	for emitter in [_rain, _snow]:
+	for emitter in [_rain, _snow, _wet_snow, _hail, _splashes, _snowdrift]:
 		var material := emitter.draw_pass_1.material as ShaderMaterial
 		material.set_shader_parameter("precipitation_map", _mask_texture)
 		material.set_shader_parameter("map_origin", origin)
@@ -308,14 +353,40 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 			material.direction = Vector3(
 				airflow.x * drift, -1.0, airflow.y * drift).normalized()
 		emitter.seed = world_seed
+	# Самостоятельные формы не дублируют весь дождь и снег:
+	# часть мощности переходит в град или мокрый снег.
+	var hail_strength := clampf(float(state.get("hail", 0.0)), 0.0, 1.0)
+	var wet_strength := clampf(float(state.get("wet_snow", 0.0)), 0.0, 1.0)
+	var downpour := clampf(float(state.get("downpour", 0.0)), 0.0, 1.0)
+	var drizzle := clampf(float(state.get("drizzle", 0.0)), 0.0, 1.0)
+	var blizzard := clampf(float(state.get("blizzard", 0.0)), 0.0, 1.0)
 	_rain.amount_ratio = clampf(float(state.get("rain", 0.0))
+		* (1.0 - hail_strength * 0.55 - wet_strength * 0.25)
 		* quality_factor * precipitation_lod, 0.0, 1.0)
 	_snow.amount_ratio = clampf(float(state.get("snow", 0.0))
+		* (1.0 - wet_strength * 0.70)
 		* quality_factor * precipitation_lod, 0.0, 1.0)
+	# Морось остаётся тонкой и прозрачной, ливень заметно
+	# уплотняет и удлиняет струи без создания новых объектов.
+	var rain_quad := _rain.draw_pass_1 as QuadMesh
+	rain_quad.size = Vector2(lerpf(0.045, 0.12, downpour),
+		lerpf(0.37, 1.25, downpour))
+	var rain_motion := _rain.process_material as ParticleProcessMaterial
+	rain_motion.initial_velocity_min = lerpf(9.0, 21.0, downpour)
+	rain_motion.initial_velocity_max = lerpf(14.0, 29.0, downpour)
+	var rain_shader := rain_quad.material as ShaderMaterial
+	rain_shader.set_shader_parameter("visual_intensity",
+		lerpf(0.48, 1.40, downpour) * (1.0 - drizzle * 0.22))
 	_rain.emitting = _enabled and _rain.amount_ratio >= 0.025
 	_snow.emitting = _enabled and _snow.amount_ratio >= 0.025
 	_rain.visible = _rain.emitting
 	_snow.visible = _snow.emitting
+	# Снег и дождь расходуют собственный фиксированный бюджет.
+	# Низовые брызги/взвесь не участвуют в геологии и исчезают
+	# на дальнем масштабе или при отключении графических эффектов.
+	_apply_precipitation_details(state, center, altitude, distance,
+		quality_factor * precipitation_lod, airflow, gust, world_seed,
+		hail_strength, wet_strength, blizzard, downpour)
 	# На обычном ветре штормовые полосы не возникают.
 	_gusts.amount_ratio = clampf(
 		storm * smoothstep(0.15, 0.65, gust) * quality_factor, 0.0, 1.0)
@@ -337,6 +408,65 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	_dust.amount_ratio = _event_severity * quality_factor \
 		if _event_dust and _event_life > 0.0 else 0.0
 	_dust.emitting = _enabled and _dust.amount_ratio >= 0.08
+
+
+func _apply_precipitation_details(state: Dictionary, center: Vector2,
+		altitude: float, distance: float, budget: float,
+		airflow: Vector2, gust: float, world_seed: int,
+		hail: float, wet: float, blizzard: float,
+		downpour: float) -> void:
+	# Детальные частицы имеют постоянные эмиттеры и порог
+	# появления. Сила зависит от снимка, но не от числа кадров.
+	var rain := clampf(float(state.get("rain", 0.0)), 0.0, 1.0)
+	var snow := clampf(float(state.get("snow", 0.0)), 0.0, 1.0)
+	var kinds := [_wet_snow, _hail, _splashes, _snowdrift]
+	var densities := [
+		wet * 0.85, hail * 0.72,
+		rain * (0.13 + downpour * 0.82),
+		snow * blizzard * 0.9
+	]
+	for index in range(kinds.size()):
+		var emitter: GPUParticles3D = kinds[index]
+		var near_ground := index >= 2
+		emitter.position = Vector3(center.x,
+			altitude + (0.75 if near_ground else 22.0), center.y)
+		var motion := emitter.process_material as ParticleProcessMaterial
+		motion.emission_box_extents = Vector3(minf(distance, 34.0),
+			0.25 if near_ground else 5.0, minf(distance, 34.0))
+		motion.direction = Vector3(airflow.x * gust * 2.0, -1.0,
+			airflow.y * gust * 2.0).normalized()
+		if index == 0:
+			# Мокрые хлопья заметно тяжелее сухого снега.
+			motion.initial_velocity_min = 7.0
+			motion.initial_velocity_max = 11.0
+		elif index == 1:
+			# Град падает резко; отдельно не повреждает объекты.
+			motion.initial_velocity_min = 21.0
+			motion.initial_velocity_max = 28.0
+		elif index == 2:
+			# Поверхностная вспышка брызг только в дождевом фронте.
+			motion.direction = Vector3.UP
+			motion.initial_velocity_min = 1.3
+			motion.initial_velocity_max = 3.4
+		else:
+			# Низовой снег подхватывает только уже существующий ветер.
+			motion.direction = Vector3(airflow.x, 0.04,
+				airflow.y).normalized() if airflow.length_squared() > 0.000001 \
+				else Vector3.ZERO
+			motion.initial_velocity_min = 5.0
+			motion.initial_velocity_max = 13.0
+		emitter.seed = world_seed + 101 + index
+		emitter.amount_ratio = clampf(float(densities[index]) * budget, 0.0, 1.0)
+		emitter.emitting = _enabled and emitter.amount_ratio >= 0.025
+		emitter.visible = emitter.emitting
+	var wet_shader := _wet_snow.draw_pass_1.material as ShaderMaterial
+	wet_shader.set_shader_parameter("visual_intensity", 1.1)
+	var hail_shader := _hail.draw_pass_1.material as ShaderMaterial
+	hail_shader.set_shader_parameter("visual_intensity", 1.15)
+	var splash_shader := _splashes.draw_pass_1.material as ShaderMaterial
+	splash_shader.set_shader_parameter("visual_intensity", 0.65 + downpour * 0.8)
+	var drift_shader := _snowdrift.draw_pass_1.material as ShaderMaterial
+	drift_shader.set_shader_parameter("visual_intensity", 0.60 + blizzard * 0.65)
 
 
 func debug_state() -> Dictionary:

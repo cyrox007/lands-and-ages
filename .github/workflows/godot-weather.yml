@@ -14,6 +14,9 @@ on:
       - "godot/scripts/weather_fx_controller.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
+      - "godot/tests/weather_precipitation_11_1_smoke.gd"
+      - "godot/tests/weather_precipitation_visual_11_1.gd"
+      - "godot/shaders/local_precipitation.gdshader"
       - ".github/workflows/godot-weather.yml"
   pull_request:
     branches: [develop]
@@ -28,6 +31,9 @@ on:
       - "godot/scripts/weather_fx_controller.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
+      - "godot/tests/weather_precipitation_11_1_smoke.gd"
+      - "godot/tests/weather_precipitation_visual_11_1.gd"
+      - "godot/shaders/local_precipitation.gdshader"
       - ".github/workflows/godot-weather.yml"
   workflow_dispatch:
 
@@ -70,6 +76,17 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/weather-visual-test.log; then
             exit 1
           fi
+      - name: "11.1 — выразительные осадки, физический климат и бюджет GPU"
+        run: |
+          set -o pipefail
+          timeout 160s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/weather_precipitation_11_1_smoke.gd \
+            2>&1 | tee /tmp/weather-precipitation-11-1.log
+          grep -q "Этап 11.1:.*успешно" /tmp/weather-precipitation-11-1.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-precipitation-11-1.log; then
+            exit 1
+          fi
       - name: "11.3/V2: физическое направление и порывы ветра"
         run: |
           set -o pipefail
@@ -99,6 +116,47 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/weather-physics-test.log; then
             exit 1
           fi
+      - name: "11.1 — сравнимые PNG осадков в оконном OpenGL"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          mkdir -p /tmp/weather-11-1
+          timeout 210s xvfb-run -a -s "-screen 0 1280x720x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/weather_precipitation_visual_11_1.gd \
+            -- --out=/tmp/weather-11-1 \
+            2>&1 | tee /tmp/weather-11-1-visual.log
+          grep -q "Этап 11.1/GL:.*успешно" /tmp/weather-11-1-visual.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-11-1-visual.log; then
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("/tmp/weather-11-1")
+          report = json.loads((root / "manifest.json").read_text())
+          assert report["stage"] == "11.1"
+          assert report["hardware_accepted"] is False
+          assert report["checks_passed"] and len(report["captures"]) == 7
+          for item in report["captures"]:
+              assert (root / item["file"]).stat().st_size >= 7000
+          print("Этап 11.1/GL: контрольные PNG и манифест — успешно")
+          PY
+
+      - name: "11.1 — сохранить контрольные изображения для художественной приёмки"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weather-11-1-precipitation-opengl
+          path: |
+            /tmp/weather-11-1/
+            /tmp/weather-11-1-visual.log
+          retention-days: 30
+          if-no-files-found: warn
       - name: Логи проверок
         if: always()
         uses: actions/upload-artifact@v4
@@ -107,6 +165,7 @@ jobs:
           path: |
             /tmp/weather-import.log
             /tmp/weather-visual-test.log
+            /tmp/weather-precipitation-11-1.log
             /tmp/weather-wind-v2.log
             /tmp/weather-physics-test.log
             /tmp/weather-l4.log
