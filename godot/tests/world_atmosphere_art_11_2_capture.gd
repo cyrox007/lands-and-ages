@@ -164,6 +164,7 @@ func _run() -> void:
 		"manual_art_approval": false, "hardware_gpu_accepted": false,
 		"scenes": [], "metrics": {}, "checks_passed": false}
 	var frame_intervals: Array[float] = []
+	var capture_cycles: Array[float] = []
 
 	for place in places:
 		view._change_zoom(float(place["zoom"]) / view._camera.size)
@@ -181,10 +182,18 @@ func _run() -> void:
 			view._write_weather_lighting(lighting)
 			view._weather_fx.apply_snapshot(state, place["center"],
 				0.0, float(place["zoom"]), view._world_model.config.world_seed)
+			# Замеряем именно интервалы программного рендера, а не
+			# сохранение PNG на диск. По ним можно найти регрессии CI,
+			# но нельзя судить о FPS реальных GPU или Android.
+			for sample in range(9):
+				var frame_started := Time.get_ticks_usec()
+				await process_frame
+				frame_intervals.append(
+					float(Time.get_ticks_usec() - frame_started) / 1000.0)
 			var started := Time.get_ticks_usec()
 			var filename: String = str(place["name"]) + "_" + str(weather_name)
 			var shot: Image = await _capture(folder, filename)
-			frame_intervals.append(float(Time.get_ticks_usec() - started) / 1000.0)
+			capture_cycles.append(float(Time.get_ticks_usec() - started) / 1000.0)
 			var changed := 0
 			if weather_name == "ясно":
 				baseline = shot
@@ -203,10 +212,12 @@ func _run() -> void:
 		and JSON.stringify(view._climate.to_data()) == original_climate,
 		"Съёмка света не меняет карту, гидрологию или климат")
 	manifest["metrics"] = {
-		"capture_cycle_ms_p50": _percentile(frame_intervals.duplicate(), 0.50),
-		"capture_cycle_ms_p95": _percentile(frame_intervals.duplicate(), 0.95),
-		"capture_cycle_ms_p99": _percentile(frame_intervals.duplicate(), 0.99),
-		"warning": "Цикл записи PNG на программном OpenGL, не FPS игры и не GPU"
+		"software_gl_frame_ms_p50": _percentile(frame_intervals.duplicate(), 0.50),
+		"software_gl_frame_ms_p95": _percentile(frame_intervals.duplicate(), 0.95),
+		"software_gl_frame_ms_p99": _percentile(frame_intervals.duplicate(), 0.99),
+		"software_gl_frame_samples": frame_intervals.size(),
+		"capture_cycle_ms_p95": _percentile(capture_cycles.duplicate(), 0.95),
+		"warning": "Программный GL в CI, НЕ FPS/замеры GPU реального устройства"
 	}
 	manifest["checks_passed"] = errors.is_empty()
 	var file := FileAccess.open(folder.path_join("manifest.json"), FileAccess.WRITE)
