@@ -411,6 +411,33 @@ func take_fallen_wood(id: int, amount: int) -> bool:
     return true
 
 
+func burn_object(id: int, heat: int, day: int) -> bool:
+    # Горение меняет существующий объект, а не создаёт временное
+    # дерево или вторую запись ресурсов. Все чанки получают сигнал.
+    if heat <= 0 or heat > 1000 or day != climate.day:
+        return false
+    var item: Dictionary = object_at(id)
+    if item.is_empty() or item["kind"] not in ["дерево", "кустарник"] \
+            or item["state"] not in ["целое", "сухостой"]:
+        return false
+    var previous_health := int(item["health"])
+    var previous_wood := int(item["wood_units"])
+    item["health"] = maxi(0, previous_health - heat)
+    if item["kind"] == "дерево":
+        # Сгорает часть существующей древесины: новое дерево или
+        # запас брёвен не появляется. Это реальная потеря топлива.
+        item["wood_units"] = maxi(0,
+            previous_wood - mini(previous_wood, maxi(1, heat / 100)))
+    if int(item["health"]) == 0 and item["state"] == "целое":
+        item["state"] = "сухостой"
+        item["dead_since_day"] = day
+    if int(item["health"]) == previous_health \
+            and int(item["wood_units"]) == previous_wood:
+        return false
+    _modify(id, item)
+    return true
+
+
 func _spread_seeds(day: int, changed: Dictionary) -> int:
     # Один сезон расселения за год; выбор места не зависит от камеры.
     if day % 96 != 1 or _objects.size() >= MAX_OBJECTS:
