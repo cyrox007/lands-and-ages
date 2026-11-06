@@ -14,6 +14,9 @@ var world: RefCounted
 var hydro: RefCounted
 var surface: RefCounted
 var climate: RefCounted
+# Необязательный реестр пожаров: старые миры без пожаров сохраняют
+# прежнюю геологию и порядок событий.
+var fire: RefCounted
 var last_day := 0
 var revision := 0
 var last_event: Dictionary = {}
@@ -47,13 +50,20 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 	var runoff: float = surface.runoff_at_index(i)
 	var flow: float = hydro.discharge_at_index(i)
 	var resistant := 0.0 if surface.rock_at_index(i) else 1.0
+	# После пожара подстилка перестаёт удерживать верхний грунт.
+	# Слой золы уже сохранён в FireRegistry, отдельный источник
+	# риска не требуется. Восстановление золы снижает риск обратно.
+	var ash_exposure := 0.0
+	if fire != null:
+		ash_exposure = clampf(fire.scorched_at(cell), 0.0, 1.0)
+	var exposure_multiplier := 1.0 + ash_exposure * 0.75
 	# Сопоставимая шкала рисков: речной поток может переносить грунт
 	# даже при небольшом уклоне, а не всегда проигрывать ветру.
 	var water_risk := clampf(2.5 * resistant \
 		* clampf(drop / 0.45, 0.0, 1.0) \
 		* clampf((flow - 1.0) / 12.0, 0.0, 1.0) \
 		* clampf(0.20 + moisture * 0.5 + runoff * 0.65, 0.0, 1.0) \
-		* surface.erosion_risk_at_index(i), 0.0, 1.0)
+		* surface.erosion_risk_at_index(i) * exposure_multiplier, 0.0, 1.0)
 	var wind_speed: float = climate.wind_at_index(i)
 	var exposed: bool = surface.exposed_at_index(i)
 	var east := cell + Vector2i(1, 0)
@@ -61,12 +71,12 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 	if exposed and snow < 0.08 and moisture < 0.32 \
 			and world.config.contains_cell(east) \
 			and not hydro.has_water(hydro.cell_index(east)):
-		wind_risk = clampf((wind_speed - 7.0) / 10.0, 0.0, 1.0) \
+		wind_risk = clampf(clampf((wind_speed - 7.0) / 10.0, 0.0, 1.0) \
 			* clampf((0.32 - moisture) / 0.32, 0.0, 1.0) \
-			* clampf(depth, 0.0, 1.0)
-	var slide_risk := clampf((drop - 0.8) / 3.0, 0.0, 1.0) \
+			* clampf(depth, 0.0, 1.0) * exposure_multiplier, 0.0, 1.0)
+	var slide_risk := clampf(clampf((drop - 0.8) / 3.0, 0.0, 1.0) \
 		* clampf((moisture - 0.62) / 0.38, 0.0, 1.0) \
-		* clampf(depth / 1.2, 0.0, 1.0)
+		* clampf(depth / 1.2, 0.0, 1.0) * exposure_multiplier, 0.0, 1.0)
 	# Берег разрушается только там, где суша соприкасается с морем.
 	var coast_target := Vector2i(-1, -1)
 	for offset in [Vector2i(-1, 0), Vector2i(1, 0),
@@ -96,7 +106,7 @@ func estimate_at(cell: Vector2i) -> Dictionary:
 		"slide": slide_risk, "coast": coast_risk, "delta": delta_risk,
 		"downstream": next, "wind_target": east,
 		"coast_target": coast_target, "delta_target": delta_target,
-		"drop": drop
+		"drop": drop, "fire_exposure": ash_exposure
 	}
 
 
