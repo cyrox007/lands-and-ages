@@ -991,7 +991,7 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 		node.add_child(water_node)
 	if _view_mode == 0 and _nature != null:
 		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord,
-			_detail_for_zoom(_camera.size)))
+			_detail_for_zoom(_camera.size), _fire))
 	# Новый чанк получает корректный бюджет теней до добавления в сцену.
 	# При движении камеры существующие чанки перенастраиваются без пересборки.
 	if _camera != null:
@@ -1033,7 +1033,7 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 		chunk_node.remove_child(previous)
 		previous.queue_free()
 	chunk_node.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
-		_detail_for_zoom(_camera.size)))
+		_detail_for_zoom(_camera.size), _fire))
 	# После обновления растений восстанавливаем тени без задержки кадра.
 	if _camera != null:
 		ShadowLOD.configure_chunk(chunk_node,
