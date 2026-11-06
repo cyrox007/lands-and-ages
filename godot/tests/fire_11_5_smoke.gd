@@ -149,13 +149,14 @@ func _test_physics_and_save() -> void:
     climate._rain.fill(0.0)
     nature.advance_day(3)
     var before_burn := nature.object_at(id)
+    var total_before_burn: int = nature.wood_total()
     fire.advance_day(3)
     var after_burn: Dictionary = nature.object_at(id)
     _check(int(after_burn["health"]) < int(before_burn["health"])
         and int(after_burn["wood_units"]) < int(before_burn["wood_units"]),
         "Огонь расходует здоровье и реальный древесный запас")
-    _check(nature.wood_total() <= original_wood + 3,
-        "Горение не создаёт брёвна из воздуха")
+    _check(nature.wood_total() < total_before_burn,
+        "Горение расходует существующий запас без создания брёвен")
 
     # Дождь и мокрая земля гасят очаг без удаления объекта мира.
     climate.set_day(4)
