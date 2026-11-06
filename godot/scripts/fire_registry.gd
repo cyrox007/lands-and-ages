@@ -423,26 +423,26 @@ func _wash_ash(changed: Dictionary) -> void:
             if is_finite(height) and height < lowest:
                 destination = target_index
                 lowest = height
-        # Если нет сухого нижележащего участка, ищем соседнюю
-        # настоящую реку с более низким дном. Предпочтение суши
-        # сохраняет прежнюю модель F4 и не перепрыгивает склон.
+        # Уклон выбирает самое низкое соседнее дно независимо
+        # от того, сухое оно или речное: вода не должна проигрывать
+        # более высокому сухому склону только из-за типа клетки.
+        # Озёра, океан и пойма пока не принимают речную взвесь.
         var into_water := false
-        if destination < 0:
-            for offset in [
-                    Vector2i(1, 0), Vector2i(0, 1),
-                    Vector2i(-1, 0), Vector2i(0, -1)]:
-                var next: Vector2i = cell + offset
-                if not world.config.contains_cell(next):
-                    continue
-                var target: int = hydro.cell_index(next)
-                if not hydro.river_at(target) or not hydro.has_water(target):
-                    continue
-                var height: float = world.height_at(
-                    Vector2(next) + Vector2(0.5, 0.5))
-                if is_finite(height) and height < lowest:
-                    destination = target
-                    lowest = height
-                    into_water = true
+        for offset in [
+                Vector2i(1, 0), Vector2i(0, 1),
+                Vector2i(-1, 0), Vector2i(0, -1)]:
+            var next: Vector2i = cell + offset
+            if not world.config.contains_cell(next):
+                continue
+            var target: int = hydro.cell_index(next)
+            if not hydro.river_at(target) or not hydro.has_water(target):
+                continue
+            var height: float = world.height_at(
+                Vector2(next) + Vector2(0.5, 0.5))
+            if is_finite(height) and height < lowest:
+                destination = target
+                lowest = height
+                into_water = true
         if destination < 0:
             continue
         if into_water:
