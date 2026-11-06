@@ -323,6 +323,16 @@ static func litter_spread_chance(dryness: float,
         + maxf(0.0, wind_alignment) * 0.28), 0.0, 0.90)
 
 
+static func litter_recovery_factor(soil_damage: float) -> float:
+    # Смытый дождём пепел не означает мгновенное появление новой
+    # горючей подстилки. Доступный запас восстанавливается вместе
+    # с уже сохраняемым ожогом почвы, без второго реестра и таймера.
+    # При сильном ожоге (70% и более) свежей подстилки пока нет;
+    # при полном заживлении сохраняется прежний объём топлива.
+    return clampf((0.70 - clampf(soil_damage, 0.0, 1.0)) / 0.70,
+        0.0, 1.0)
+
+
 func _ignite_litter(cell: Vector2i, changed: Dictionary) -> bool:
     # Запас подстилки появляется из реального плодородия и лесного
     # полога только при первом воспламенении сухой клетки. Сгоревший
@@ -333,14 +343,22 @@ func _ignite_litter(cell: Vector2i, changed: Dictionary) -> bool:
     if _embers.has(index) or _embers.size() >= MAX_EMBERS \
             or _flammability(cell) < 0.20 or scorched_at(cell) > 0.15:
         return false
-    var soil: Dictionary = surface.profile_at(
-        cell, soil_damage_at(cell))
+    var soil_damage: float = soil_damage_at(cell)
+    # Реальный ожог сохраняется дольше золы: пока верхний грунт
+    # повреждён, биомасса подстилки не возвращается мгновенно.
+    var recovery: float = litter_recovery_factor(soil_damage)
+    if recovery <= 0.0:
+        return false
+    var soil: Dictionary = surface.profile_at(cell, soil_damage)
     if soil.is_empty() or soil.get("substrate", "") == "скала":
         return false
     var fertility: float = clampf(float(soil.get("fertility", 0.0)),
         0.0, 1.0)
     var canopy: float = nature.canopy_pressure_at(cell)
-    var cover: float = clampf(fertility * 0.35 + canopy * 0.40, 0.0, 1.0)
+    # Полог и плодородие задают исходный запас, а повреждение
+    # почвы ограничивает долю уже восстановившейся подстилки.
+    var cover: float = clampf((fertility * 0.35 + canopy * 0.40)
+        * recovery, 0.0, 1.0)
     if cover < 0.15:
         return false
     _embers[index] = {
