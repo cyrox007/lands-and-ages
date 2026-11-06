@@ -119,7 +119,7 @@ func _check_snow_and_shore(state: Dictionary) -> void:
 	for y in range(1, world.config.height - 1):
 		for x in range(1, world.config.width - 1):
 			var cell := Vector2i(x, y)
-			var nearby: Vector2 = Appearance._near_water(cell, world, hydro)
+			var nearby: Vector3 = Appearance.near_water(cell, world, hydro)
 			if not hydro.has_water(hydro.cell_index(cell)) \
 					and (nearby.x > 0.0 or nearby.y > 0.0):
 				adjacent = cell
@@ -128,7 +128,7 @@ func _check_snow_and_shore(state: Dictionary) -> void:
 			break
 	_check(adjacent.x >= 0, "На карте найден береговой переход")
 	if adjacent.x >= 0:
-		var factors: Vector2 = Appearance._near_water(adjacent, world, hydro)
+		var factors: Vector3 = Appearance.near_water(adjacent, world, hydro)
 		_check(factors.x >= 0.0 and factors.y >= 0.0,
 			"Береговая фактура зависит от физической воды")
 
@@ -140,7 +140,7 @@ func _check_shaders_and_scene() -> void:
 		and GroundShader.code.contains("ALBEDO"),
 		"Шейдер грунта использует мировые координаты без текстурных швов")
 	_check(WaterShader.code.contains("ALPHA")
-		and WaterShader.code.contains("TIME"),
+		and WaterShader.code.contains("wave_time"),
 		"Водная рябь работает без изменения физической поверхности")
 	var scene := Scene.new()
 	_check(scene._view_mode == 0,

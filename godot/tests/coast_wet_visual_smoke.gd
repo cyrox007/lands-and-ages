@@ -347,7 +347,7 @@ func _test_wetness() -> void:
 			break
 		for x in range(2, world.config.width - 2):
 			var point := Vector2i(x, y)
-			if Appearance._near_water(point, world, hydro).x <= 0.0:
+			if Appearance.near_water(point, world, hydro).x <= 0.0:
 				continue
 			var normal := Vector3.UP
 			var level := -INF

@@ -4,3 +4,4 @@
 
 [node name="WorldPilot" type="Node3D"]
 script = ExtResource("1_world")
+stream_camera = true

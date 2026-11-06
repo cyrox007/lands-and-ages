@@ -15,6 +15,8 @@ var arrays: Array = []
 var prepare_us := 0
 var water_arrays: Array = []
 var water_prepare_us := 0
+var _cancel_mutex := Mutex.new()
+var _cancelled := false
 
 
 func _init(p_coord: Vector2i, p_mode: int, p_world: RefCounted,
@@ -28,11 +30,28 @@ func _init(p_coord: Vector2i, p_mode: int, p_world: RefCounted,
 	hydro = p_hydro
 
 
+func cancel() -> void:
+	_cancel_mutex.lock()
+	_cancelled = true
+	_cancel_mutex.unlock()
+
+
+func is_cancelled() -> bool:
+	_cancel_mutex.lock()
+	var cancelled := _cancelled
+	_cancel_mutex.unlock()
+	return cancelled
+
+
 func run() -> void:
+	if is_cancelled():
+		return
 	var started := Time.get_ticks_usec()
 	arrays = Chunk.prepare_arrays(coord.x, coord.y, 1,
 		world, surface, mode, climate, hydro)
 	prepare_us = Time.get_ticks_usec() - started
+	if is_cancelled():
+		return
 	started = Time.get_ticks_usec()
 	water_arrays = Water.prepare_arrays(world, hydro, coord, surface)
 	water_prepare_us = Time.get_ticks_usec() - started

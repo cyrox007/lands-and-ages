@@ -8,7 +8,7 @@ uniform float detail_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float macro_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float texture_density : hint_range(0.05, 2.0) = 0.35;
 // Контраст формы действует даже издалека; выключение не меняет физические высоты.
-uniform float relief_contrast : hint_range(0.0, 1.0) = 0.72;
+uniform float relief_contrast : hint_range(0.0, 1.0) = 0.92;
 // L3: направление существующего солнца, без дополнительных карт теней.
 // Крупные формы берутся из физической нормали и признаков WorldMap.
 uniform vec3 far_light_direction = vec3(0.0, 1.0, 0.0);
@@ -77,7 +77,15 @@ void add_layer(int material, float influence, vec3 position, vec3 normal,
 
 	vec2 uv = atlas_uv(position.xz, material);
 	vec3 albedo = texture(terrain_albedo, uv).rgb;
-	vec3 packed = texture(terrain_normal_roughness, uv).rgb;
+	// Вдали мелкая нормаль уже не участвует в освещении. Сохраняем
+	// типичную шероховатость покрытия без чтения атласа по каждому слою.
+	bool use_pbr_detail = detail_strength > 0.01;
+	float base_roughness = material == 5 ? 0.76 : 0.88;
+	vec3 packed = vec3(0.5, 0.5, base_roughness);
+	if (use_pbr_detail) {
+		packed = mix(packed, texture(terrain_normal_roughness, uv).rgb,
+			smoothstep(0.01, 0.20, detail_strength));
+	}
 
 	// Нормаль XZ относится к мировым осям X/Z, не к неверной UV-тангенте.
 	vec3 bump = vec3(packed.r * 2.0 - 1.0, 0.0,
@@ -92,8 +100,15 @@ void add_layer(int material, float influence, vec3 position, vec3 normal,
 		vec2 uv_z = atlas_uv(position.xy, material);
 		vec3 color_x = texture(terrain_albedo, uv_x).rgb;
 		vec3 color_z = texture(terrain_albedo, uv_z).rgb;
-		vec3 packed_x = texture(terrain_normal_roughness, uv_x).rgb;
-		vec3 packed_z = texture(terrain_normal_roughness, uv_z).rgb;
+		vec3 packed_x = packed;
+		vec3 packed_z = packed;
+		if (use_pbr_detail) {
+			float pbr_detail = smoothstep(0.01, 0.20, detail_strength);
+			packed_x = mix(vec3(0.5, 0.5, base_roughness),
+				texture(terrain_normal_roughness, uv_x).rgb, pbr_detail);
+			packed_z = mix(vec3(0.5, 0.5, base_roughness),
+				texture(terrain_normal_roughness, uv_z).rgb, pbr_detail);
+		}
 		vec3 normal_x = vec3(0.0, packed_x.g * 2.0 - 1.0,
 			packed_x.r * 2.0 - 1.0);
 		vec3 normal_z = vec3(packed_z.r * 2.0 - 1.0,
@@ -197,26 +212,26 @@ void fragment() {
 		gravel * 0.40, 0.0, 1.0);
 	float wet_material = wet * (0.35 + 0.65 * absorbency);
 	vec3 base_albedo = albedo_sum * mix(vec3(1.0), tint, 0.17) *
-		(1.0 + strata * cliff * 0.016 * detail_strength) * macro_tint;
+		(1.0 + strata * cliff * 0.055 * detail_strength) * macro_tint;
 	// Подсветка реального гребня и затемнение настоящей впадины
 	// основаны только на высотах WorldMap: никакой новой поверхности.
 	float ridge = smoothstep(0.05, 0.90, ground_shape.r);
 	float ravine = smoothstep(0.05, 0.90, ground_shape.g);
 	float escarpment = smoothstep(0.15, 0.57, ground_steepness);
 	float relief_light = clamp(1.0 + relief_contrast * (
-		0.15 * ridge - 0.27 * ravine - 0.09 * escarpment), 0.65, 1.14);
+		0.21 * ridge - 0.35 * ravine - 0.10 * escarpment), 0.65, 1.14);
 	// L3: дешёвая панорамная светотень использует настоящую
 	// геометрическую нормаль и направление DirectionalLight3D.
 	// При приближении вклад плавно исчезает, не дублируя ближние тени.
 	float far_blend = clamp(1.0 - detail_strength, 0.0, 1.0);
 	float sun_facing = dot(normalize(ground_world_normal),
 		normalize(far_light_direction));
-	float slope_light = smoothstep(-0.30, 0.70, sun_facing);
+	float slope_light = smoothstep(0.02, 0.78, sun_facing);
 	// Дополнительное чтение физического гребня и врезанного оврага
 	// не создаёт собственных высот, ландшафта и новых источников света.
-	float far_relief = mix(0.84, 1.06, slope_light) +
+	float far_relief = mix(0.63, 1.12, slope_light) +
 		0.035 * ridge - 0.075 * ravine - 0.060 * escarpment;
-	float far_light = mix(1.0, clamp(far_relief, 0.76, 1.12),
+	float far_light = mix(1.0, clamp(far_relief, 0.56, 1.16),
 		far_blend * relief_contrast);
 	// На реальном облачном фронте слегка движутся крупные пятна света.
 	// Мировые координаты непрерывны на границах чанков, а покрытие
@@ -227,7 +242,7 @@ void fragment() {
 			(0.28 + cloud_wind * 0.72);
 		float cloud_field = terrain_noise(ground_position.xz * 0.012 + drift);
 		cloud_dimming = cloud_coverage *
-			smoothstep(0.38, 0.70, cloud_field) * 0.19;
+			smoothstep(0.38, 0.70, cloud_field) * 0.28;
 	}
 	ALBEDO = clamp(base_albedo * relief_light * far_light *
 		(1.0 - cloud_dimming) * mix(1.0, 0.67, wet_material),

@@ -74,6 +74,8 @@ func is_smoldering(cell: Vector2i) -> bool:
 func smolder_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
     # Рендеру передаются лишь активные клетки в видимом чанке.
     # Во всём мире остаётся ограниченное число записей подстилки.
+    if _embers.is_empty():
+        return []
     var result: Array[Dictionary] = []
     var rect: Rect2i = world.config.chunk_rect(chunk)
     for y in range(rect.position.y, rect.end.y):
@@ -270,6 +272,8 @@ func scorched_at(cell: Vector2i) -> float:
 func scorched_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
     # Рендер опрашивает только клетки одного видимого чанка,
     # не перебирая все следы пожаров на огромной карте.
+    if _scorched.is_empty():
+        return []
     var result: Array[Dictionary] = []
     var rect: Rect2i = world.config.chunk_rect(chunk)
     for y in range(rect.position.y, rect.end.y):

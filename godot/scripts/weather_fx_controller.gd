@@ -3,7 +3,11 @@ extends Node3D
 ## Узел никогда не изменяет климат, грунт, гидрологию и природные объекты.
 
 const VisualState = preload("res://scripts/weather_visual_state.gd")
+const PrecipitationShader = preload("res://shaders/local_precipitation.gdshader")
 const RAIN_PARTICLES := 640
+const MASK_SIZE := 17
+const MASK_STEP := 6.0
+const MASK_SPAN := MASK_SIZE * MASK_STEP
 const SNOW_PARTICLES := 320
 
 var _rain: GPUParticles3D
@@ -20,15 +24,30 @@ var _event_dust := false
 var _enabled := true
 var _last_state: Dictionary = {}
 var _quality := 1
+var _mask_texture: ImageTexture
+var _mask_origin := Vector2.ZERO
+var _mask_revision := -1
+var _mask_climate: RefCounted
+var _mask_peak := Vector2.ZERO
 
 
 func _ready() -> void:
 	## Эмиттеры создаются один раз, затем меняются только параметры.
 	## Это исключает сотни новых узлов при каждом перемещении камеры.
 	_rain = _make_emitter("Дождь", Color(0.67, 0.80, 0.94, 0.48),
-		Vector2(0.035, 0.46), RAIN_PARTICLES, 17.0, 1.7)
+		Vector2(0.082, 0.71), RAIN_PARTICLES, 17.0, 1.7)
 	_snow = _make_emitter("Снег", Color(0.96, 0.97, 1.0, 0.86),
-		Vector2(0.14, 0.14), SNOW_PARTICLES, 3.4, 5.5)
+		Vector2(0.24, 0.24), SNOW_PARTICLES, 3.4, 5.5)
+	for emitter in [_rain, _snow]:
+		var quad := emitter.draw_pass_1 as QuadMesh
+		var previous := quad.material as StandardMaterial3D
+		var material := ShaderMaterial.new()
+		material.shader = PrecipitationShader
+		material.set_shader_parameter("particle_color", previous.albedo_color)
+		material.set_shader_parameter("snow", emitter == _snow)
+		quad.material = material
+		emitter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		emitter.local_coords = false
 	# Разреженные горизонтальные полосы показывают порывы над картой.
 	# Это один GPU-эмиттер, а не отдельный Node3D на каждую частицу.
 	_gusts = _make_emitter("Порывы ветра",
@@ -162,6 +181,8 @@ func set_effects_enabled(enabled: bool) -> void:
 	if not enabled and _rain != null:
 		_rain.emitting = false
 		_snow.emitting = false
+		_rain.hide()
+		_snow.hide()
 		if _gusts != null:
 			_gusts.emitting = false
 		if _dust != null:
@@ -174,9 +195,47 @@ func sync_world(climate: RefCounted, world: RefCounted,
 	## За один вызов запрашиваем пять клеток вместо всей карты.
 	var snapshot: Dictionary = VisualState.sample(
 		climate, world.config, center, zoom)
+	if _enabled and zoom < 105.0 and _rain != null:
+		_update_precipitation_mask(climate, world.config, center)
+		snapshot["rain"] = _mask_peak.x
+		snapshot["snow"] = _mask_peak.y
 	var height: float = world.height_at(center)
 	var altitude: float = world.config.to_scene(center, height).y
 	apply_snapshot(snapshot, center, altitude, zoom, world.config.world_seed)
+
+
+func _update_precipitation_mask(climate: RefCounted, config: RefCounted,
+		center: Vector2) -> void:
+	# Общая карта для дождя и снега, в мировых координатах. Сухие
+	# области отсекаются даже при сносе частицы из соседней мокрой клетки.
+	var origin := center.snappedf(MASK_STEP) - Vector2.ONE * MASK_SPAN * 0.5
+	if _mask_climate == climate and _mask_revision == climate.revision and origin == _mask_origin:
+		return
+	_mask_origin = origin
+	_mask_revision = climate.revision
+	_mask_climate = climate
+	_mask_peak = Vector2.ZERO
+	var image := Image.create_empty(MASK_SIZE, MASK_SIZE, false, Image.FORMAT_RG8)
+	for y in range(MASK_SIZE):
+		for x in range(MASK_SIZE):
+			var point := origin + (Vector2(x, y) + Vector2(0.5, 0.5)) * MASK_STEP
+			if point.x < 0.0 or point.y < 0.0 or point.x >= config.width 					or point.y >= config.height:
+				continue
+			var weather: Dictionary = climate.weather_at(config.cell_at(point))
+			var rain := clampf(float(weather["rainfall"]) / 2.4, 0.0, 1.0)
+			var snow := clampf(float(weather["snowfall"]) / 2.4, 0.0, 1.0)
+			_mask_peak = _mask_peak.max(Vector2(rain, snow))
+			image.set_pixel(x, y, Color(rain, snow, 0.0))
+	if _mask_texture == null:
+		_mask_texture = ImageTexture.create_from_image(image)
+	else:
+		_mask_texture.update(image)
+	for emitter in [_rain, _snow]:
+		var material := emitter.draw_pass_1.material as ShaderMaterial
+		material.set_shader_parameter("precipitation_map", _mask_texture)
+		material.set_shader_parameter("map_origin", origin)
+		material.set_shader_parameter("map_span", MASK_SPAN)
+		material.set_shader_parameter("use_map", true)
 
 
 func apply_snapshot(state: Dictionary, center: Vector2,
@@ -188,6 +247,7 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		return
 	var distance := clampf(zoom * 0.7, 10.0, 70.0)
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
+	var precipitation_lod := 1.0 - smoothstep(72.0, 105.0, zoom)
 	# Ветровой снос наследует нормализованное направление пяти
 	# климатических проб. При ручных старых снимках без направления
 	# вертикальные осадки остаются совместимыми.
@@ -209,7 +269,8 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		emitter.position = Vector3(center.x,
 			altitude + (10.0 if emitter == _gusts else 22.0), center.y)
 		var material: ParticleProcessMaterial = emitter.process_material
-		material.emission_box_extents = Vector3(distance, 5.0, distance)
+		var extent := distance if emitter == _gusts else minf(distance, 34.0)
+		material.emission_box_extents = Vector3(extent, 5.0, extent)
 		if emitter == _gusts:
 			# У шквала плотная узкая полоса и высокая скорость; у
 			# продолжительной грозы — широкая зона порывов над картой.
@@ -236,11 +297,13 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 				airflow.x * drift, -1.0, airflow.y * drift).normalized()
 		emitter.seed = world_seed
 	_rain.amount_ratio = clampf(float(state.get("rain", 0.0))
-		* quality_factor, 0.0, 1.0)
+		* quality_factor * precipitation_lod, 0.0, 1.0)
 	_snow.amount_ratio = clampf(float(state.get("snow", 0.0))
-		* quality_factor, 0.0, 1.0)
+		* quality_factor * precipitation_lod, 0.0, 1.0)
 	_rain.emitting = _enabled and _rain.amount_ratio >= 0.025
 	_snow.emitting = _enabled and _snow.amount_ratio >= 0.025
+	_rain.visible = _rain.emitting
+	_snow.visible = _snow.emitting
 	# На обычном ветре штормовые полосы не возникают.
 	_gusts.amount_ratio = clampf(
 		storm * smoothstep(0.15, 0.65, gust) * quality_factor, 0.0, 1.0)

@@ -5,8 +5,15 @@ extends RefCounted
 static func intersects(bounds: Rect2i, elevation: Vector2,
 		camera_position: Vector3, right: Vector3, up: Vector3,
 		vertical_size: float, aspect: float, padding: float = 1.5) -> bool:
+	return required_padding(bounds, elevation, camera_position, right, up,
+		vertical_size, aspect) <= padding
+
+
+static func required_padding(bounds: Rect2i, elevation: Vector2,
+		camera_position: Vector3, right: Vector3, up: Vector3,
+		vertical_size: float, aspect: float) -> float:
 	if not bounds.has_area():
-		return false
+		return INF
 
 	# Проекция ограничивающего параллелепипеда по двум осям камеры.
 	var middle := Vector3(
@@ -24,8 +31,8 @@ static func intersects(bounds: Rect2i, elevation: Vector2,
 		+ absf(up.z) * half.z
 	var half_width := vertical_size * maxf(aspect, 0.25) * 0.5
 	var half_height := vertical_size * 0.5
-	return absf(right.dot(delta)) <= half_width + radius_right + padding \
-		and absf(up.dot(delta)) <= half_height + radius_up + padding
+	return maxf(absf(right.dot(delta)) - half_width - radius_right,
+		absf(up.dot(delta)) - half_height - radius_up)
 
 static func horizontal_intersects(bounds: Rect2i, camera_position: Vector3,
 		right: Vector3, vertical_size: float, aspect: float,

@@ -60,10 +60,11 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 			var cell := Vector2i(mini(x, world.config.width - 1),
 				mini(y, world.config.height - 1))
 			if mode == 0 and surface != null and hydro != null:
+				var nearby := Appearance.near_water(vertex, world, hydro)
 				var color := Appearance.color_at(vertex, h, normal,
-					world, surface, hydro)
+					world, surface, hydro, nearby)
 				var sample: Dictionary = MaterialMix.sample_at(
-					vertex, h, normal, world, surface, hydro)
+					vertex, h, normal, world, surface, hydro, nearby)
 				var weights: PackedFloat32Array = sample["weights"]
 				var natural: Vector4 = sample["conditions"]
 				# Уплотнённые RGBA8: влага, морской берег, мороз, пресный берег.

@@ -135,7 +135,7 @@ func _test_scene_weather(world: RefCounted) -> void:
 	# из собственного Climate; диагностический вид нейтрален.
 	view._view_mode = 2
 	view._apply_weather_lighting({"cloud": 0.9, "storm": 0.9})
-	_check(is_equal_approx(view._world_light.light_energy, 1.25),
+	_check(is_equal_approx(view._world_light.light_energy, 1.38),
 		"Диагностический режим немедленно возвращает ясный свет")
 	view.free()
 

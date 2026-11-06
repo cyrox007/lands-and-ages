@@ -10,6 +10,9 @@ var _frames: Array[float] = []
 var _build_frames: Array[float] = []
 var _prepare_before := 0
 var _upload_before := 0
+var _nature_before := 0
+var _scene_before := 0
+var _colliders_before := 0
 var _builds_before := 0
 var _ground_before := 0
 var _water_before := 0
@@ -45,6 +48,9 @@ func begin(name: String, view: Node3D) -> void:
 	_build_frames.clear()
 	_prepare_before = view._total_ground_prepare_us
 	_upload_before = view._total_ground_upload_us
+	_nature_before = view._total_nature_attach_us
+	_scene_before = view._total_scene_attach_us
+	_colliders_before = view._total_collider_attach_us
 	_builds_before = view._chunk_rebuilds
 	_ground_before = view._total_ground_build_us
 	_water_before = view._total_water_build_us
@@ -116,6 +122,12 @@ func finish(view: Node3D) -> Dictionary:
 			view._total_ground_prepare_us - _prepare_before) / 1000.0,
 		"ground_upload_main_ms_total": float(
 			view._total_ground_upload_us - _upload_before) / 1000.0,
+		"nature_attach_main_ms_total": float(
+			view._total_nature_attach_us - _nature_before) / 1000.0,
+		"scene_attach_main_ms_total": float(
+			view._total_scene_attach_us - _scene_before) / 1000.0,
+		"collider_attach_main_ms_total": float(
+			view._total_collider_attach_us - _colliders_before) / 1000.0,
 		"ground_mesh_cpu_ms_total": float(view._total_ground_build_us -
 			_ground_before) / 1000.0,
 		"water_mesh_cpu_ms_total": float(view._total_water_build_us -

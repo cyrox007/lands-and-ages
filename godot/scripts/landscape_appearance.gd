@@ -13,8 +13,9 @@ const SEA_FLOOR := Color(0.30, 0.37, 0.34)
 const SNOW := Color(0.86, 0.90, 0.91)
 
 
-static func _near_water(cell: Vector2i, world: RefCounted,
-		hydro: RefCounted) -> Vector2:
+static func near_water(cell: Vector2i, world: RefCounted,
+		hydro: RefCounted) -> Vector3:
+	var level := -INF
 	var sea := 0.0
 	var inland := 0.0
 	for dy in range(-1, 2):
@@ -25,11 +26,15 @@ static func _near_water(cell: Vector2i, world: RefCounted,
 			var i: int = hydro.cell_index(neighbor)
 			var weight := 1.0 if dx == 0 and dy == 0 else (
 				0.78 if dx == 0 or dy == 0 else 0.55)
+			var water_level: float = hydro.level_at(i)
+			var has_water := not is_nan(water_level)
+			if has_water:
+				level = maxf(level, water_level)
 			if hydro.ocean_at(i):
 				sea = maxf(sea, weight)
-			elif hydro.has_water(i):
+			elif has_water:
 				inland = maxf(inland, weight)
-	return Vector2(sea, inland)
+	return Vector3(sea, inland, level)
 
 
 static func _cell_color(cell: Vector2i, normal: Vector3,
@@ -63,7 +68,8 @@ static func _cell_color(cell: Vector2i, normal: Vector3,
 
 
 static func color_at(vertex: Vector2i, height: float, normal: Vector3,
-		world: RefCounted, surface: RefCounted, hydro: RefCounted) -> Color:
+		world: RefCounted, surface: RefCounted, hydro: RefCounted,
+		nearby := Vector3(-1.0, -1.0, -INF)) -> Color:
 	# Четыре соседние клетки образуют один цвет общей вершины.
 	# Поэтому соседние GPU-чанки не получают цветовых швов.
 	var total := Color(0.0, 0.0, 0.0, 0.0)
@@ -81,7 +87,7 @@ static func color_at(vertex: Vector2i, height: float, normal: Vector3,
 	var color := total / float(maxi(count, 1))
 	# Береговое влияние достаточно вычислить раз на вершину,
 	# а не четыре раза на каждую соседнюю клетку.
-	var shore := _near_water(vertex, world, hydro)
+	var shore := nearby if nearby.x >= 0.0 else near_water(vertex, world, hydro)
 	var land_share := float(dry_cells) / float(maxi(count, 1))
 	var gentle := 1.0 - smoothstep(0.14, 0.46,
 		1.0 - clampf(normal.y, 0.0, 1.0))
