@@ -36,6 +36,7 @@ on:
       - "godot/tests/fire_smolder_11_5_smoke.gd"
       - "godot/tests/fire_runoff_11_5_smoke.gd"
       - "godot/tests/fire_erosion_11_5_smoke.gd"
+      - "godot/tests/fire_soil_11_5_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
@@ -79,6 +80,7 @@ on:
       - "godot/tests/fire_smolder_11_5_smoke.gd"
       - "godot/tests/fire_runoff_11_5_smoke.gd"
       - "godot/tests/fire_erosion_11_5_smoke.gd"
+      - "godot/tests/fire_soil_11_5_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
@@ -292,6 +294,18 @@ jobs:
             | tee /tmp/nature-fire-erosion.log
           grep -q "11.5/F5a:.*успешно" /tmp/nature-fire-erosion.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-fire-erosion.log; then
+            exit 1
+          fi
+      - name: "11.5/F5b1 — плодородие и восстановление выгоревшей почвы"
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/fire_soil_11_5_smoke.gd 2>&1 \
+            | tee /tmp/nature-fire-soil.log
+          grep -q "11.5/F5b1:.*успешно" /tmp/nature-fire-soil.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-fire-soil.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
