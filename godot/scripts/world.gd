@@ -26,6 +26,7 @@ const NaturalProcesses = preload("res://scripts/natural_processes.gd")
 const NaturalDisasters = preload("res://scripts/natural_disasters.gd")
 const WeatherEvents = preload("res://scripts/weather_events.gd")
 const WeatherFX = preload("res://scripts/weather_fx_controller.gd")
+const LightningFX = preload("res://scripts/lightning_fx_controller.gd")
 const WeatherLighting = preload("res://scripts/weather_lighting_state.gd")
 const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
@@ -72,6 +73,7 @@ var _disaster_status := "Сильных природных событий пок
 var _weather_events: RefCounted
 var _weather_status := "Молний пока не было"
 var _lightning_light: OmniLight3D
+var _lightning_fx: Node3D
 var _world_light: DirectionalLight3D
 var _sky_environment: Environment
 var _shadow_center_chunk := Vector2i(-100000, -100000)
@@ -323,6 +325,11 @@ func _setup_environment() -> void:
 	_lightning_light.light_energy = 5.0
 	_lightning_light.visible = false
 	add_child(_lightning_light)
+	# Канал разряда, повторная вспышка и отложенный гром — только
+	# представление подтверждённого WeatherEvents события.
+	_lightning_fx = LightningFX.new()
+	_lightning_fx.name = "Визуальные молнии и гром"
+	add_child(_lightning_fx)
 	# Настоящий направленный свет создаём один раз. Карта теней
 	# включается только в ближнем масштабе через ShadowLOD.
 	_world_light = DirectionalLight3D.new()
@@ -1651,6 +1658,10 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_last_day_statistics.clear()
 	_lightning_life = 0.0
 	_lightning_light.visible = false
+	# При загрузке история физических ударов остаётся в WeatherEvents,
+	# но визуальные кадры и гром прошлого дня не воспроизводятся.
+	if _lightning_fx != null:
+		_lightning_fx.clear(_weather_events.last_day)
 	_weather_status = "Молний всего %d" % _weather_events.total_strikes
 	_disaster_status = "Стихийных событий всего %d" % _natural_disasters.total_events
 	_process_status = "Природные процессы восстановлены до дня %d" % \
@@ -1735,13 +1746,26 @@ func _complete_day(result: Dictionary) -> void:
 	if not strikes.is_empty():
 		var first: Dictionary = strikes[0]
 		var hit: Vector2i = first["cell"]
-		var point := Vector2(hit) + Vector2(0.5, 0.5)
-		_lightning_light.position = _world_model.config.to_scene(point,
-			_world_model.height_at(point) + 8.0)
-		_lightning_light.visible = true
-		_lightning_life = 0.28
 		_weather_status = "Молний сегодня %d · всего %d · удар %s" % [
 			strikes.size(), _weather_events.total_strikes, hit]
+		# И при быстром ходе календаря, и вне поля зрения
+		# физический удар существует, но GPU/звук не проигрываем.
+		var visible_camera := _display_center if _display_camera != null else _center
+		var visible_zoom: float = _display_camera.size \
+			if _display_camera != null else _camera.size
+		var allow_fx := _view_mode == 0 and _days_pending <= 1
+		var shown := 0
+		if _lightning_fx != null:
+			shown = _lightning_fx.show_strikes(strikes, _world_model,
+				visible_camera, visible_zoom, int(result["day"]), allow_fx)
+		if shown > 0:
+			# Старый источник света оставлен совместимым с L4-тестами.
+			# Позицию берём только у настоящего удара вблизи камеры.
+			var point := Vector2(hit) + Vector2(0.5, 0.5)
+			_lightning_light.position = _world_model.config.to_scene(point,
+				_world_model.height_at(point) + 8.0)
+			_lightning_light.visible = true
+			_lightning_life = 0.28
 	var fire_events: Array[Dictionary] = result.get("fire_events", [])
 	if not fire_events.is_empty():
 		var fire_last: Dictionary = fire_events[fire_events.size() - 1]

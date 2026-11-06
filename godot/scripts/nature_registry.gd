@@ -626,12 +626,16 @@ func _damage_from_events(hazards: Array[Dictionary],
                 (280.0 if dust else 350.0)))))
         })
     for strike in strikes:
+        # Прямой электрический удар повреждает растения даже под ливнем.
+        # Влажность уменьшает риск *пожара*, но не силу разряда.
+        # FireRegistry по-прежнему отдельно обрабатывает ignition_potential.
+        var strength := clampf(float(strike.get("strength", 0.0)), 0.0, 1.0)
         events.append({
             "kind": "молния",
             "cell": strike.get("cell"),
             "radius": 2.5,
-            "severity": 0.0,
-            "damage": roundi(float(strike.get("ignition_potential", 0.0)) * 700.0)
+            "severity": strength,
+            "damage": roundi(strength * 700.0)
         })
 
     for event in events:
@@ -687,8 +691,10 @@ func _damage_from_events(hazards: Array[Dictionary],
                     or item["state"] != "целое":
                 continue
             if item["kind"] == "кустарник" and str(event["kind"]) not in [
-                    "шторм", "шквал", "ураган", "смерч", "пыльная буря"]:
-                # Другие бедствия сохраняют прежние правила для кустов.
+                    "шторм", "шквал", "ураган", "смерч", "пыльная буря",
+                    "молния"]:
+                # Точный разряд бьёт и по кустарнику рядом с эпицентром,
+                # но остальные типы бедствий сохраняют прежние правила.
                 continue
             var cell := Vector2i(int(item["x"]), int(item["y"]))
             var offset := Vector2(cell - center)
@@ -728,10 +734,11 @@ func _damage_from_events(hazards: Array[Dictionary],
                 # Кратковременная пыль сушит листву, сильный ветер
                 # способен погубить куст. Нет валки ствола или древесины:
                 # куст сохраняет только здоровье и дату гибели.
-                var shrub_damage := roundi(severity * (
+                var shrub_damage := damage if str(event["kind"]) == "молния" else (
+                    roundi(severity * (
                     280.0 if is_dust else (1150.0 if is_tornado else (
                     1050.0 if is_hurricane else (
-                    850.0 if is_squall else 520.0)))))
+                    850.0 if is_squall else 520.0))))))
                 if shrub_damage <= 0:
                     continue
                 item["health"] = maxi(0, int(item["health"]) - shrub_damage)
