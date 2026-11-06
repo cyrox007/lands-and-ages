@@ -21,6 +21,7 @@ var test_storm_cell := Vector2i(-1, -1)
 var test_squall_cell := Vector2i(-1, -1)
 var test_hurricane_cell := Vector2i(-1, -1)
 var test_tornado_cell := Vector2i(-1, -1)
+var test_dust_cell := Vector2i(-1, -1)
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -111,6 +112,20 @@ func run_day() -> void:
 			"source": "диагностика", "duration_days": 1
 		})
 	test_tornado_cell = Vector2i(-1, -1)
+	if world.config.contains_cell(test_dust_cell):
+		# Физика испытания использует тот же метод переноса грунта,
+		# что и естественное бедствие, вместо декоративной подмены.
+		var moved: Dictionary = natural_disasters.apply_dust_storm(
+			test_dust_cell, 1.0)
+		if not moved.is_empty():
+			hazards.append({
+				"kind": "пыльная буря", "cell": test_dust_cell,
+				"severity": 1.0, "day": climate.day,
+				"source": "диагностика", "duration_days": 1,
+				"vertices": moved["vertices"],
+				"sediment_volume": moved["sediment_volume"]
+			})
+	test_dust_cell = Vector2i(-1, -1)
 	var disasters_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var changed := synchronize_world()
