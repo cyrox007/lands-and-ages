@@ -176,7 +176,7 @@ func _spread_from(item: Dictionary, id: int) -> void:
             break
 
 
-func advance_day(day: int, strikes: Array[Dictionary] = [],
+func advance_day(day: int, strikes: Array = [],
         diagnostic_cell: Vector2i = Vector2i(-1, -1)) -> Array[Dictionary]:
     # Одна календарная дата обрабатывается один раз. Сначала горят
     # прежние очаги, потом учитываются молнии: удар не ускоряет сутки.
