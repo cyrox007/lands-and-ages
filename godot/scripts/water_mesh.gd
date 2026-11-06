@@ -174,8 +174,9 @@ static func _river_frame(world: RefCounted, hydro: RefCounted, cell: Vector2i) -
 				upstream = Vector2(cell - upstream_cell).normalized()
 	# На ступенчатом участке немного срезаем угол внутри мокрой
 	# клетки. Истоки, устья и места слияния сохраняют общий центр.
-	if river_branches == 1 and hydro.river_at(index) and downstream >= 0 \
-			and hydro.river_at(downstream):
+	if river_branches == 1 and hydro.river_at(index) and not hydro.lake_at(index) \
+			and downstream >= 0 \
+			and hydro.river_at(downstream) and not hydro.lake_at(downstream):
 		var next_cell: Vector2i = hydro.cell_from_index(downstream)
 		var bend := Vector2(river_upstream + next_cell - 2 * cell) * 0.24
 		var shifted := center + bend.limit_length(0.22)
