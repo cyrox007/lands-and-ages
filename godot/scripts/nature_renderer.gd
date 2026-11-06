@@ -350,7 +350,9 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
     for y in range(area.position.y, area.end.y, 2):
         for x in range(area.position.x, area.end.x, 2):
             var cell := Vector2i(x, y)
-            var cover: float = nature.ground_cover_at(cell)
+            # Плодородие после пожара — результат физики, а не
+            # отдельная случайная маска в графическом движке.
+            var cover: float = nature.ground_cover_at(cell, fire)
             if fire != null:
                 # Зола временно лишает землю травяного покрова,
                 # восстановление идёт суточной физикой, не FPS.
