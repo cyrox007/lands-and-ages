@@ -108,6 +108,11 @@ func _test_smolder() -> void:
         world, nature, chunk, 1.0, fire)
     _check(embers_view.get_node_or_null("угли") != null,
         "Горячая подстилка видна без отдельных сценовых объектов")
+    var smoke := embers_view.get_node_or_null("дым") as MultiMeshInstance3D
+    var flame := embers_view.get_node_or_null("пламя") as MultiMeshInstance3D
+    var flames := flame.multimesh.instance_count if flame != null else 0
+    _check(smoke != null and smoke.multimesh.instance_count > flames,
+        "Тление создаёт дым из активной подстилки")
     embers_view.free()
 
     # Миграция F2 сохраняет пепел и старое пламя, но не изобретает
@@ -198,7 +203,7 @@ func _test_smolder() -> void:
         "Повторный расчёт не ускоряет тление и восстановление")
     var extinguished_view: Node3D = Renderer.create_chunk(
         world, nature, chunk, 1.0, fire)
-    _check(extinguished_view.get_node_or_null("угли") == null,
+    _check(not extinguished_view.has_node("угли") and not extinguished_view.has_node("дым"),
         "После тушения исчезает только реальное свечение углей")
     extinguished_view.free()
 

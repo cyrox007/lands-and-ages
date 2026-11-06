@@ -4,10 +4,12 @@ render_mode unshaded, cull_disabled, shadows_disabled, depth_draw_never;
 uniform vec2 wind_direction = vec2(1.0, 0.0);
 varying float source_phase;
 varying float wind_strength;
+varying float density;
 
 void vertex() {
 	source_phase = INSTANCE_CUSTOM.x;
 	wind_strength = INSTANCE_CUSTOM.y;
+	density = INSTANCE_CUSTOM.w;
 	float height = VERTEX.y + 0.5;
 	float scale = length(MODEL_MATRIX[0].xyz);
 	vec3 right = INV_VIEW_MATRIX[0].xyz;
@@ -31,5 +33,5 @@ void fragment() {
 	float fade = smoothstep(0.0, 0.13, height) *
 		(1.0 - smoothstep(0.54, 1.0, height));
 	ALBEDO = mix(vec3(0.23, 0.20, 0.17), vec3(0.38, 0.39, 0.38), height);
-	ALPHA = silhouette * fade * (0.35 + 0.13 * eddies);
+	ALPHA = silhouette * fade * density * (0.35 + 0.13 * eddies);
 }
