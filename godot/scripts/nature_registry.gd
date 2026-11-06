@@ -411,6 +411,16 @@ func take_fallen_wood(id: int, amount: int) -> bool:
     return true
 
 
+func refresh_object_visual(id: int) -> void:
+    # Возгорание или тушение может менять только видимость огня,
+    # а не здоровье. Уведомляем рендер о чанке без порчи объекта.
+    var item: Dictionary = object_at(id)
+    if item.is_empty():
+        return
+    _mark_changes({world.config.chunk_of(Vector2i(
+        int(item["x"]), int(item["y"]))): true})
+
+
 func burn_object(id: int, heat: int, day: int) -> bool:
     # Горение меняет существующий объект, а не создаёт временное
     # дерево или вторую запись ресурсов. Все чанки получают сигнал.
