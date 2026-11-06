@@ -443,6 +443,18 @@ func _wash_ash(changed: Dictionary) -> void:
                 destination = target
                 lowest = height
                 into_water = true
+        # Hydrology уже учитывает заполненные впадины и водосборы.
+        # Если её непосредственный нижний сосед — реальное русло,
+        # принимаем этот маршрут даже при более высоком сухом дне:
+        # перепад потенциала воды определяется spill, не голой высотой.
+        var river_route: int = hydro.downstream_of(index)
+        if river_route >= 0 and hydro.river_at(river_route) \
+                and hydro.has_water(river_route):
+            var river_cell: Vector2i = hydro.cell_from_index(river_route)
+            var step: Vector2i = river_cell - cell
+            if absi(step.x) + absi(step.y) == 1:
+                destination = river_route
+                into_water = true
         if destination < 0:
             continue
         if into_water:
