@@ -75,6 +75,8 @@ var _shadow_active := false
 var _lightning_life := 0.0
 var _weather_fx: Node3D
 var _weather_fx_cooldown := 0.0
+var _mesh_budget_p95 := 0.0
+var _mesh_budget_sample_in := 0.0
 var _weather_light_target: Dictionary = {}
 var _weather_light_current: Dictionary = {}
 var _process_status := "Естественные процессы ещё не изменяли рельеф"
@@ -212,9 +214,11 @@ func _setup_environment() -> void:
 	# включается только в ближнем масштабе через ShadowLOD.
 	_world_light = DirectionalLight3D.new()
 	_world_light.name = "Солнечный свет"
-	_world_light.rotation_degrees = Vector3(-54, -36, 0)
+	_world_light.rotation_degrees = Vector3(-38, -36, 0)
 	_world_light.light_color = Color(1.0, 0.94, 0.84)
-	_world_light.light_energy = 1.25
+	_world_light.light_energy = 1.38
+	_world_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	_world_light.directional_shadow_max_distance = 155.0
 	_world_light.shadow_enabled = false
 	add_child(_world_light)
 	var sky := WorldEnvironment.new()
@@ -223,7 +227,7 @@ func _setup_environment() -> void:
 	options.background_color = Color(0.54, 0.65, 0.69)
 	options.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	options.ambient_light_color = Color(0.74, 0.81, 0.85)
-	options.ambient_light_energy = 0.61
+	options.ambient_light_energy = 0.37
 	sky.environment = options
 	_sky_environment = options
 	add_child(sky)
@@ -259,12 +263,23 @@ func _setup_interface() -> void:
 	var canvas_layer := CanvasLayer.new()
 	add_child(canvas_layer)
 	var panel := PanelContainer.new()
-	panel.position = Vector2(14, 14)
-	panel.custom_minimum_size = Vector2(355, 0)
 	canvas_layer.add_child(panel)
+	panel.offset_left = 14.0
+	panel.offset_top = 14.0
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	panel.add_child(scroll)
 	var column := VBoxContainer.new()
-	panel.add_child(column)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
+	var fit_panel := func() -> void:
+		var viewport_size := get_viewport().get_visible_rect().size
+		panel.offset_right = minf(405.0, viewport_size.x - 14.0)
+		panel.offset_bottom = minf(viewport_size.y - 14.0,
+			viewport_size.y if _debug_details.visible else 330.0)
 	_summary = Label.new()
+	_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_summary)
 	var day_button := Button.new()
 	day_button.text = "Следующий день"
@@ -293,13 +308,9 @@ func _setup_interface() -> void:
 	_debug_details = VBoxContainer.new()
 	_debug_details.visible = false
 	column.add_child(_debug_details)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(360, 275)
-	_debug_details.add_child(scroll)
 	_status = Label.new()
-	_status.custom_minimum_size = Vector2(345, 0)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	scroll.add_child(_status)
+	_debug_details.add_child(_status)
 	var benchmark_button := Button.new()
 	benchmark_button.text = "Измерить производительность камеры (8.8)"
 	benchmark_button.pressed.connect(_run_device_benchmark)
@@ -341,6 +352,13 @@ func _setup_interface() -> void:
 		event_button.text = "Изменить рельеф: " + kind
 		event_button.pressed.connect(_apply_landscape_event.bind(kind))
 		_debug_details.add_child(event_button)
+	for button in _debug_details.get_children():
+		if button is Button:
+			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_details.move_child(_status, -1)
+	_debug_details.visibility_changed.connect(fit_panel)
+	get_viewport().size_changed.connect(fit_panel)
+	fit_panel.call()
 	_update_hud()
 
 
@@ -435,8 +453,12 @@ func _process(delta: float) -> void:
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	if _days_pending == 0 and _day_task_id < 0:
+		_mesh_budget_sample_in -= delta
+		if _mesh_budget_sample_in <= 0.0:
+			_mesh_budget_p95 = _frame_percentile(_frame_samples, 0.95)
+			_mesh_budget_sample_in = 0.15
 		_mesh_build_budget_us = ChunkBuildQueue.budget_us(
-			_frame_percentile(_frame_samples, 0.95), _pan_pending, MESH_BUDGET_US)
+			_mesh_budget_p95, _pan_pending, MESH_BUDGET_US)
 		if is_inside_tree():
 			_start_chunk_jobs()
 		else:
@@ -448,7 +470,7 @@ func _process(delta: float) -> void:
 		_hud_timer = 0.0
 
 
-func _input(event: InputEvent) -> void:
+func _unhandled_input(event: InputEvent) -> void:
 	if _benchmark_running:
 		return
 	if event is InputEventMouseButton and event.pressed:
@@ -547,7 +569,8 @@ func _advance_weather_lighting(delta: float) -> void:
 	## Двигаем только текущую визуальную палитру к сохранённой цели.
 	## Climate и фоновые потоки здесь не читаются даже во время
 	## расчёта нового дня; пауза и ускорение работают через delta.
-	if _weather_light_target.is_empty() or _weather_light_current.is_empty():
+	if _weather_light_target.is_empty() or _weather_light_current.is_empty() \
+			or _weather_light_current == _weather_light_target:
 		return
 	if not is_finite(delta) or delta <= 0.0:
 		return
@@ -555,6 +578,16 @@ func _advance_weather_lighting(delta: float) -> void:
 		return
 	_weather_light_current = WeatherLighting.blend(
 		_weather_light_current, _weather_light_target, delta)
+	var settled := true
+	for key in _weather_light_target:
+		var value: Variant = _weather_light_current[key]
+		var target: Variant = _weather_light_target[key]
+		if value is Color:
+			settled = settled and value.is_equal_approx(target)
+		else:
+			settled = settled and absf(float(value) - float(target)) < 0.001
+	if settled:
+		_weather_light_current = _weather_light_target
 	_write_weather_lighting(_weather_light_current)
 
 
@@ -800,6 +833,10 @@ func _refresh_visible(force: bool) -> void:
 					continue
 			desired[coord] = true
 	_wanted_chunks = desired
+	for coord in _chunk_jobs:
+		var job: Dictionary = _chunk_jobs[coord]
+		if not desired.has(coord) or job["generation"] != _chunk_generation:
+			job["worker"].cancel()
 	if force:
 		# Старые меши могут оставаться видимыми до замены.
 		for coord in _active.keys():
@@ -904,6 +941,7 @@ func _collect_chunk_jobs() -> void:
 		WorkerThreadPool.wait_for_task_completion(task)
 		_chunk_jobs.erase(coord)
 		var valid: bool = (
+			not item["worker"].is_cancelled() and
 			item["generation"] == _chunk_generation and
 			item["world"] == _world_model.revision and
 			item["surface"] == _surface.revision and

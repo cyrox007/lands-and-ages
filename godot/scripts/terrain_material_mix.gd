@@ -57,7 +57,7 @@ static func at(vertex: Vector2i, height: float, normal: Vector3,
 
 static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
 		world: RefCounted, surface: RefCounted,
-		hydro: RefCounted) -> Dictionary:
+		hydro: RefCounted, nearby := Vector3(-1.0, -1.0, -INF)) -> Dictionary:
 	# Веса и влажность берутся из одного физического снимка вершины.
 	# У каждого чанка на общей вершине будет одинаковый набор данных.
 	# Поэтому на границах GPU-чанков коэффициенты одинаковы.
@@ -92,20 +92,13 @@ static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
 
 	for index in range(MATERIALS):
 		result[index] /= float(cells)
-	var nearby: Vector2 = Appearance._near_water(vertex, world, hydro)
+	if nearby.x < 0.0:
+		nearby = Appearance.near_water(vertex, world, hydro)
 	var dry_share := float(dry_cells) / float(cells)
 	var gentle := 1.0 - smoothstep(0.14, 0.46,
 		1.0 - clampf(normal.y, 0.0, 1.0))
 	# Даже рядом с морем высокий берег остаётся сухим.
-	var water_level := -INF
-	for dy in range(-1, 2):
-		for dx in range(-1, 2):
-			var neighbor := vertex + Vector2i(dx, dy)
-			if not world.config.contains_cell(neighbor):
-				continue
-			var water_index: int = hydro.cell_index(neighbor)
-			if hydro.has_water(water_index):
-				water_level = maxf(water_level, hydro.level_at(water_index))
+	var water_level := nearby.z
 	var coastal_height := 0.0
 	if is_finite(water_level):
 		coastal_height = 1.0 - smoothstep(0.03, 0.65,

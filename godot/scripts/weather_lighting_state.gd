@@ -14,10 +14,10 @@ static func from_snapshot(snapshot: Dictionary) -> Dictionary:
 	# Под сплошной облачностью солнце и окружающий свет ослабевают.
 	# При ясной погоде точно возвращаются исходные значения сцены.
 	return {
-		"sun_energy": lerpf(1.25, 0.62, dimming),
+		"sun_energy": lerpf(1.38, 0.62, dimming),
 		"sun_color": Color(1.0, 0.94, 0.84).lerp(
 			Color(0.72, 0.78, 0.86), cold_tint),
-		"ambient_energy": lerpf(0.61, 0.43, dimming),
+		"ambient_energy": lerpf(0.37, 0.32, dimming),
 		"sky_color": Color(0.54, 0.65, 0.69).lerp(
 			Color(0.34, 0.39, 0.46), dimming),
 		"cloud_coverage": clampf(maxf(cloud, storm * 0.88), 0.0, 1.0),

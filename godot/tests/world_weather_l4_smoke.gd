@@ -30,8 +30,8 @@ func _test_mapping() -> void:
 		"cloud": 0.75, "storm": 0.0, "wind": 0.4})
 	var thunder: Dictionary = Lighting.from_snapshot({
 		"cloud": 0.9, "storm": 0.95, "wind": 0.8})
-	_check(is_equal_approx(float(clear["sun_energy"]), 1.25) and
-		is_equal_approx(float(clear["ambient_energy"]), 0.61),
+	_check(is_equal_approx(float(clear["sun_energy"]), 1.38) and
+		is_equal_approx(float(clear["ambient_energy"]), 0.37),
 		"Ясная погода сохраняет исходное солнце и окружающий свет")
 	_check(float(clear["cloud_coverage"]) == 0.0,
 		"При ясном небе отсутствуют декоративные облачные пятна")
@@ -79,7 +79,7 @@ func _test_renderer(world: RefCounted, climate: RefCounted) -> void:
 	_check(float(view._ground_material.get_shader_parameter(
 		"cloud_coverage")) > 0.6,
 		"Только физический влажный фронт включает облачные пятна")
-	_check(view._sky_environment.ambient_light_energy < 0.61,
+	_check(view._sky_environment.ambient_light_energy < 0.37,
 		"Физический фронт ослабляет также окружающий свет")
 	_check(is_equal_approx(float(view._water_material.get_shader_parameter(
 		"storm_strength")), 0.75),
@@ -109,7 +109,7 @@ func _test_renderer(world: RefCounted, climate: RefCounted) -> void:
 	effects.apply_snapshot(physical, Vector2.ZERO, 0.0, 44.0, 1729)
 	view._sync_water_weather()
 	_check(view._world_light.light_energy >= 0.62 and
-		view._world_light.light_energy <= 1.25,
+		view._world_light.light_energy <= 1.38,
 		"Естественное освещение ограничено при любых климатических полях")
 
 	# Реальные молнии уже принадлежат WeatherEvents: свет здесь

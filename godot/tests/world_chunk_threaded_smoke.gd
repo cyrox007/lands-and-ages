@@ -52,6 +52,14 @@ func _run() -> void:
 		_check(normal[channel] == background[channel],
 			"Многопоточный расчёт сохраняет массив %d" % channel)
 
+	var cancelled := Worker.new(coord, 0, view._world_model, view._surface,
+		view._climate, view._hydro)
+	cancelled.cancel()
+	var cancelled_task := WorkerThreadPool.add_task(cancelled.run)
+	WorkerThreadPool.wait_for_task_completion(cancelled_task)
+	_check(cancelled.arrays.is_empty() and cancelled.water_arrays.is_empty(),
+		"Устаревшее задание прекращается до построения массивов")
+
 	# Очередь сцены ограничена двумя заданиями, а результат попадает
 	# в Node только из основного потока Godot.
 	view._start_chunk_jobs()

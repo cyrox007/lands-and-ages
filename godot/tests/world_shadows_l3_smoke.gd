@@ -51,8 +51,8 @@ func _test_scene(world: RefCounted) -> void:
 			"Карты геометрических теней не включаются в далёком масштабе")
 	_check(is_equal_approx(float(view._ground_material.get_shader_parameter(
 		"relief_contrast")) if view._ground_material.get_shader_parameter(
-		"relief_contrast") != null else 0.72, 0.72),
-		"Базовая сила рельефа сохранилась без нового профиля физики")
+		"relief_contrast") != null else 0.92, 0.92),
+		"Усиленный визуальный контраст не зависит от масштаба")
 	view.free()
 
 

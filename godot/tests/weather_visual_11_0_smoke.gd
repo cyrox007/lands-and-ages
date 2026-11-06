@@ -9,6 +9,16 @@ const Climate = preload("res://scripts/climate.gd")
 const Visual = preload("res://scripts/weather_visual_state.gd")
 const Effects = preload("res://scripts/weather_fx_controller.gd")
 
+class SplitFront extends RefCounted:
+	var revision := 1
+
+	func weather_at(cell: Vector2i) -> Dictionary:
+		return {
+			"rainfall": 2.4 if cell.x >= 16 else 0.0,
+			"snowfall": 1.2 if cell.x < 16 else 0.0
+		}
+
+
 var failures: Array[String] = []
 
 
@@ -93,6 +103,18 @@ func _run() -> void:
 		and JSON.stringify(climate.to_data()) == original_climate
 		and JSON.stringify(hydro.to_data()) == original_hydro,
 		"Рендер не меняет карту, климат или гидрологию")
+
+	controller.set_effects_enabled(true)
+	var front := SplitFront.new()
+	controller.sync_world(front, world, Vector2(16.0, 12.0), 44.0)
+	var mask: Image = controller._mask_texture.get_image()
+	var left := mask.get_pixel(7, 8)
+	var right := mask.get_pixel(9, 8)
+	_check(left.r == 0.0 and left.g > 0.0 and right.r > 0.0 and right.g == 0.0,
+		"Дождь и снег имеют разные области в одном кадре")
+	controller.sync_world(front, world, Vector2(16.0, 12.0), 110.0)
+	_check(not rain_emitter.visible and not snow_emitter.visible,
+		"На обзорном масштабе частицы отключаются")
 
 	# Удаление эффекта не удаляет природные объекты и не требует
 	# переинициализации климата, который существует независимо от сцены.
