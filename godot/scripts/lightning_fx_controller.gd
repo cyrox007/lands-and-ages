@@ -13,6 +13,7 @@ var _slots: Array[Dictionary] = []
 var _last_played_day := -1
 var _thunder_stream: AudioStreamWAV
 var _accepted_bolts := 0
+var _quality := 1
 
 
 func _ready() -> void:
@@ -45,6 +46,13 @@ func _ready() -> void:
 			"thunder_pending": false
 		})
 	set_process(false)
+
+
+func set_quality(level: int) -> void:
+	# Все слоты заранее выделены, но количество одновременно
+	# проигрываемых молний ограничено общим профилем атмосферы.
+	# Физический список ударов при этом не сокращается.
+	_quality = clampi(level, 0, 2)
 
 
 func _make_ribbon(title: String, tint: Color) -> MeshInstance3D:
@@ -149,7 +157,7 @@ func show_strikes(events: Array[Dictionary], map: RefCounted,
 		return 0
 	var shown := 0
 	for event in events:
-		if shown >= MAX_VISIBLE_BOLTS:
+		if shown >= [1, 2, MAX_VISIBLE_BOLTS][_quality]:
 			break
 		if event.get("day") != day or event.get("cause") != "молния" \
 				or not (event.get("cell") is Vector2i):
@@ -260,5 +268,6 @@ func debug_state() -> Dictionary:
 	return {
 		"last_played_day": _last_played_day,
 		"slots": _slots.size(), "visible": visible,
-		"pending_thunder": pending, "shown_total": _accepted_bolts
+		"pending_thunder": pending, "shown_total": _accepted_bolts,
+		"quality": _quality, "active_slot_limit": [1, 2, MAX_VISIBLE_BOLTS][_quality]
 	}
