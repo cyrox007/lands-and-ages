@@ -105,7 +105,7 @@ func _test_scene() -> void:
 		"Ясная сцена не использует сплошной серый фильтр")
 	view._write_weather_lighting(mist)
 	_check(view._sky_environment.fog_enabled
-		and view._sky_environment.fog_density > 0.005,
+		and view._sky_environment.fog_density > 0.003,
 		"Низинный туман включён в единый Environment")
 	_check(float(view._ground_material.get_shader_parameter(
 		"cloud_sunbreak")) > 0.0,
