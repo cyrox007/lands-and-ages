@@ -181,10 +181,10 @@ func _run() -> void:
     _test_burned_slope()
     if not failures.is_empty():
         for message in failures:
-            printerr("11.5/F5a–F5b2a: ", message)
+            printerr("11.5/F5a: ", message)
         quit(1)
         return
-    print("11.5/F5a–F5b2a: выгоревшая почва, эрозия, JSON — успешно")
+    print("11.5/F5a: выгоревшая почва, эрозия, JSON — успешно")
     quit(0)
 
 
