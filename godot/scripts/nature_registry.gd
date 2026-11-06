@@ -396,10 +396,17 @@ func fell_tree(id: int) -> Dictionary:
 
 
 func take_fallen_wood(id: int, amount: int) -> bool:
+    # Забрать можно только фактически лежащий ресурс. Угол бревна
+    # относится к его геометрии и не должен оставаться у пустого пня.
     var item: Dictionary = object_at(id)
-    if item.is_empty() or amount <= 0             or amount > int(item.get("fallen_wood", 0)):
+    if item.is_empty() or amount <= 0 \
+            or amount > int(item.get("fallen_wood", 0)):
         return false
     item["fallen_wood"] = int(item["fallen_wood"]) - amount
+    if int(item["fallen_wood"]) == 0:
+        # Полный сбор убирает бревно из физики и коллизий. Валидатор
+        # JSON v4 принимает угол только при ненулевой лежащей древесине.
+        item["fall_angle_deg"] = -1
     _modify(id, item)
     return true
 
