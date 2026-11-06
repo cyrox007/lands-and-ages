@@ -146,6 +146,51 @@ func _check_scene() -> void:
 		"Формат сохранений неизменен")
 
 
+func _check_streaming_scene() -> void:
+	var scene := preload("res://scenes/world.tscn").instantiate()
+	root.add_child(scene)
+	_check(scene._loading_layer.visible, "Первый кадр закрыт экраном подготовки")
+	var deadline := Time.get_ticks_msec() + 45000
+	while scene._loading_layer.visible and Time.get_ticks_msec() < deadline:
+		await process_frame
+	if scene._loading_layer.visible:
+		_check(false, "Первый полный вид открывается после подгрузки")
+		scene.queue_free()
+		return
+
+	_check(root.get_camera_3d() == scene._display_camera,
+		"Игровая камера показывает проверенный кадр")
+	_check(scene._wanted_chunks.size() > scene._display_chunks.size(),
+		"В очередь входят чанки за границей первого кадра")
+	for coord in scene._display_chunks:
+		_check(scene._active.has(coord), "Первый вид целиком построен до показа")
+
+	var previous_center: Vector2 = scene._display_center
+	var previous_zoom: float = scene._display_camera.size
+	var previous_chunks: Dictionary = scene._display_chunks
+	# Имитируем резкое перемещение маршрутом диагностики, минуя предел
+	# обычного панорамирования. Проверка готовности остаётся включённой.
+	scene._benchmark_running = true
+	scene._move_center(Vector2(-120.0, -85.0))
+	scene._change_zoom(2.0)
+	scene._benchmark_running = false
+	scene._present_camera()
+	_check(scene._display_center == previous_center and
+		scene._display_camera.size == previous_zoom and not scene._loading_layer.visible,
+		"До готовности нового вида сохраняется предыдущий кадр")
+	for coord in previous_chunks:
+		_check(scene._active.has(coord), "Очередь удерживает чанки показанного кадра")
+	deadline = Time.get_ticks_msec() + 45000
+	while scene._display_center == previous_center and Time.get_ticks_msec() < deadline:
+		await process_frame
+	_check(scene._display_center == scene._center and
+		scene._display_camera.size == scene._camera.size,
+		"Готовый новый вид применяет панораму и отдаление")
+	for coord in scene._display_chunks:
+		_check(scene._active.has(coord), "При переходе новый кадр целиком готов")
+	scene.queue_free()
+
+
 func _initialize() -> void:
 	_run()
 
@@ -155,6 +200,7 @@ func _run() -> void:
 	await process_frame
 	_check_projection()
 	_check_scene()
+	await _check_streaming_scene()
 	if not failures.is_empty():
 		for reason in failures.slice(0, 20):
 			push_error("Этап 8.4: " + reason)

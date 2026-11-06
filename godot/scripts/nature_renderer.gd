@@ -7,6 +7,8 @@ const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
 const Felling = preload("res://scripts/nature_felling_visual.gd")
 const Geometry = preload("res://scripts/nature_geometry.gd")
+const Climate = preload("res://scripts/climate.gd")
+const SPARSE_GROUND_COVER_DETAIL := 0.28
 
 static var _meshes: Dictionary = {}
 static var _wind_direction := Vector2.RIGHT
@@ -185,6 +187,8 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
     if nature == null or not nature.generated:
         return result
     var groups := {}
+    var season := Climate.season_name(nature.climate.day)
+    var winter := season == "зима"
     for item in nature.objects_in_chunk(coord):
         var position := Vector2(float(item["x"]) + 0.5,
             float(item["y"]) + 0.5)
@@ -202,9 +206,6 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var wind: float = smoothstep(6.0, 32.0,
             nature.climate.wind_gust_at_index(index))
         var snow: float = nature.surface.snow_at_index(index)
-        var season: String = str(
-            nature.climate.weather_at(cell).get("season", "лето"))
-        var winter: bool = season == "зима"
         if fire != null and fire.is_burning(int(item["id"])):
             # Огонь визуализируется только из реестра физических
             # очагов. При удалении камеры или загрузке не появляется
@@ -347,8 +348,9 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
     # Трава — дешёвый геометрический покров, а не отдельные сущности.
     # Около 64 пробных точек на чанк; результат зависит от физики мира.
     var area: Rect2i = world.config.chunk_rect(coord)
-    for y in range(area.position.y, area.end.y, 2):
-        for x in range(area.position.x, area.end.x, 2):
+    var cover_step := 4 if detail < SPARSE_GROUND_COVER_DETAIL else 2
+    for y in range(area.position.y, area.end.y, cover_step):
+        for x in range(area.position.x, area.end.x, cover_step):
             var cell := Vector2i(x, y)
             # Плодородие после пожара — результат физики, а не
             # отдельная случайная маска в графическом движке.

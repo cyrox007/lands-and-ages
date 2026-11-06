@@ -53,6 +53,10 @@ const FRAME_SAMPLE_LIMIT := 120
 const CAMERA_SPEED := 32.0
 const MIN_ZOOM := 16.0
 const MAX_ZOOM := 105.0
+const STREAM_PREFETCH_PADDING := 16.0
+const STREAM_TARGET_PADDING := 5.0
+
+@export var stream_camera := false
 
 var _world_model: RefCounted
 var _hydro: RefCounted
@@ -99,6 +103,15 @@ var _water_material: ShaderMaterial
 var _water_animation_time := 0.0
 var _center := Vector2.ZERO
 var _camera: Camera3D
+var _display_camera: Camera3D
+var _display_center := Vector2.ZERO
+var _display_chunks := {}
+var _target_chunks := {}
+var _target_view_valid := false
+var _loading_layer: CanvasLayer
+var _loading_label: Label
+var _loading_progress: ProgressBar
+var _startup_task_id := -1
 var _terrain_holder: Node3D
 var _ground_material: ShaderMaterial
 var _debug_ground_material: StandardMaterial3D
@@ -124,6 +137,9 @@ var _last_water_build_us := 0
 var _total_ground_build_us := 0
 var _total_ground_prepare_us := 0
 var _total_ground_upload_us := 0
+var _total_nature_attach_us := 0
+var _total_scene_attach_us := 0
+var _total_collider_attach_us := 0
 var _total_water_build_us := 0
 var _chunk_rebuilds := 0
 var _visibility_refreshes := 0
@@ -145,28 +161,50 @@ var _benchmark_running := false
 var _benchmark_status := ""
 
 
+static func _generate_world_models() -> Dictionary:
+	var world := WorldMap.new(WorldConfig.new())
+	var hydro := Hydrology.new(world)
+	hydro.rebuild()
+	var surface := Surface.new(world, hydro)
+	surface.rebuild()
+	var climate := Climate.new(world, hydro)
+	climate.rebuild()
+	climate.set_day(1)
+	surface.advance_climate_day(climate)
+	hydro.apply_rainfall_map(surface.runoff_map())
+	var nature := Nature.new(world, hydro, surface, climate)
+	nature.generate()
+	return {"world": world, "hydro": hydro, "surface": surface,
+		"climate": climate, "nature": nature}
+
+
 func _ready() -> void:
-	_world_model = WorldMap.new(WorldConfig.new())
-	# Изменения из фоновой симуляции приходят в главный поток.
+	var models := {}
+	if stream_camera:
+		_setup_loading()
+		set_process(false)
+		set_process_unhandled_input(false)
+		# У моделей до завершения задания один владелец. Сцена и GPU
+		# создаются на главном потоке после получения результата.
+		_startup_task_id = WorkerThreadPool.add_task(func():
+			models.merge(_generate_world_models()), false, "Подготовка мира")
+		while not WorkerThreadPool.is_task_completed(_startup_task_id):
+			await get_tree().process_frame
+		WorkerThreadPool.wait_for_task_completion(_startup_task_id)
+		_startup_task_id = -1
+	else:
+		models = _generate_world_models()
+	_world_model = models["world"]
 	_world_model.vertices_changed.connect(_on_world_changed, CONNECT_DEFERRED)
-	_hydro = Hydrology.new(_world_model)
-	_hydro.rebuild()
-	_surface = Surface.new(_world_model, _hydro)
-	_surface.rebuild()
-	_climate = Climate.new(_world_model, _hydro)
-	_climate.rebuild()
+	_hydro = models["hydro"]
+	_surface = models["surface"]
+	_climate = models["climate"]
+	_nature = models["nature"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
-	_natural_disasters = NaturalDisasters.new(
-		_world_model, _hydro, _surface, _climate)
-	_weather_events = WeatherEvents.new(
-		_world_model, _climate, _surface, _hydro)
-	_climate.set_day(1)
-	_surface.advance_climate_day(_climate)
-	_hydro.apply_rainfall_map(_surface.runoff_map())
-	_nature = Nature.new(_world_model, _hydro, _surface, _climate)
-	_nature.generate()
+	_natural_disasters = NaturalDisasters.new(_world_model, _hydro, _surface, _climate)
+	_weather_events = WeatherEvents.new(_world_model, _climate, _surface, _hydro)
 	_fire = Fire.new(_world_model, _hydro, _surface, _climate, _nature)
 	_bind_nature_events()
 	_ensure_day_runner()
@@ -186,6 +224,17 @@ func _ready() -> void:
 	add_child(_camera)
 	_update_material_detail()
 	_update_camera()
+	if stream_camera:
+		_display_camera = Camera3D.new()
+		_display_camera.name = "Камера игрока"
+		_display_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		add_child(_display_camera)
+		_display_camera.transform = _camera.transform
+		_display_camera.size = _camera.size
+		_display_center = _center
+		_display_camera.make_current()
+		_loading_label.text = "Собираем первый вид"
+		_loading_progress.indeterminate = false
 	# Атмосферный рендер живёт отдельно от физики и чанков карты.
 	_weather_fx = WeatherFX.new()
 	_weather_fx.name = "Атмосферные эффекты"
@@ -195,11 +244,74 @@ func _ready() -> void:
 	_setup_interface()
 	_refresh_visible(true)
 	get_viewport().size_changed.connect(_on_viewport_resized)
+	set_process(true)
+	set_process_unhandled_input(true)
+
+
+func _setup_loading() -> void:
+	_loading_layer = CanvasLayer.new()
+	_loading_layer.layer = 10
+	add_child(_loading_layer)
+	var backdrop := ColorRect.new()
+	backdrop.color = Color("#202c28")
+	_loading_layer.add_child(backdrop)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center := CenterContainer.new()
+	backdrop.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var column := VBoxContainer.new()
+	column.custom_minimum_size.x = 240.0
+	center.add_child(column)
+	var title := Label.new()
+	title.text = "Земли и эпохи"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 28)
+	column.add_child(title)
+	_loading_label = Label.new()
+	_loading_label.text = "Формируем мир"
+	_loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(_loading_label)
+	_loading_progress = ProgressBar.new()
+	_loading_progress.show_percentage = false
+	_loading_progress.indeterminate = true
+	column.add_child(_loading_progress)
+
+
+func _present_camera() -> void:
+	if _display_camera == null or not _target_view_valid:
+		return
+	if not _loading_layer.visible and is_same(_display_chunks, _target_chunks) \
+			and _display_center == _center and _display_camera.size == _camera.size:
+		return
+	var ready := 0
+	for coord in _target_chunks:
+		if _active.has(coord):
+			ready += 1
+	if _loading_layer.visible:
+		_loading_progress.max_value = maxf(1.0, float(_target_chunks.size()))
+		_loading_progress.value = ready
+	if ready < _target_chunks.size():
+		return
+	var zoom_changed := _display_camera.size != _camera.size
+	_display_camera.transform = _camera.transform
+	_display_camera.size = _camera.size
+	_display_center = _center
+	_display_chunks = _target_chunks
+	if zoom_changed:
+		_update_material_detail()
+	else:
+		_update_shadow_lod()
+	_loading_layer.hide()
 
 
 func _on_viewport_resized() -> void:
-	# При смене ориентации экрана пересчитываем зону видимости.
+	# Новый размер экрана сразу меняет фактический кадр. Закрываем
+	# его, пока расширившаяся область не готова.
+	if _display_camera != null:
+		_loading_label.text = "Подготавливаем вид"
+		_loading_layer.show()
 	_refresh_visible(false)
+	_present_camera()
 
 
 func _setup_environment() -> void:
@@ -392,7 +504,8 @@ func _process(delta: float) -> void:
 		movement.y -= 1.0
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		movement.y += 1.0
-	if not _benchmark_running and movement.length_squared() > 0.0:
+	if not _benchmark_running and movement.length_squared() > 0.0 \
+			and (_loading_layer == null or not _loading_layer.visible):
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
 	# Год может считаться несколько секунд, но камера и UI работают.
 	# WorkerThreadPool трогает только RefCounted-модели, не сцену.
@@ -446,8 +559,9 @@ func _process(delta: float) -> void:
 			if _weather_fx_cooldown <= 0.0:
 				_weather_fx.set_effects_enabled(
 					_view_mode == 0 and not _benchmark_running)
-				_weather_fx.sync_world(_climate, _world_model,
-					_center, _camera.size)
+				var weather_center := _display_center if _display_camera != null else _center
+				var weather_zoom := _display_camera.size if _display_camera != null else _camera.size
+				_weather_fx.sync_world(_climate, _world_model, weather_center, weather_zoom)
 				_sync_water_weather()
 				_weather_fx_cooldown = 0.35
 	# Обновление мешей откладывается до конца перемотки,
@@ -463,6 +577,7 @@ func _process(delta: float) -> void:
 			_start_chunk_jobs()
 		else:
 			_build_chunks_synchronously()
+	_present_camera()
 	_pan_pending = false
 	_hud_timer += delta
 	if _hud_timer > 0.3:
@@ -471,7 +586,7 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _benchmark_running:
+	if _benchmark_running or (_loading_layer != null and _loading_layer.visible):
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -638,7 +753,7 @@ func _sync_water_weather() -> void:
 func _update_material_detail() -> void:
 	if _camera == null:
 		return
-	var detail := _detail_for_zoom(_camera.size)
+	var detail := _detail_for_zoom(_render_zoom())
 	if _ground_material != null:
 		_ground_material.set_shader_parameter("detail_strength", detail)
 		# Дальние планы обходятся без дополнительного шума и изгиба UV.
@@ -653,37 +768,45 @@ func _update_material_detail() -> void:
 	_update_shadow_lod()
 
 
+func _render_zoom() -> float:
+	return _display_camera.size if _display_camera != null else _camera.size
+
+
 func _update_shadow_lod() -> void:
 	## Меняем теневые свойства только при переходе на иной чанк
 	## или при переключении режима/масштаба. В физику не входим.
 	if _camera == null or _world_model == null:
 		return
-	var enabled: bool = ShadowLOD.active(_camera.size, _view_mode)
+	var zoom := _render_zoom()
+	var center := _display_center if _display_camera != null else _center
+	var enabled: bool = ShadowLOD.active(zoom, _view_mode)
 	var chunk_size: int = _world_model.config.chunk_size
-	var center_chunk := Vector2i(floori(_center.x / float(chunk_size)),
-		floori(_center.y / float(chunk_size)))
+	var center_chunk := Vector2i(floori(center.x / float(chunk_size)),
+		floori(center.y / float(chunk_size)))
 	if _world_light != null:
 		# Прозрачность меняется даже без смены центрального чанка:
 		# ранний выход ниже не должен блокировать плавный переход.
-		_world_light.shadow_opacity = ShadowLOD.shadow_opacity_for_zoom(
-			_camera.size, _view_mode)
-		_world_light.shadow_enabled = enabled
+		var opacity: float = ShadowLOD.shadow_opacity_for_zoom(zoom, _view_mode)
+		if _world_light.shadow_opacity != opacity:
+			_world_light.shadow_opacity = opacity
+		if _world_light.shadow_enabled != enabled:
+			_world_light.shadow_enabled = enabled
 	if _shadow_active == enabled and _shadow_center_chunk == center_chunk:
 		return
 	_shadow_active = enabled
 	_shadow_center_chunk = center_chunk
 	for coord in _active.keys():
 		var near_ground: bool = ShadowLOD.chunk_casts(coord, center_chunk,
-			_camera.size, _view_mode)
+			zoom, _view_mode)
 		var near_nature: bool = ShadowLOD.chunk_casts(coord, center_chunk,
-			_camera.size, _view_mode, true)
+			zoom, _view_mode, true)
 		ShadowLOD.configure_chunk(_active[coord], near_ground, near_nature)
 
 
 func _change_zoom(multiplier: float) -> void:
-	var previous_lod := _detail_for_zoom(_camera.size) < 0.28
+	var previous_lod := _detail_for_zoom(_camera.size) < NatureRenderer.SPARSE_GROUND_COVER_DETAIL
 	_camera.size = clampf(_camera.size * multiplier, MIN_ZOOM, MAX_ZOOM)
-	var next_lod := _detail_for_zoom(_camera.size) < 0.28
+	var next_lod := _detail_for_zoom(_camera.size) < NatureRenderer.SPARSE_GROUND_COVER_DETAIL
 	_pan_delta = Vector2.ZERO
 	_pan_pending = true
 	_update_material_detail()
@@ -693,11 +816,16 @@ func _change_zoom(multiplier: float) -> void:
 
 func _move_center(amount: Vector2) -> void:
 	var previous := _center
+	var target := _center + amount
+	if _display_camera != null and not _benchmark_running:
+		# Не даём запросу уйти далеко, если камера ждёт готовый кадр.
+		target = _display_center + (target - _display_center).limit_length(
+			STREAM_PREFETCH_PADDING * 0.75)
 	_center = Vector2(
-		clampf(_center.x + amount.x, 0.0, float(_world_model.config.width) - 0.001),
-		clampf(_center.y + amount.y, 0.0, float(_world_model.config.height) - 0.001))
+		clampf(target.x, 0.0, float(_world_model.config.width) - 0.001),
+		clampf(target.y, 0.0, float(_world_model.config.height) - 0.001))
 	var displacement := _center - previous
-	if displacement.length_squared() > 0.001:
+	if displacement != Vector2.ZERO:
 		_pan_delta = displacement
 		_pan_pending = true
 	_update_camera()
@@ -705,8 +833,9 @@ func _move_center(amount: Vector2) -> void:
 		floori(_center.y / float(_world_model.config.chunk_size)))
 	# При точном отсечении новая область может появиться внутри чанка.
 	# Подпуск в расчёте видимости страхует промежутки между обновлениями.
+	var refresh_distance_squared := 4.0 if _display_camera != null else 1.0
 	if next_chunk != _chunk_center or \
-			_center.distance_squared_to(_visibility_center) >= 1.0:
+			_center.distance_squared_to(_visibility_center) >= refresh_distance_squared:
 		_refresh_visible(false)
 
 
@@ -790,6 +919,13 @@ func _refresh_visible(force: bool) -> void:
 	_chunk_center = center_chunk
 	_visibility_center = _center
 	_update_shadow_lod()
+	var desired := _plan_camera_chunks(center_chunk)
+	_apply_chunk_plan(desired, force)
+	_last_visibility_us = Time.get_ticks_usec() - refresh_started
+	_visibility_refreshes += 1
+
+
+func _plan_camera_chunks(center_chunk: Vector2i) -> Dictionary:
 	# Во время фоновой физики высоты читать нельзя: временно используем
 	# консервативный квадрат и уточняем его после синхронизации.
 	var cull := _camera != null and _camera.is_inside_tree() \
@@ -813,6 +949,11 @@ func _refresh_visible(force: bool) -> void:
 		up = _camera.global_transform.basis.y
 	var chunk_count: Vector2i = _world_model.config.chunk_count()
 	var desired := {}
+	var target := {}
+	var padding := STREAM_TARGET_PADDING
+	if _display_camera != null:
+		padding += STREAM_PREFETCH_PADDING
+		radius += 1
 	for cy in range(maxi(0, center_chunk.y - radius),
 			mini(chunk_count.y, center_chunk.y + radius + 1)):
 		for cx in range(maxi(0, center_chunk.x - radius),
@@ -823,15 +964,27 @@ func _refresh_visible(force: bool) -> void:
 				continue
 			if cull:
 				if not ChunkVisibility.horizontal_intersects(bounds,
-						camera_position, right, _camera.size, aspect):
+						camera_position, right, _camera.size, aspect, padding):
 					_visibility_fast_rejects += 1
 					continue
 				_visibility_precise_checks += 1
-				if not ChunkVisibility.intersects(bounds,
-						_chunk_elevation_bounds(coord), camera_position, right,
-						up, _camera.size, aspect):
+				var gap := ChunkVisibility.required_padding(bounds,
+					_chunk_elevation_bounds(coord), camera_position,
+					right, up, _camera.size, aspect)
+				if gap > padding:
 					continue
+				if _display_camera != null and gap <= STREAM_TARGET_PADDING:
+					target[coord] = true
 			desired[coord] = true
+	if _display_camera != null:
+		# Во время суточного расчёта оставляем последний проверенный вид.
+		_target_chunks = target
+		_target_view_valid = cull
+		desired.merge(_display_chunks)
+	return desired
+
+
+func _apply_chunk_plan(desired: Dictionary, force: bool) -> void:
 	_wanted_chunks = desired
 	for coord in _chunk_jobs:
 		var job: Dictionary = _chunk_jobs[coord]
@@ -869,22 +1022,13 @@ func _refresh_visible(force: bool) -> void:
 			var restored: Node3D = _render_cache.take(coord)
 			if restored != null:
 				_active[coord] = restored
-	var scheduled := {}
-	for coord in _pending:
-		if desired.has(coord) and not _chunk_jobs.has(coord) and (
-				not _active.has(coord) or _rebuild_pending.has(coord)):
-			scheduled[coord] = true
-	for coord in desired.keys():
+	_pending.clear()
+	for coord in desired:
 		if not _chunk_jobs.has(coord) and (
 				not _active.has(coord) or _rebuild_pending.has(coord)):
-			scheduled[coord] = true
-	_pending.clear()
-	for coord in scheduled.keys():
-		_pending.append(coord)
+			_pending.append(coord)
 	ChunkBuildQueue.prioritize(_pending, _center, _pan_delta,
-		_world_model.config.chunk_size, _active)
-	_last_visibility_us = Time.get_ticks_usec() - refresh_started
-	_visibility_refreshes += 1
+		_world_model.config.chunk_size, _active, _target_chunks)
 
 
 func _build_chunks_synchronously() -> void:
@@ -1028,17 +1172,21 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 		water_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(water_node)
 	if _view_mode == 0 and _nature != null:
+		var nature_started := Time.get_ticks_usec()
 		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord,
 			_detail_for_zoom(_camera.size), _fire))
+		_total_nature_attach_us += Time.get_ticks_usec() - nature_started
 	# Новый чанк получает корректный бюджет теней до добавления в сцену.
 	# При движении камеры существующие чанки перенастраиваются без пересборки.
 	if _camera != null:
 		ShadowLOD.configure_chunk(node,
 			ShadowLOD.chunk_casts(coord, _shadow_center_chunk,
-				_camera.size, _view_mode),
+				_render_zoom(), _view_mode),
 			ShadowLOD.chunk_casts(coord, _shadow_center_chunk,
-				_camera.size, _view_mode, true))
+				_render_zoom(), _view_mode, true))
+	var scene_started := Time.get_ticks_usec()
 	_terrain_holder.add_child(node)
+	_total_scene_attach_us += Time.get_ticks_usec() - scene_started
 	if old_node != null:
 		old_node.queue_free()
 	_active[coord] = node
@@ -1076,9 +1224,9 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 	if _camera != null:
 		ShadowLOD.configure_chunk(chunk_node,
 			ShadowLOD.chunk_casts(chunk, _shadow_center_chunk,
-				_camera.size, _view_mode),
+				_render_zoom(), _view_mode),
 			ShadowLOD.chunk_casts(chunk, _shadow_center_chunk,
-				_camera.size, _view_mode, true))
+				_render_zoom(), _view_mode, true))
 	var old_collisions: Node = chunk_node.get_node_or_null(
 		NatureCollision.COLLISION_NAME)
 	if old_collisions != null:
@@ -1107,8 +1255,10 @@ func _sync_nature_colliders() -> void:
 			continue
 		if current != null or created >= NatureCollision.MAX_NEW_CHUNKS_PER_FRAME:
 			continue
+		var collision_started := Time.get_ticks_usec()
 		chunk_node.add_child(NatureCollision.create_chunk(
 			_world_model, _nature, chunk))
+		_total_collider_attach_us += Time.get_ticks_usec() - collision_started
 		created += 1
 
 
@@ -1492,6 +1642,11 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_active.clear()
 	_pending.clear()
 	_wanted_chunks.clear()
+	_display_chunks.clear()
+	_target_view_valid = false
+	if _loading_layer != null:
+		_loading_label.text = "Собираем вид карты"
+		_loading_layer.show()
 	_rebuild_pending.clear()
 	_pan_delta = Vector2.ZERO
 	_pan_pending = false
@@ -1509,6 +1664,9 @@ func _install_loaded_world(models: Dictionary) -> void:
 
 func _exit_tree() -> void:
 	# Не освобождаем карту, пока фоновый поток использует её массивы.
+	if _startup_task_id >= 0:
+		WorkerThreadPool.wait_for_task_completion(_startup_task_id)
+		_startup_task_id = -1
 	_wait_chunk_jobs()
 	if _day_task_id >= 0:
 		WorkerThreadPool.wait_for_task_completion(_day_task_id)
@@ -1661,6 +1819,11 @@ func _prepare_benchmark_start() -> void:
 	_active.clear()
 	_pending.clear()
 	_wanted_chunks.clear()
+	_display_chunks.clear()
+	_target_view_valid = false
+	if _loading_layer != null:
+		_loading_label.text = "Собираем вид карты"
+		_loading_layer.show()
 	_rebuild_pending.clear()
 	_render_cache.clear()
 	_chunk_height_bounds.clear()
