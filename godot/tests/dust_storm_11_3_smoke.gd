@@ -42,7 +42,8 @@ func _models(seed: int) -> Dictionary:
 
 
 func _source_for(disasters: RefCounted, world: RefCounted,
-        hydro: RefCounted, climate: RefCounted) -> Vector2i:
+        hydro: RefCounted, climate: RefCounted,
+        forecast: RefCounted = null) -> Vector2i:
     # Ищем источник, откуда ветер сможет вынести пыль на сушу.
     # За границей карты и в воде перенос безусловно запрещён.
     for y in range(8, world.config.height - 8):
@@ -50,8 +51,17 @@ func _source_for(disasters: RefCounted, world: RefCounted,
             var cell := Vector2i(x, y)
             if not disasters.dust_source_ready(cell):
                 continue
-            var direction: Vector2 = climate.wind_direction_at_index(
-                hydro.cell_index(cell))
+            var index: int = hydro.cell_index(cell)
+            if forecast != null:
+                # Для следующего игрового дня заранее исключаем
+                # будущий снег и сильный дождь, сохраняя климат неизменным.
+                if forecast.temperature_at_index(index) < 6.0 \
+                        or forecast.precipitation_at_index(index) > 0.18 \
+                        or hydro.wetness_at(index) > 0.42:
+                    continue
+            var direction: Vector2 = climate.wind_direction_at_index(index)
+            if forecast != null:
+                direction = forecast.wind_direction_at_index(index)
             var target := cell + Vector2i(roundi(direction.x * 3.0),
                 roundi(direction.y * 3.0))
             if not world.config.contains_cell(target):
@@ -82,6 +92,7 @@ func _test_physics_and_save() -> void:
     surface.advance_climate_day(climate)
     surface._moisture.fill(0.025)
     surface._snow.fill(0.0)
+    surface._frost.fill(0.0)
     climate._wind.fill(34.0)
     climate._rain.fill(0.0)
     climate._storm.fill(0.0)
@@ -159,6 +170,7 @@ func _test_natural_origin() -> void:
         surface.advance_climate_day(climate)
         surface._moisture.fill(0.025)
         surface._snow.fill(0.0)
+        surface._frost.fill(0.0)
         climate._rain.fill(0.0)
         climate._wind.fill(34.0)
         climate._storm.fill(0.0)
@@ -207,9 +219,14 @@ func _test_runner_and_fx() -> void:
     var nature := Nature.new(world, hydro, surface, climate)
     _check(nature.generate(), "Лес подготовлен для обычного суточного цикла")
     var disasters := Disasters.new(world, hydro, surface, climate)
-    var source := _source_for(disasters, world, hydro, climate)
+    var preview := Climate.new(world, hydro)
+    preview.rebuild()
+    preview.set_day(2)
+    # Следующий день может принести снег; выбираем будущую
+    # устойчиво тёплую сухую клетку без изменения физики игры.
+    var source := _source_for(disasters, world, hydro, climate, preview)
     if source.x < 0:
-        _check(false, "Найден сухой участок для диагностики")
+        _check(false, "Найден тёплый сухой участок для диагностики")
         return
     var weather := Weather.new(world, climate, surface, hydro)
     var processes := Processes.new(world, hydro, surface, climate)
