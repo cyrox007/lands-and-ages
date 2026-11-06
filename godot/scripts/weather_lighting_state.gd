@@ -43,8 +43,8 @@ static func from_snapshot(snapshot: Dictionary) -> Dictionary:
 		# Общий Environment затуманивает грунт, воду и лес одинаково.
 		# Экспоненциальная дымка не расходует объёмные froxel-буферы.
 		"fog_strength": fog_strength,
-		"fog_density": 0.001 + fog_strength * 0.026,
-		"fog_height_density": fog_strength * 0.0065,
+		"fog_density": 0.001 + fog_strength * 0.013,
+		"fog_height_density": fog_strength * 0.0035,
 		"fog_color": Color(0.67, 0.76, 0.80).lerp(
 			Color(0.37, 0.43, 0.51), clampf(storm * 0.9 + cloud * 0.20, 0.0, 1.0)),
 		"fog_sun_scatter": 0.32 * sunbreak + 0.08 * (1.0 - storm)
