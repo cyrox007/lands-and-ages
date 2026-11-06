@@ -13,6 +13,7 @@ const STANDING_LAKE := Vector2(0.0, 2.0)
 const STANDING_OCEAN := Vector2(2.0, 0.0)
 # Отдельная метка поймы не пересекается с UV2 русел и стоячих водоёмов.
 const FLOOD_MARKER_X := -2.0
+const RIVER_WITHOUT_FLOW := Vector2(0.0, -2.0)
 
 
 static func _quad(tool: SurfaceTool, a: Vector3, b: Vector3,
@@ -250,6 +251,8 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 			coverage *= 1.0 - smoothstep(0.35, 1.0, t)
 		if not last.is_empty():
 			var flow := (last_dir + direction).normalized() * intensity
+			if next < 0:
+				flow = RIVER_WITHOUT_FLOW
 			_add_river_section(tool, last, section, tint, ice, flow,
 				Vector2(last_coverage, coverage))
 		last_coverage = coverage
@@ -284,10 +287,10 @@ static func _add_river_section(tool: SurfaceTool, start: PackedVector3Array,
 	for half in range(2):
 		for corner in [0, 1, 2, 0, 2, 3]:
 			var across: int = half + int(corner == 1 or corner == 2)
-			# Отрицательное UV.x отмечает русло; -2 — середина, -1 — берега.
+			# Глубина уменьшается к берегам и на концах русла.
 			var at_start: bool = corner < 2
 			var depth := coverage.x if at_start else coverage.y
-			tool.set_uv(Vector2(-1.0 - depth if across == 1 else -1.0, ice))
+			tool.set_uv(Vector2(depth if across == 1 else 0.0, ice))
 			tool.add_vertex(start[across] if at_start else finish[across])
 
 

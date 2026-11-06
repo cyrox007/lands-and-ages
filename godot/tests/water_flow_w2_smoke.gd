@@ -52,7 +52,7 @@ func _test_river(world: RefCounted, hydro: RefCounted) -> void:
 	_check(ice.size() == positions.size() and ice[0].y == 0.0,
 		"Ледяной параметр UV не смешивается с направлением течения")
 
-	_check(ice.has(Vector2(-1.0, 0.0)) and ice.has(Vector2(-2.0, 0.0)),
+	_check(ice.has(Vector2.ZERO) and ice.has(Vector2.RIGHT),
 		"У русла раздельно размечены края и середина для плавных берегов")
 	var downstream: Vector2 = Vector2(
 		hydro.cell_from_index(hydro.downstream_of(index)) - river).normalized()
