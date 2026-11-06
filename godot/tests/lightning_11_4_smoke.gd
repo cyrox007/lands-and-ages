@@ -77,9 +77,10 @@ func _test_physical_effect(state: Dictionary, hit: Dictionary) -> void:
 		"cause": "молния", "strength": 0.9, "ignition_potential": 0.0
 	}
 	var strikes: Array[Dictionary] = [wet_hit]
+	var hazards: Array[Dictionary] = []
 	var changed := {}
 	var before: int = int(nature.object_at(int(target["id"]))["health"])
-	nature._damage_from_events([], strikes, changed)
+	nature._damage_from_events(hazards, strikes, changed)
 	var after: int = int(nature.object_at(int(target["id"]))["health"])
 	_check(after < before and after >= 0,
 		"Электрический разряд повреждает дерево даже без риска пожара")
