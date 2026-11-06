@@ -203,12 +203,15 @@ void fragment() {
 	add_layer(5, snow / sum, position, ground_world_normal, dx, dy,
 		albedo_sum, bump_sum, roughness_sum);
 
-	// Небольшая геологическая слоистость на камнях, без смещения сетки.
+	// Мировая слоистость читается только на обнажённой породе.
+	float cliff = smoothstep(0.25, 0.56, ground_steepness) * rock;
 	float strata = 0.0;
 	if (detail_strength > 0.01) {
-		strata = sin(ground_position.y * 9.0 + ground_position.x * 0.42);
+		float phase = ground_position.y * 7.3 +
+			dot(ground_position.xz, vec2(0.29, -0.13)) + (macro - 0.5) * 1.8;
+		float band = sin(phase) * 0.68 + sin(phase * 0.43 + 1.9) * 0.32;
+		strata = band * (1.0 - smoothstep(0.55, 1.65, fwidth(phase)));
 	}
-	float cliff = smoothstep(0.25, 0.56, ground_steepness) * rock;
 	vec3 tint = clamp(COLOR.rgb / vec3(0.55), vec3(0.74), vec3(1.19));
 	float macro_tint = 1.0 + (macro - 0.5) * 0.12 *
 		macro_strength * detail_strength;
@@ -226,7 +229,7 @@ void fragment() {
 		gravel * 0.40, 0.0, 1.0);
 	float wet_material = wet * (0.35 + 0.65 * absorbency);
 	vec3 base_albedo = albedo_sum * mix(vec3(1.0), tint, 0.17) *
-		(1.0 + strata * cliff * 0.055 * detail_strength) * macro_tint;
+		(1.0 + strata * cliff * 0.095 * detail_strength) * macro_tint;
 	// Подсветка реального гребня и затемнение настоящей впадины
 	// основаны только на высотах WorldMap: никакой новой поверхности.
 	float ridge = smoothstep(0.05, 0.90, ground_shape.r);
@@ -264,6 +267,9 @@ void fragment() {
 		vec3(0.0), vec3(1.0));
 	ROUGHNESS = clamp(mix(roughness_sum, 0.34, wet_material * 0.72),
 		0.25, 1.0);
+	// Вогнутость реального рельефа ослабляет рассеянный свет в выемках.
+	AO = clamp(1.0 - ravine * 0.28 - cliff * max(0.0, -strata) * 0.09,
+		0.62, 1.0);
 	METALLIC = 0.0;
 
 	// Переносим касательную микрофактуру из мировых осей в видовую систему.

@@ -76,6 +76,7 @@ var _world_light: DirectionalLight3D
 var _sky_environment: Environment
 var _shadow_center_chunk := Vector2i(-100000, -100000)
 var _shadow_active := false
+var _shadow_quality := 1
 var _lightning_life := 0.0
 var _weather_fx: Node3D
 var _weather_fx_cooldown := 0.0
@@ -423,6 +424,13 @@ func _setup_interface() -> void:
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_debug_details.add_child(_status)
+	var shadow_quality := OptionButton.new()
+	shadow_quality.add_item("Тени · экономно")
+	shadow_quality.add_item("Тени · стандарт")
+	shadow_quality.add_item("Тени · подробно")
+	shadow_quality.select(_shadow_quality)
+	shadow_quality.item_selected.connect(_set_shadow_quality)
+	_debug_details.add_child(shadow_quality)
 	var benchmark_button := Button.new()
 	benchmark_button.text = "Измерить производительность камеры (8.8)"
 	benchmark_button.pressed.connect(_run_device_benchmark)
@@ -772,12 +780,22 @@ func _render_zoom() -> float:
 	return _display_camera.size if _display_camera != null else _camera.size
 
 
+func _set_shadow_quality(preset: int) -> void:
+	_shadow_quality = clampi(preset, 0, 2)
+	_update_shadow_lod()
+
+
+func _shadow_zoom() -> float:
+	# Меняем дальность теневой карты независимо от камеры и геометрии.
+	return _render_zoom() * [1.5, 1.0, 0.82][_shadow_quality]
+
+
 func _update_shadow_lod() -> void:
 	## Меняем теневые свойства только при переходе на иной чанк
 	## или при переключении режима/масштаба. В физику не входим.
 	if _camera == null or _world_model == null:
 		return
-	var zoom := _render_zoom()
+	var zoom := _shadow_zoom()
 	var center := _display_center if _display_camera != null else _center
 	var enabled: bool = ShadowLOD.active(zoom, _view_mode)
 	var chunk_size: int = _world_model.config.chunk_size
@@ -1183,9 +1201,9 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 	if _camera != null:
 		ShadowLOD.configure_chunk(node,
 			ShadowLOD.chunk_casts(coord, _shadow_center_chunk,
-				_render_zoom(), _view_mode),
+				_shadow_zoom(), _view_mode),
 			ShadowLOD.chunk_casts(coord, _shadow_center_chunk,
-				_render_zoom(), _view_mode, true))
+				_shadow_zoom(), _view_mode, true))
 	var scene_started := Time.get_ticks_usec()
 	_terrain_holder.add_child(node)
 	_total_scene_attach_us += Time.get_ticks_usec() - scene_started
@@ -1226,9 +1244,9 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 	if _camera != null:
 		ShadowLOD.configure_chunk(chunk_node,
 			ShadowLOD.chunk_casts(chunk, _shadow_center_chunk,
-				_render_zoom(), _view_mode),
+				_shadow_zoom(), _view_mode),
 			ShadowLOD.chunk_casts(chunk, _shadow_center_chunk,
-				_render_zoom(), _view_mode, true))
+				_shadow_zoom(), _view_mode, true))
 	var old_collisions: Node = chunk_node.get_node_or_null(
 		NatureCollision.COLLISION_NAME)
 	if old_collisions != null:

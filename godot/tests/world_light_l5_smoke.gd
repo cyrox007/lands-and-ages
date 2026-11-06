@@ -56,6 +56,15 @@ func _test_shadow_transitions(world: RefCounted) -> void:
 
 	# Поворот и перемещение камеры не должны изменить абсолютный
 	# коэффициент тени без смены зума или режима представления.
+	camera.size = 66.0
+	view._set_shadow_quality(0)
+	_check(not view._world_light.shadow_enabled,
+		"Экономный пресет ограничивает дальность геометрических теней")
+	view._set_shadow_quality(2)
+	_check(view._world_light.shadow_enabled and camera.size == 66.0,
+		"Подробный пресет увеличивает дальность, сохраняя масштаб камеры")
+	view._set_shadow_quality(1)
+
 	camera.size = 56.0
 	view._center = Vector2(14.0, 12.0)
 	view._update_shadow_lod()
