@@ -20,6 +20,7 @@ var last_duration_us := 0
 var test_storm_cell := Vector2i(-1, -1)
 var test_squall_cell := Vector2i(-1, -1)
 var test_hurricane_cell := Vector2i(-1, -1)
+var test_shrub_cell := Vector2i(-1, -1)
 var test_tornado_cell := Vector2i(-1, -1)
 var test_dust_cell := Vector2i(-1, -1)
 
@@ -104,6 +105,16 @@ func run_day() -> void:
 			"source": "диагностика", "duration_days": 1
 		})
 	test_hurricane_cell = Vector2i(-1, -1)
+	if world.config.contains_cell(test_shrub_cell):
+		# Куст испытывается тем же ураганом, что и деревья:
+		# здесь выбираем эпицентр, а не устанавливаем здоровье напрямую.
+		hazards.append({
+			"kind": "ураган", "cell": test_shrub_cell,
+			"severity": 1.0, "day": climate.day,
+			"source": "диагностика", "target": "кустарник",
+			"duration_days": 1
+		})
+	test_shrub_cell = Vector2i(-1, -1)
 	if world.config.contains_cell(test_tornado_cell):
 		# Смерч тестируется через штатную обработку hazards. Команда
 		# влияет только на выбор события следующего физического дня.

@@ -317,6 +317,10 @@ func _setup_interface() -> void:
 	hurricane_button.text = "Испытать ураган: широкая зона ветровала"
 	hurricane_button.pressed.connect(_debug_test_hurricane)
 	_debug_details.add_child(hurricane_button)
+	var shrub_button := Button.new()
+	shrub_button.text = "Испытать ветер: повреждение кустарника"
+	shrub_button.pressed.connect(_debug_test_shrub_damage)
+	_debug_details.add_child(shrub_button)
 	var tornado_button := Button.new()
 	tornado_button.text = "Испытать смерч: узкий след разрушений"
 	tornado_button.pressed.connect(_debug_test_tornado)
@@ -1134,6 +1138,11 @@ func _debug_test_hurricane() -> void:
 	_debug_test_wind_event("ураган")
 
 
+func _debug_test_shrub_damage() -> void:
+	# Выбираем живой куст, но ущерб наносит только суточная физика.
+	_debug_test_wind_event("ураган", "кустарник")
+
+
 func _debug_test_tornado() -> void:
 	# Физический вихрь оставляет узкую трассу, а не круглый урон.
 	_debug_test_wind_event("смерч")
@@ -1188,7 +1197,8 @@ func _debug_test_dust_storm() -> void:
 	_update_hud()
 
 
-func _debug_test_wind_event(kind: String) -> void:
+func _debug_test_wind_event(kind: String,
+		target_kind: String = "дерево") -> void:
 	# Диагностика использует тот же суточный физический цикл, что
 	# и естественное событие; GUI не меняет ресурс дерева напрямую.
 	if _nature == null or _view_mode != 0 or _benchmark_running \
@@ -1205,27 +1215,33 @@ func _debug_test_wind_event(kind: String) -> void:
 		0.98 if kind == "ураган" else (0.95 if kind == "шквал" else 0.85))
 	for chunk in _active.keys():
 		for item in _nature.objects_in_chunk(chunk):
-			if item["kind"] != "дерево" or item["state"] != "целое":
+			if item["kind"] != target_kind or item["state"] != "целое":
 				continue
 			var cell := Vector2i(int(item["x"]), int(item["y"]))
 			var point := Vector2(cell) + Vector2(0.5, 0.5)
 			# Выбираем дерево с воспроизводимым падением по seed и
 			# приближаем эпицентр к камере для видимого результата.
-			if point.distance_to(_center) > _camera.size * 0.48 \
-					or Terrain.hash2(cell.x, cell.y,
-						_world_model.config.world_seed +
-						next_day * 31 + 3173) >= probability_limit:
+			if point.distance_to(_center) > _camera.size * 0.48:
+				continue
+			if target_kind == "дерево" and Terrain.hash2(cell.x, cell.y,
+					_world_model.config.world_seed +
+					next_day * 31 + 3173) >= probability_limit:
 				continue
 			var square := point.distance_squared_to(_center)
 			if square < distance:
 				distance = square
 				selected = cell
 	if selected.x < 0:
-		_storage_status = "В видимой области нет дерева для испытания"
+		_storage_status = "В видимой области нет %s для испытания" % (
+			"живого кустарника" if target_kind == "кустарник" else "дерева")
 		_update_hud()
 		return
 	_ensure_day_runner()
-	if kind == "шквал":
+	if target_kind == "кустарник":
+		# Специальный маркер позволит показать честный результат,
+		# а не количество поваленных деревьев у соседнего эпицентра.
+		_day_runner.test_shrub_cell = selected
+	elif kind == "шквал":
 		_day_runner.test_squall_cell = selected
 	elif kind == "ураган":
 		_day_runner.test_hurricane_cell = selected
@@ -1530,7 +1546,9 @@ func _complete_day(result: Dictionary) -> void:
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
 		if latest.get("source", "") == "диагностика":
-			if str(latest["kind"]) == "пыльная буря":
+			if str(latest.get("target", "")) == "кустарник":
+				_storage_status = "Пробный порыв по кустарнику: физический расчёт завершён"
+			elif str(latest["kind"]) == "пыльная буря":
 				_storage_status = "Пыльная буря: перенесено %.3f грунта" % \
 					float(latest.get("sediment_volume", 0.0))
 			else:
