@@ -109,6 +109,21 @@ func _test_physics_and_save() -> void:
     if not snapshot.is_empty():
         var restored: Dictionary = Save.restore(
             JSON.parse_string(JSON.stringify(snapshot)))
+        if restored.is_empty():
+            # Диагностика различает повреждение общего сейва
+            # и отказ строго валидируемого реестра огня v2.
+            var legacy_copy: Dictionary = snapshot.duplicate(true)
+            legacy_copy.erase("fire")
+            var restored_without_fire: Dictionary = Save.restore(legacy_copy)
+            if restored_without_fire.is_empty():
+                printerr("11.5/F1: восстановление мира без fire также не удалось")
+            else:
+                var decoded_fire: Dictionary = JSON.parse_string(
+                    JSON.stringify(snapshot["fire"]))
+                var accepted: bool = restored_without_fire["fire"].load_data(
+                    decoded_fire)
+                printerr("11.5/F1: отдельная загрузка реестра fire = ",
+                    accepted, " · содержимое: ", JSON.stringify(decoded_fire))
         _check(not restored.is_empty()
             and restored.get("fire") != null,
             "Полный мир с огнём загружается из JSON")

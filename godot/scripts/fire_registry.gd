@@ -3,8 +3,10 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
 const MAX_FIRES := 1024
+const MAX_SCORCHED_CELLS := 4096
+const ASH_RECOVERY_PER_DAY := 12
 const MAX_EVENTS_PER_DAY := 64
 
 var world: RefCounted
@@ -16,6 +18,7 @@ var last_day := 0
 var total_ignitions := 0
 var last_events: Array[Dictionary] = []
 var _burning: Dictionary = {}
+var _scorched: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -45,6 +48,75 @@ func burning_ids() -> Array[int]:
     return ids
 
 
+func scorched_count() -> int:
+    return _scorched.size()
+
+
+func scorched_at(cell: Vector2i) -> float:
+    # Огарок грунта — физическое число от нуля до единицы,
+    # сохраняемое между запусками и независимое от камеры.
+    if not world.config.contains_cell(cell):
+        return 0.0
+    var i: int = hydro.cell_index(cell)
+    if not _scorched.has(i):
+        return 0.0
+    return float(_scorched[i]["ash"]) / 1000.0
+
+
+func scorched_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
+    # Рендер опрашивает только клетки одного видимого чанка,
+    # не перебирая все следы пожаров на огромной карте.
+    var result: Array[Dictionary] = []
+    var rect: Rect2i = world.config.chunk_rect(chunk)
+    for y in range(rect.position.y, rect.end.y):
+        for x in range(rect.position.x, rect.end.x):
+            var cell := Vector2i(x, y)
+            var intensity := scorched_at(cell)
+            if intensity <= 0.08:
+                continue
+            result.append({"cell": cell, "ash": intensity})
+    return result
+
+
+func _scorch(cell: Vector2i, heat: int, changed: Dictionary) -> void:
+    # Угар появляется только после расхода реального топлива.
+    # Одна клетка содержит один конечный запас пепла, без дублей.
+    if not world.config.contains_cell(cell):
+        return
+    var index: int = hydro.cell_index(cell)
+    if not _scorched.has(index) and _scorched.size() >= MAX_SCORCHED_CELLS:
+        return
+    var previous: int = int(_scorched.get(index, {}).get("ash", 0))
+    _scorched[index] = {
+        "ash": mini(1000, previous + maxi(1, heat * 4)),
+        "last_burn": last_day
+    }
+    changed[world.config.chunk_of(cell)] = true
+
+
+func _recover_ground(changed: Dictionary) -> void:
+    # Зола уходит только с течением физических суток; камера, кадры
+    # и загрузка сами по себе не меняют состояние участка.
+    var indices: Array[int] = []
+    for key in _scorched.keys():
+        indices.append(int(key))
+    indices.sort()
+    for index in indices:
+        var data: Dictionary = _scorched[index]
+        if int(data["last_burn"]) >= last_day:
+            continue
+        var previous: int = int(data["ash"])
+        var updated := maxi(0, previous - ASH_RECOVERY_PER_DAY)
+        if updated == 0:
+            _scorched.erase(index)
+        else:
+            data["ash"] = updated
+            _scorched[index] = data
+        var cell := Vector2i(index % world.config.width,
+            index / world.config.width)
+        changed[world.config.chunk_of(cell)] = true
+
+
 func _flammability(cell: Vector2i) -> float:
     # Сырой грунт, снежный покров и затопление останавливают огонь.
     # Это условная модель горючести, а не декоративный шум.
@@ -60,7 +132,8 @@ func _flammability(cell: Vector2i) -> float:
         return 0.0
     return clampf((0.78 - moisture) / 0.65, 0.0, 1.0) * \
         clampf(1.0 - rain / 1.1, 0.0, 1.0) * \
-        clampf(1.0 - snow / 0.12, 0.0, 1.0)
+        clampf(1.0 - snow / 0.12, 0.0, 1.0) * \
+        (1.0 - scorched_at(cell) * 0.65)
 
 
 func _fuel(item: Dictionary) -> int:
@@ -184,6 +257,10 @@ func advance_day(day: int, strikes: Array = [],
         return []
     last_day = day
     last_events.clear()
+    # Восстановление земли идёт до нового выгорания; новый пепел
+    # не исчезает в тот же физический день, когда образовался.
+    var ground_changed := {}
+    _recover_ground(ground_changed)
     for id in burning_ids():
         var item: Dictionary = nature.object_at(id)
         if item.is_empty():
@@ -199,7 +276,10 @@ func advance_day(day: int, strikes: Array = [],
         # Топливо реально расходуется и влияет на древесину/здоровье.
         var fuel: Dictionary = _burning[id]
         var heat := clampi(roundi(80.0 + dryness * 135.0), 40, 220)
-        nature.burn_object(id, heat, day)
+        if nature.burn_object(id, heat, day):
+            # Зола привязана к клетке и переживёт естественный распад
+            # обгоревшего дерева или кустарника.
+            _scorch(cell, heat, ground_changed)
         fuel["fuel"] = maxi(0, int(fuel["fuel"]) - heat)
         _record("горение", id, cell)
         if int(fuel["fuel"]) == 0:
@@ -219,6 +299,9 @@ func advance_day(day: int, strikes: Array = [],
         # Диагностика обходит случайность, но не требования сухости
         # и реального горючего объекта в указанной точке.
         _ignite_near(diagnostic_cell, 1.0, true)
+    # Одна рассылка изменений на день не создаёт отдельные узлы
+    # или дорогие сигналы для каждой частицы золы.
+    nature.refresh_ground_visuals(ground_changed)
     return last_events.duplicate(true)
 
 
@@ -229,17 +312,35 @@ func to_data() -> Dictionary:
     for id in burning_ids():
         var entry: Dictionary = _burning[id]
         entries.append([id, int(entry["fuel"]), int(entry["since"])])
+    var ash_entries := []
+    var indices: Array[int] = []
+    for index in _scorched.keys():
+        indices.append(int(index))
+    indices.sort()
+    for index in indices:
+        var ash: Dictionary = _scorched[index]
+        ash_entries.append([index, int(ash["ash"]), int(ash["last_burn"])])
     return {
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
-        "fires": entries
+        "fires": entries, "scorched": ash_entries
     }
 
 
 func load_data(data: Dictionary) -> bool:
     # Валидация полностью проходит до замены активных очагов.
     # Это защищает уже открытый мир от повреждённого JSON.
-    if data.get("version") != FORMAT_VERSION:
+    # Версия F1 содержала только очаги. Её читаем без пепла,
+    # чтобы не терять ранние миры после обновления игры.
+    var raw_version: Variant = data.get("version")
+    if not (raw_version is int or raw_version is float) \
+            or not is_finite(float(raw_version)):
+        return false
+    var version := int(raw_version)
+    # JSON восстанавливает 1 и 2 как 1.0/2.0: проверяем числовое
+    # значение явно, иначе Array.has() сравнивает типы слишком строго.
+    if float(version) != float(raw_version) \
+            or (version != 1 and version != FORMAT_VERSION):
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -277,7 +378,33 @@ func load_data(data: Dictionary) -> bool:
         parsed[id] = {"fuel": fuel, "since": since}
     if parsed.size() > total:
         return false
+    # Физический след проверяется целиком до изменения действующего
+    # реестра: битые индексы, даты и дубли не портят текущую карту.
+    var parsed_scorched := {}
+    if int(data["version"]) == FORMAT_VERSION:
+        var marks: Variant = data.get("scorched")
+        if not (marks is Array) or marks.size() > MAX_SCORCHED_CELLS:
+            return false
+        for mark in marks:
+            if not (mark is Array) or mark.size() != 3:
+                return false
+            for value in mark:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)):
+                    return false
+            var index := int(mark[0])
+            var ash := int(mark[1])
+            var burned_on := int(mark[2])
+            if index < 0 or index >= world.config.width * world.config.height \
+                    or parsed_scorched.has(index) or ash <= 0 or ash > 1000 \
+                    or burned_on < 0 or burned_on > day:
+                return false
+            parsed_scorched[index] = {
+                "ash": ash, "last_burn": burned_on
+            }
     _burning = parsed
+    _scorched = parsed_scorched
     last_day = day
     total_ignitions = total
     last_events.clear()

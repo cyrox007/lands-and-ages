@@ -411,6 +411,13 @@ func take_fallen_wood(id: int, amount: int) -> bool:
     return true
 
 
+func refresh_ground_visuals(changed: Dictionary) -> void:
+    # Физический реестр пожаров передаёт набор затронутых чанков.
+    # Одного сигнала за сутки достаточно для золы, травы и обновления
+    # визуального мира, даже если сгорели десятки растений.
+    _mark_changes(changed)
+
+
 func refresh_object_visual(id: int) -> void:
     # Возгорание или тушение может менять только видимость огня,
     # а не здоровье. Уведомляем рендер о чанке без порчи объекта.
