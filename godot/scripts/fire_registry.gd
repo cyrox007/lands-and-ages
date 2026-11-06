@@ -3,7 +3,7 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 4
+const FORMAT_VERSION := 5
 const MAX_FIRES := 1024
 const MAX_SCORCHED_CELLS := 4096
 const MAX_EMBERS := 512
@@ -11,6 +11,8 @@ const MAX_LITTER_FUEL := 360
 const ASH_RECOVERY_PER_DAY := 12
 const SOIL_HEAL_PER_DAY := 4
 const MAX_SOIL_SCARS := 4096
+const MAX_CHARCOAL_CELLS := 4096
+const MAX_CHARCOAL_UNITS := 1000
 const MAX_EVENTS_PER_DAY := 64
 
 var world: RefCounted
@@ -25,6 +27,7 @@ var _burning: Dictionary = {}
 var _scorched: Dictionary = {}
 var _embers: Dictionary = {}
 var _soil_damage: Dictionary = {}
+var _charcoal: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -78,6 +81,69 @@ func smolder_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
             var fuel: int = int(_embers[hydro.cell_index(cell)]["fuel"])
             result.append({"cell": cell, "heat": float(fuel) / MAX_LITTER_FUEL})
     return result
+
+
+func charcoal_at(cell: Vector2i) -> int:
+    # Уголь — конечный запас твёрдого материала после горения,
+    # а не пламя или активные угли подстилки. Одна условная порция
+    # соответствует примерно 0.1 единицы исходной древесины.
+    if not world.config.contains_cell(cell):
+        return 0
+    return int(_charcoal.get(hydro.cell_index(cell), 0))
+
+
+func charcoal_total() -> int:
+    # Сумма используется игровыми ресурсами и балансом сохранений;
+    # не зависит от видимости и порядка обхода чанков.
+    var total := 0
+    for amount in _charcoal.values():
+        total += int(amount)
+    return total
+
+
+func charcoal_cell_count() -> int:
+    # Реестр разреженный: пустые клетки не выделяют память.
+    return _charcoal.size()
+
+
+func take_charcoal(cell: Vector2i, amount: int) -> bool:
+    # Сбор не допускает отрицательного запаса, фиктивных порций
+    # или доступа к ещё горящей клетке. Передача собранного
+    # ресурса в инвентарь будет отдельным слоем экономики.
+    if amount <= 0 or not world.config.contains_cell(cell):
+        return false
+    var index: int = hydro.cell_index(cell)
+    if _embers.has(index) or int(_charcoal.get(index, 0)) < amount:
+        return false
+    for id in _burning.keys():
+        var item: Dictionary = nature.object_at(int(id))
+        if not item.is_empty() and int(item["x"]) == cell.x \
+                and int(item["y"]) == cell.y:
+            return false
+    # После сбора визуальная система узнаёт о смене чанка,
+    # но физика угля остаётся независимой от рендера.
+    var rest := int(_charcoal[index]) - amount
+    if rest == 0:
+        _charcoal.erase(index)
+    else:
+        _charcoal[index] = rest
+    nature.refresh_ground_visuals({world.config.chunk_of(cell): true})
+    return true
+
+
+func _deposit_charcoal(cell: Vector2i, amount: int,
+        changed: Dictionary) -> void:
+    # Уголь возникает только из физически израсходованного топлива:
+    # запас древесины дерева или подстилки уже уменьшился. Масса
+    # остатка ограничена, поэтому это не дублирующий источник дров.
+    if amount <= 0 or not world.config.contains_cell(cell):
+        return
+    var index: int = hydro.cell_index(cell)
+    if not _charcoal.has(index) and _charcoal.size() >= MAX_CHARCOAL_CELLS:
+        return
+    var old: int = int(_charcoal.get(index, 0))
+    _charcoal[index] = mini(MAX_CHARCOAL_UNITS, old + amount)
+    changed[world.config.chunk_of(cell)] = true
 
 
 func soil_scar_count() -> int:
@@ -416,7 +482,13 @@ func _advance_litter(changed: Dictionary) -> void:
             continue
         var state: Dictionary = _embers[index]
         var heat := clampi(roundi(20.0 + dryness * 65.0), 20, 85)
-        state["fuel"] = maxi(0, int(state["fuel"]) - heat)
+        var previous_fuel := int(state["fuel"])
+        state["fuel"] = maxi(0, previous_fuel - heat)
+        # Одна десятая древесной единицы угля образуется лишь после
+        # расхода каждых 50 условных единиц сухой подстилки.
+        # Пороговый расчёт сохраняет остаток между сутками без таймера.
+        var charcoal_units := previous_fuel / 50 - int(state["fuel"]) / 50
+        _deposit_charcoal(cell, charcoal_units, changed)
         _scorch(cell, heat, changed)
         _record("тление", -1, cell)
         if int(state["fuel"]) == 0:
@@ -592,7 +664,14 @@ func advance_day(day: int, strikes: Array = [],
         # Топливо реально расходуется и влияет на древесину/здоровье.
         var fuel: Dictionary = _burning[id]
         var heat := clampi(roundi(80.0 + dryness * 135.0), 40, 220)
+        var wood_before := int(item.get("wood_units", 0))
         if nature.burn_object(id, heat, day):
+            # Выход древесного угля не превышает 20% сгоревшей массы:
+            # каждая единица потраченной древесины даёт максимум две
+            # условные порции угля по 0.1 древесной единицы.
+            var burned_wood := maxi(0, wood_before -
+                int(nature.object_at(id).get("wood_units", 0)))
+            _deposit_charcoal(cell, burned_wood * 2, ground_changed)
             # До появления золы подхватываем сухую лесную подстилку,
             # затем её запас расходуется независимо от живого ствола.
             _ignite_litter(cell, ground_changed)
@@ -654,11 +733,19 @@ func to_data() -> Dictionary:
         var scar: Dictionary = _soil_damage[index]
         scar_entries.append([index, int(scar["damage"]),
             int(scar["last_burn"])])
+    var charcoal_entries := []
+    var charcoal_indices: Array[int] = []
+    for key in _charcoal.keys():
+        charcoal_indices.append(int(key))
+    charcoal_indices.sort()
+    for index in charcoal_indices:
+        charcoal_entries.append([index, int(_charcoal[index])])
     return {
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
         "fires": entries, "scorched": ash_entries,
-        "embers": ember_entries, "soil_damage": scar_entries
+        "embers": ember_entries, "soil_damage": scar_entries,
+        "charcoal": charcoal_entries
     }
 
 
@@ -672,10 +759,10 @@ func load_data(data: Dictionary) -> bool:
             or not is_finite(float(raw_version)):
         return false
     var version := int(raw_version)
-    # JSON восстанавливает 1–4 как вещественные числа; проверяем
+    # JSON восстанавливает 1–5 как вещественные числа; проверяем
     # значение явно, иначе Array.has() сравнивает типы слишком строго.
     if float(version) != float(raw_version) \
-            or version not in [1, 2, 3, FORMAT_VERSION]:
+            or version not in [1, 2, 3, 4, FORMAT_VERSION]:
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -768,7 +855,7 @@ func load_data(data: Dictionary) -> bool:
     # Повреждённые новые записи полностью отвергаются до записи
     # в реестр, включая дубли, нецелые числа и будущие даты.
     var parsed_soil := {}
-    if version == FORMAT_VERSION:
+    if version >= 4:
         var raw_soil: Variant = data.get("soil_damage")
         if not (raw_soil is Array) or raw_soil.size() > MAX_SOIL_SCARS:
             return false
@@ -790,10 +877,35 @@ func load_data(data: Dictionary) -> bool:
             parsed_soil[index] = {
                 "damage": damage, "last_burn": burn_day
             }
+    # Отдельный твёрдый уголь появляется только в v5. Старые
+    # сохранения v1–v4 загружаются без вымышленных ресурсов.
+    # Сначала строго проверяем весь массив, затем заменяем реестры.
+    var parsed_charcoal := {}
+    if version >= 5:
+        var raw_charcoal: Variant = data.get("charcoal")
+        if not (raw_charcoal is Array) \
+                or raw_charcoal.size() > MAX_CHARCOAL_CELLS:
+            return false
+        for record in raw_charcoal:
+            if not (record is Array) or record.size() != 2:
+                return false
+            for value in record:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)):
+                    return false
+            var index := int(record[0])
+            var amount := int(record[1])
+            if index < 0 or index >= world.config.width * world.config.height \
+                    or parsed_charcoal.has(index) or amount <= 0 \
+                    or amount > MAX_CHARCOAL_UNITS:
+                return false
+            parsed_charcoal[index] = amount
     _burning = parsed
     _scorched = parsed_scorched
     _embers = parsed_embers
     _soil_damage = parsed_soil
+    _charcoal = parsed_charcoal
     last_day = day
     total_ignitions = total
     last_events.clear()
