@@ -444,7 +444,10 @@ func erosion_risk_at_index(i: int) -> float:
 		* (0.25 + _moisture[i] * 0.5), 0.0, 1.0)
 
 
-func profile_at(cell: Vector2i) -> Dictionary:
+func profile_at(cell: Vector2i, fire_damage: float = 0.0) -> Dictionary:
+	# Не храним обратную ссылку на FireRegistry: оба реестра
+	# RefCounted, а циклическое владение мешало бы освобождать мир.
+	# Повреждение передаётся явным аргументом и уже сохранено огнём.
 	ensure_ready()
 	var i := _index(cell)
 	if i < 0:
@@ -472,14 +475,19 @@ func profile_at(cell: Vector2i) -> Dictionary:
 	var thermal := clampf((_air_temperature[i] + 6.0) / 13.0, 0.0, 1.0) \
 		* clampf((46.0 - _air_temperature[i]) / 13.0, 0.0, 1.0)
 	var depth := maxf(0.0, _depth[i] + _sediment[i])
-	var fertility := clampf(_fertility[i] + maxf(0.0, _sediment[i]) * 0.16,
-		0.0, 1.0)
+	var base_fertility := clampf(
+		_fertility[i] + maxf(0.0, _sediment[i]) * 0.16, 0.0, 1.0)
+	# Ожог уменьшает плодородие до 55%, без уничтожения геологической
+	# основы. По мере суточного исцеления ожога плодородие возвращается.
+	var fire_loss := clampf(fire_damage, 0.0, 1.0)
+	var fertility := base_fertility * (1.0 - fire_loss * 0.55)
 	var growth := fertility * clampf((wet - 0.12) * 1.8, 0.0, 1.0) * thermal
 	return {
 		"cell": cell, "substrate": NAMES[_type[i]], "depth": depth,
 		"base_depth": _depth[i], "sediment": _sediment[i],
 		"waterlogging": _waterlogged[i], "wetland": is_wetland,
-		"fertility": fertility, "porosity": _porosity[i],
+		"fertility": fertility, "base_fertility": base_fertility,
+		"fire_damage": fire_loss, "porosity": _porosity[i],
 		"moisture": wet, "snow": _snow[i], "frost": _frost[i],
 		"muddy": muddy, "cover": cover, "temperature": _air_temperature[i],
 		"growth_potential": growth,
