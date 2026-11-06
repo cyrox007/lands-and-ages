@@ -65,7 +65,7 @@ func _scene() -> Node3D:
         mesh.height = 3.5 + float(i % 3)
         post.mesh = mesh
         post.position = Vector3(float(i % 3) * 7.0 - 7.0,
-            mesh.height * 0.5, float(i / 3) * 8.0 - 8.0)
+            mesh.height * 0.5, float(floori(float(i) / 3.0)) * 8.0 - 8.0)
         var material := StandardMaterial3D.new()
         material.albedo_color = Color(0.41, 0.34, 0.27)
         post.material_override = material
