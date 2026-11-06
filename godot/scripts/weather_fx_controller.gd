@@ -180,7 +180,7 @@ func sync_world(climate: RefCounted, world: RefCounted,
 
 
 func apply_snapshot(state: Dictionary, center: Vector2,
-		altitude: float, zoom: float, seed: int) -> void:
+		altitude: float, zoom: float, world_seed: int) -> void:
 	## Снимок не связан с исходным словарём: рендер не может случайно
 	## изменить параметры погоды или испортить сохранение мира.
 	_last_state = state.duplicate(true)
@@ -234,7 +234,7 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 			var drift := gust * (1.25 if emitter == _snow else 0.42)
 			material.direction = Vector3(
 				airflow.x * drift, -1.0, airflow.y * drift).normalized()
-		emitter.seed = seed
+		emitter.seed = world_seed
 	_rain.amount_ratio = clampf(float(state.get("rain", 0.0))
 		* quality_factor, 0.0, 1.0)
 	_snow.amount_ratio = clampf(float(state.get("snow", 0.0))
@@ -258,7 +258,7 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	dust_motion.emission_box_extents = Vector3(distance * 0.78,
 		2.0, distance * 0.46)
 	dust_motion.direction = Vector3(airflow.x, 0.13, airflow.y).normalized()
-	_dust.seed = seed + 71
+	_dust.seed = world_seed + 71
 	_dust.amount_ratio = _event_severity * quality_factor \
 		if _event_dust and _event_life > 0.0 else 0.0
 	_dust.emitting = _enabled and _dust.amount_ratio >= 0.08

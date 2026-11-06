@@ -110,6 +110,11 @@ jobs:
           /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit 2>&1 | tee /tmp/nature-import.log
           # Встроенные текстуры не должны давать предупреждения о старых UID.
+          # Предупреждения Godot о целочисленном делении и затенении
+          # встроенных имён не должны снова попадать в исходники.
+          if grep -Ei "INTEGER_DIVISION|SHADOWED_GLOBAL_IDENTIFIER|Integer division\\. Decimal part|same name as a built-in function" /tmp/nature-import.log; then
+            exit 1
+          fi
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script|invalid UID|using text path instead" /tmp/nature-import.log; then
             exit 1
           fi
