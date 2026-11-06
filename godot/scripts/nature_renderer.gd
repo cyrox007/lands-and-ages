@@ -101,6 +101,20 @@ static func _color(kind: String, species: String, state: String) -> Color:
     return Color(0.20, 0.34, 0.16)
 
 
+static func shrub_appearance(item: Dictionary) -> Dictionary:
+    # Здоровье определяет масштаб и окраску реального куста,
+    # а не временный эффект. После загрузки JSON вид остаётся тем же.
+    var health := clampf(float(item.get("health", 1000)) / 1000.0,
+        0.0, 1.0)
+    if str(item.get("state", "")) == "сухостой":
+        health = 0.0
+    return {
+        "scale": 0.55 + health * 0.45,
+        "tint": Color(0.54, 0.45, 0.31).lerp(Color.WHITE, health),
+        "health": health
+    }
+
+
 static func _push(groups: Dictionary, kind: String, transform: Transform3D,
         color: Color, phase: float, wind: float = 0.0,
         foliage: float = 0.0, health: float = 1.0) -> void:
@@ -218,15 +232,25 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                         Vector3(0, 2.15 * scale_factor, 0)),
                     tint, phase, wind)
         elif item["kind"] == "кустарник":
+            # Повреждённый куст бледнеет, уменьшается, после гибели
+            # остаётся сухим до естественного распада. Состояние
+            # читается из NatureRegistry; GPU не изменяет здоровье.
+            var appearance: Dictionary = shrub_appearance(item)
+            var health: float = float(appearance["health"])
+            var scale: float = float(appearance["scale"])
+            var tint: Color = appearance["tint"]
+            tint = tint.lerp(Color(0.8, 0.85, 0.8), snow * 0.45)
             var bush := Models.select_prop("кустарник", int(item["id"]))
-            if _place_model(groups, bush, origin, 1.0, Color.WHITE.lerp(
-                    Color(0.8, 0.85, 0.8), snow * 0.45), phase, wind):
+            if _place_model(groups, bush, origin, scale, tint, phase,
+                    wind, Vector3.ONE, 0.0, 0.0, health):
                 continue
+            var fallback_tint := _color("куст", species, state).lerp(
+                Color(0.54, 0.45, 0.31), 1.0 - health)
             _push(groups, "куст",
-                Transform3D(Basis.IDENTITY,
-                    origin + Vector3(0, 0.36, 0)),
-                _color("куст", species, state).lerp(
-                    Color(0.78, 0.82, 0.76), snow * 0.55), phase, wind)
+                Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale),
+                    origin + Vector3(0, 0.36 * scale, 0)),
+                fallback_tint.lerp(Color(0.78, 0.82, 0.76),
+                    snow * 0.55), phase, wind, 0.0, health)
         elif item["kind"] == "валун":
             var rock := Models.select_prop("валун", int(item["id"]))
             if _place_model(groups, rock, origin, 1.0, Color.WHITE,
