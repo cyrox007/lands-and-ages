@@ -267,11 +267,11 @@ void fragment() {
 		float folds = terrain_noise(ground_position.xz * 0.029 + drift * 1.36);
 		float cloud_field = broad * 0.77 + folds * 0.23;
 		float penumbra = smoothstep(0.34, 0.70, cloud_field);
-		cloud_dimming = cloud_coverage * penumbra * 0.30;
+		cloud_dimming = cloud_coverage * penumbra * 0.35;
 		// Редкие тёплые просветы делают землю пространственно
 		// читаемой при переменной облачности, но не при ливне.
 		sunbeam = cloud_sunbreak *
-			smoothstep(0.28, 0.49, 1.0 - cloud_field) * 0.18;
+			smoothstep(0.28, 0.49, 1.0 - cloud_field) * 0.27;
 	}
 	vec3 light_pattern = vec3(1.0 - cloud_dimming) +
 		vec3(1.06, 0.97, 0.77) * sunbeam;
