@@ -34,6 +34,12 @@ static func _mesh(kind: String) -> Mesh:
         var mark := BoxMesh.new()
         mark.size = Vector3(0.28, 0.24, 0.06)
         mesh = mark
+    elif kind == "гарь":
+        # След выгоревшего грунта — одна плоскость для всех пятен
+        # видимого чанка, а не отдельные сцены и физические частицы.
+        var scar := PlaneMesh.new()
+        scar.size = Vector2(0.72, 0.72)
+        mesh = scar
     elif kind == "трава":
         var blade := CylinderMesh.new()
         blade.top_radius = 0.0
@@ -82,6 +88,9 @@ static func _mesh(kind: String) -> Mesh:
         var material := StandardMaterial3D.new()
         material.vertex_color_use_as_albedo = true
         material.roughness = 0.98
+        if kind == "гарь":
+            material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+            material.cull_mode = BaseMaterial3D.CULL_DISABLED
         if kind == "пламя":
             material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
             material.emission_enabled = true
@@ -285,6 +294,25 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                 Transform3D(Basis.IDENTITY, origin + Vector3(0, 0.26, 0)),
                 _color("камень", species, state), phase)
 
+    # Пепел берём только из сохраняемого реестра физических пожаров.
+    # Один MultiMesh-слой живёт в видимом чанке и исчезает по мере
+    # природного восстановления, даже если огня давно нет.
+    if fire != null:
+        for trace in fire.scorched_in_chunk(coord):
+            var burned_cell: Vector2i = trace["cell"]
+            var severity: float = float(trace["ash"])
+            var position := Vector2(burned_cell) + Vector2(0.5, 0.5)
+            var height: float = world.height_at(position)
+            if not is_finite(height):
+                continue
+            var origin := world.config.to_scene(position, height)
+            var scale := 0.65 + severity * 0.35
+            _push(groups, "гарь",
+                Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale),
+                    origin + Vector3(0.0, 0.065, 0.0)),
+                Color(0.32, 0.29, 0.24).lerp(
+                    Color(0.09, 0.075, 0.06), severity), 0.0)
+
     # Трава — дешёвый геометрический покров, а не отдельные сущности.
     # Около 64 пробных точек на чанк; результат зависит от физики мира.
     var area: Rect2i = world.config.chunk_rect(coord)
@@ -292,6 +320,10 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         for x in range(area.position.x, area.end.x, 2):
             var cell := Vector2i(x, y)
             var cover: float = nature.ground_cover_at(cell)
+            if fire != null:
+                # Зола временно лишает землю травяного покрова,
+                # восстановление идёт суточной физикой, не FPS.
+                cover *= 1.0 - fire.scorched_at(cell) * 0.95
             if cover < 0.16:
                 continue
             var world_seed: int = world.config.world_seed
