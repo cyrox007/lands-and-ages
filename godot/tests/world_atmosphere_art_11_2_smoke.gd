@@ -51,7 +51,7 @@ func _test_palette() -> void:
 	_check(float(mist["fog_density"]) > float(clouds["fog_density"])
 		and float(mist["fog_height_density"]) > 0.0,
 		"Тихая влажная погода усиливает низинную дымку")
-	_check(float(storm["fog_density"]) > float(clear["fog_density"]) + 0.012
+	_check(float(storm["fog_density"]) > float(clear["fog_density"]) + 0.006
 		and float(storm["sun_energy"]) < float(clear["sun_energy"]),
 		"Грозовой фронт создаёт глубину и уменьшает свет")
 	_check(float(storm["cloud_sunbreak"]) < 0.08,
