@@ -22,9 +22,9 @@ static func from_snapshot(snapshot: Dictionary) -> Dictionary:
 		rain * 0.29 + snow * 0.20 + storm * 0.34, 0.0, 1.0)
 	# Солнечные окна ярче всего при разорванной облачности,
 	# а во время сплошной грозы исчезают без искусственных вспышек.
-	var sunbreak := smoothstep(0.13, 0.42, cloud) *
-		(1.0 - smoothstep(0.73, 0.98, cloud)) *
-		(1.0 - storm * 0.94)
+	var sunbreak := (smoothstep(0.13, 0.42, cloud)
+		* (1.0 - smoothstep(0.73, 0.98, cloud))
+		* (1.0 - storm * 0.94))
 
 	# Под сплошной облачностью солнце и окружающий свет ослабевают.
 	# При ясной погоде точно возвращаются исходные значения сцены.
