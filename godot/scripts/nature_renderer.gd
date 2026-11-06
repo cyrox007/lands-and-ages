@@ -4,6 +4,8 @@ extends RefCounted
 
 const Wind = preload("res://shaders/nature_wind.gdshader")
 const FireSmoke = preload("res://shaders/fire_smoke.gdshader")
+const FireFlame = preload("res://shaders/fire_flame.gdshader")
+const MAX_SMOLDER_PLUMES_PER_CHUNK := 8
 const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
 const Felling = preload("res://scripts/nature_felling_visual.gd")
@@ -32,12 +34,12 @@ static func set_wind_direction(direction: Vector2) -> void:
 static func _mesh(kind: String) -> Mesh:
     if _meshes.has(kind):
         return _meshes[kind]
-    if kind == "дым":
+    if kind in ["дым", "пламя"]:
         var quad := QuadMesh.new()
-        var smoke := ShaderMaterial.new()
-        smoke.shader = FireSmoke
-        smoke.set_shader_parameter("wind_direction", _wind_direction)
-        quad.material = smoke
+        var plume := ShaderMaterial.new()
+        plume.shader = FireSmoke if kind == "дым" else FireFlame
+        plume.set_shader_parameter("wind_direction", _wind_direction)
+        quad.material = plume
         _meshes[kind] = quad
         return quad
     var mesh: PrimitiveMesh
@@ -67,15 +69,6 @@ static func _mesh(kind: String) -> Mesh:
         blade.height = 0.36
         blade.radial_segments = 3
         mesh = blade
-    elif kind == "пламя":
-        # Один простой меш с инстансингом для всех видимых очагов
-        # вместо отдельных узлов/частиц на каждом дереве.
-        var flame := CylinderMesh.new()
-        flame.top_radius = 0.0
-        flame.bottom_radius = 0.24
-        flame.height = 0.95
-        flame.radial_segments = 6
-        mesh = flame
     elif kind in ["ствол", "пень", "бревно"]:
         var cylinder := CylinderMesh.new()
         cylinder.top_radius = 0.10 if kind == "ствол" else 0.16
@@ -116,11 +109,6 @@ static func _mesh(kind: String) -> Mesh:
             material.emission_enabled = true
             material.emission = Color(0.83, 0.20, 0.04)
             material.emission_energy_multiplier = 0.75
-        if kind == "пламя":
-            material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-            material.emission_enabled = true
-            material.emission = Color(1.0, 0.28, 0.04)
-            material.emission_energy_multiplier = 1.9
         mesh.material = material
     _meshes[kind] = mesh
     return mesh
@@ -222,8 +210,8 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var fire_scale := 0.8 if item["kind"] == "кустарник" else 1.35
             var fire_basis := Basis.IDENTITY.scaled(Vector3.ONE * fire_scale)
             _push(groups, "пламя",
-                Transform3D(fire_basis, origin + Vector3(0.0, 0.55, 0.0)),
-                Color(1.0, 0.38, 0.08), phase)
+                Transform3D(fire_basis, origin + Vector3(0.0, 0.10, 0.0)),
+                Color.WHITE, phase, wind)
             _push(groups, "дым",
                 Transform3D(fire_basis, origin + Vector3(0.0, 0.85, 0.0)),
                 Color.WHITE, phase, wind)
@@ -324,6 +312,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
     # Один MultiMesh-слой живёт в видимом чанке и исчезает по мере
     # природного восстановления, даже если огня давно нет.
     if fire != null:
+        var smolder_plumes := 0
         for ember in fire.smolder_in_chunk(coord):
             # Только действующие физические угли. Когда влажность
             # гасит тление, NatureRegistry обновляет чанк и угли исчезают.
@@ -341,6 +330,15 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                     ember_origin + Vector3(0.0, 0.10, 0.0)),
                 Color(0.55, 0.14, 0.045).lerp(
                     Color(1.0, 0.32, 0.07), glow), 0.0)
+            if smolder_plumes < MAX_SMOLDER_PLUMES_PER_CHUNK:
+                var cell_index: int = nature.hydro.cell_index(ember_cell)
+                var gust: float = nature.climate.wind_gust_at_index(cell_index)
+                var ember_scale := lerpf(0.18, 0.47, glow)
+                _push(groups, "дым", Transform3D(
+                    Basis.IDENTITY.scaled(Vector3.ONE * ember_scale), ember_origin),
+                    Color.WHITE, float(posmod(cell_index, 251)) / 251.0,
+                    smoothstep(6.0, 32.0, gust), 0.0, lerpf(0.26, 0.60, glow))
+                smolder_plumes += 1
         for trace in fire.scorched_in_chunk(coord):
             var burned_cell: Vector2i = trace["cell"]
             var severity: float = float(trace["ash"])
@@ -432,7 +430,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             if legacy_wind != null:
                 node.material_override = legacy_wind
         node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-        if kind == "дым":
-            node.extra_cull_margin = 6.0
+        if kind in ["дым", "пламя"]:
+            node.extra_cull_margin = 6.0 if kind == "дым" else 2.0
         result.add_child(node)
     return result
