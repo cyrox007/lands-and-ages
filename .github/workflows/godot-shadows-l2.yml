@@ -13,6 +13,8 @@ on:
       - "godot/scripts/weather_lighting_state.gd"
       - "godot/tests/world_weather_l4_smoke.gd"
       - "godot/tests/world_light_l5_smoke.gd"
+      - "godot/tests/world_atmosphere_art_11_2_smoke.gd"
+      - "godot/tests/world_atmosphere_art_11_2_capture.gd"
       - "godot/tests/world_shadows_l2_capture.gd"
       - ".github/workflows/godot-shadows-l2.yml"
   pull_request:
@@ -27,6 +29,8 @@ on:
       - "godot/scripts/weather_lighting_state.gd"
       - "godot/tests/world_weather_l4_smoke.gd"
       - "godot/tests/world_light_l5_smoke.gd"
+      - "godot/tests/world_atmosphere_art_11_2_smoke.gd"
+      - "godot/tests/world_atmosphere_art_11_2_capture.gd"
       - "godot/tests/world_shadows_l2_capture.gd"
       - ".github/workflows/godot-shadows-l2.yml"
   workflow_dispatch:
@@ -97,6 +101,17 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-l5.log; then
             exit 1
           fi
+      - name: "11.2 — климатический туман, облачные просветы и плавность"
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_atmosphere_art_11_2_smoke.gd \
+            2>&1 | tee /tmp/shadow-atmosphere-art.log
+          grep -q "Этап 11.2/ART:.*успешно" /tmp/shadow-atmosphere-art.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-atmosphere-art.log; then
+            exit 1
+          fi
       - name: Регрессия PBR и света
         run: |
           set -o pipefail
@@ -152,6 +167,51 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-gl.log; then
             exit 1
           fi
+      - name: "11.2/L1 — реальные сравнительные кадры гор, леса и панорамы"
+        timeout-minutes: 9
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/atmosphere-art-11-2
+          timeout 480s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/world_atmosphere_art_11_2_capture.gd \
+            -- --out=/tmp/atmosphere-art-11-2 \
+            2>&1 | tee /tmp/shadow-atmosphere-art-gl.log
+          grep -q "Этап 11.2/GL:.*успешно" /tmp/shadow-atmosphere-art-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/shadow-atmosphere-art-gl.log; then
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base = Path("/tmp/atmosphere-art-11-2")
+          report = json.loads((base / "manifest.json").read_text())
+          assert report["stage"] == "11.2"
+          assert report["checks_passed"] is True
+          assert report["manual_art_approval"] is False
+          assert report["hardware_gpu_accepted"] is False
+          assert len(report["scenes"]) == 12
+          assert len({x["scene"] for x in report["scenes"]}) == 3
+          assert len({x["weather"] for x in report["scenes"]}) == 4
+          for item in report["scenes"]:
+              assert (base / item["file"]).stat().st_size > 18000
+              if item["weather"] != "ясно":
+                  assert item["changed_sample_pixels"] > 30
+          print("Этап 11.2: кадры всех художественных условий присутствуют")
+          PY
+
+      - name: "11.2/L1 — сохранить сравнительные кадры атмосферы"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atmosphere-11-2-artistic-scenes
+          path: |
+            /tmp/atmosphere-art-11-2/
+            /tmp/shadow-atmosphere-art-gl.log
+          if-no-files-found: warn
+          retention-days: 30
       - name: Сохранить кадры для художественной приёмки
         if: always()
         uses: actions/upload-artifact@v4
