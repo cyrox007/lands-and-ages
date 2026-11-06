@@ -16,12 +16,12 @@ class Front extends RefCounted:
     func weather_at(cell: Vector2i) -> Dictionary:
         # По одну сторону фронта — мороз и снег, по другую —
         # тёплый ливень с градом, в центральной полосе — мокрый снег.
-        if cell.x < 12:
+        if cell.x < 16:
             return {
                 "temperature": -9.0, "rainfall": 0.0, "snowfall": 1.4,
                 "wind_speed": 21.0, "wind_gust": 29.0
             }
-        if cell.x < 20:
+        if cell.x < 22:
             return {
                 "temperature": 0.4, "rainfall": 0.85, "snowfall": 0.75,
                 "wind_speed": 9.0, "wind_gust": 12.0
