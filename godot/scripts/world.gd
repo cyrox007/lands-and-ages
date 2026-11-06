@@ -321,6 +321,10 @@ func _setup_interface() -> void:
 	tornado_button.text = "Испытать смерч: узкий след разрушений"
 	tornado_button.pressed.connect(_debug_test_tornado)
 	_debug_details.add_child(tornado_button)
+	var dust_button := Button.new()
+	dust_button.text = "Испытать пыльную бурю: перенос сухого грунта"
+	dust_button.pressed.connect(_debug_test_dust_storm)
+	_debug_details.add_child(dust_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -1135,6 +1139,49 @@ func _debug_test_tornado() -> void:
 	_debug_test_wind_event("смерч")
 
 
+func _debug_test_dust_storm() -> void:
+	# Находим именно сухую открытую поверхность в загруженных
+	# чанках; деревья и камни не подменяют источник пыли.
+	if _nature == null or _view_mode != 0 or _benchmark_running \
+			or _day_task_id >= 0 or _days_pending > 0 \
+			or not _storage_request.is_empty():
+		_storage_status = "Пробная пыльная буря доступна после расчёта дня"
+		_update_hud()
+		return
+	var selected := Vector2i(-1, -1)
+	var nearest := INF
+	for chunk in _active.keys():
+		var rect: Rect2i = _world_model.config.chunk_rect(chunk)
+		for y in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				var cell := Vector2i(x, y)
+				if not _natural_disasters.dust_source_ready(cell):
+					continue
+				var wind: Vector2 = _climate.wind_direction_at_index(
+					_hydro.cell_index(cell))
+				var downwind := cell + Vector2i(
+					roundi(wind.x * 3.0), roundi(wind.y * 3.0))
+				if not _world_model.config.contains_cell(downwind) \
+						or _hydro.has_water(_hydro.cell_index(downwind)):
+					continue
+				var distance := (Vector2(cell) + Vector2(0.5, 0.5)) \
+					.distance_squared_to(_center)
+				if distance < nearest:
+					nearest = distance
+					selected = cell
+	if selected.x < 0:
+		_storage_status = "В видимой области нет сухого рыхлого грунта для бури"
+		_update_hud()
+		return
+	# Визуал появится только после настоящего переноса земли в
+	# следующем суточном расчёте, а не непосредственно от кнопки.
+	_ensure_day_runner()
+	_day_runner.test_dust_cell = selected
+	_queue_days(1)
+	_storage_status = "Пробная пыльная буря: ждём расчёта · %s" % selected
+	_update_hud()
+
+
 func _debug_test_wind_event(kind: String) -> void:
 	# Диагностика использует тот же суточный физический цикл, что
 	# и естественное событие; GUI не меняет ресурс дерева напрямую.
@@ -1441,7 +1488,8 @@ func _complete_day(result: Dictionary) -> void:
 	var hazards: Array[Dictionary] = result["hazards"]
 	for hazard in hazards:
 		var wind_kind := str(hazard.get("kind", ""))
-		if wind_kind not in ["шторм", "шквал", "ураган", "смерч"] \
+		if wind_kind not in [
+				"шторм", "шквал", "ураган", "смерч", "пыльная буря"] \
 				or _weather_fx == null or _view_mode != 0 \
 				or _days_pending > 1:
 			continue
@@ -1460,6 +1508,9 @@ func _complete_day(result: Dictionary) -> void:
 		elif wind_kind == "смерч":
 			_weather_fx.show_tornado_event(
 				float(hazard["severity"]), direction)
+		elif wind_kind == "пыльная буря":
+			_weather_fx.show_dust_storm_event(
+				float(hazard["severity"]), direction)
 		else:
 			_weather_fx.show_storm_event(
 				float(hazard["severity"]), direction)
@@ -1469,8 +1520,12 @@ func _complete_day(result: Dictionary) -> void:
 			latest["kind"], latest["day"], latest["cell"],
 			float(latest["severity"]) * 100.0]
 		if latest.get("source", "") == "диагностика":
-			_storage_status = "Пробный %s: повалено %d деревьев" % [
-				str(latest["kind"]), falls.size()]
+			if str(latest["kind"]) == "пыльная буря":
+				_storage_status = "Пыльная буря: перенесено %.3f грунта" % \
+					float(latest.get("sediment_volume", 0.0))
+			else:
+				_storage_status = "Пробный %s: повалено %d деревьев" % [
+					str(latest["kind"]), falls.size()]
 
 
 func _cycle_view() -> void:
