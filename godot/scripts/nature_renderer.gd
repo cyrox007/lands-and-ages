@@ -34,6 +34,15 @@ static func _mesh(kind: String) -> Mesh:
         var mark := BoxMesh.new()
         mark.size = Vector3(0.28, 0.24, 0.06)
         mesh = mark
+    elif kind == "угли":
+        # Все тлеющие пятна разделяют один небольшой GPU-меш.
+        # Никаких отдельных сцен для каждой горячей клетки.
+        var embers := SphereMesh.new()
+        embers.radius = 0.18
+        embers.height = 0.22
+        embers.radial_segments = 6
+        embers.rings = 3
+        mesh = embers
     elif kind == "гарь":
         # След выгоревшего грунта — одна плоскость для всех пятен
         # видимого чанка, а не отдельные сцены и физические частицы.
@@ -91,6 +100,11 @@ static func _mesh(kind: String) -> Mesh:
         if kind == "гарь":
             material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
             material.cull_mode = BaseMaterial3D.CULL_DISABLED
+        if kind == "угли":
+            material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+            material.emission_enabled = true
+            material.emission = Color(0.83, 0.20, 0.04)
+            material.emission_energy_multiplier = 0.75
         if kind == "пламя":
             material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
             material.emission_enabled = true
@@ -298,6 +312,23 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
     # Один MultiMesh-слой живёт в видимом чанке и исчезает по мере
     # природного восстановления, даже если огня давно нет.
     if fire != null:
+        for ember in fire.smolder_in_chunk(coord):
+            # Только действующие физические угли. Когда влажность
+            # гасит тление, NatureRegistry обновляет чанк и угли исчезают.
+            var ember_cell: Vector2i = ember["cell"]
+            var ember_point := Vector2(ember_cell) + Vector2(0.5, 0.5)
+            var ember_height: float = world.height_at(ember_point)
+            if not is_finite(ember_height):
+                continue
+            var ember_origin: Vector3 = world.config.to_scene(
+                ember_point, ember_height)
+            var glow: float = clampf(float(ember["heat"]), 0.0, 1.0)
+            _push(groups, "угли",
+                Transform3D(Basis.IDENTITY.scaled(
+                    Vector3.ONE * (0.60 + glow * 0.55)),
+                    ember_origin + Vector3(0.0, 0.10, 0.0)),
+                Color(0.55, 0.14, 0.045).lerp(
+                    Color(1.0, 0.32, 0.07), glow), 0.0)
         for trace in fire.scorched_in_chunk(coord):
             var burned_cell: Vector2i = trace["cell"]
             var severity: float = float(trace["ash"])
