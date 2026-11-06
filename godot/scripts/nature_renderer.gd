@@ -305,7 +305,7 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
             var height: float = world.height_at(position)
             if not is_finite(height):
                 continue
-            var origin := world.config.to_scene(position, height)
+            var origin: Vector3 = world.config.to_scene(position, height)
             var scale := 0.65 + severity * 0.35
             _push(groups, "гарь",
                 Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale),
