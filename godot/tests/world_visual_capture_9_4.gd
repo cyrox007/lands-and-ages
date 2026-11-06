@@ -6,7 +6,7 @@ const View = preload("res://scripts/world.gd")
 const Runner = preload("res://scripts/world_benchmark_runner.gd")
 
 const CAPTURE_SIZE := Vector2i(1280, 720)
-const MAX_BUILD_FRAMES := 240
+const BUILD_TIMEOUT_MS := 15000
 const QUALITY_MIN_COLORS := 14
 const SCENE_NAMES := ["первый_день", "берег", "горный_рельеф", "влажная_земля"]
 
@@ -113,16 +113,19 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 
 
 func _wait_for_chunks(view: Node3D) -> int:
-	for frame in range(MAX_BUILD_FRAMES):
+	var deadline := Time.get_ticks_msec() + BUILD_TIMEOUT_MS
+	var frames := 0
+	while Time.get_ticks_msec() < deadline:
 		await process_frame
-		if (view._pending.is_empty() and
+		frames += 1
+		if (view._pending.is_empty() and view._chunk_jobs.is_empty() and
 				view._rebuild_pending.is_empty() and
 				view._active.size() >= view._wanted_chunks.size() and
 				not view._active.is_empty()):
 			await process_frame
 			await process_frame
-			return frame + 1
-	return MAX_BUILD_FRAMES
+			return frames
+	return -1
 
 
 func _image_quality(image: Image) -> Dictionary:
@@ -151,7 +154,7 @@ func _snapshot(view: Node3D, scenario: Dictionary, folder: String) -> Dictionary
 	view._change_zoom(zoom / view._camera.size)
 	view._move_center(Vector2(center) - view._center)
 	var frames: int = await _wait_for_chunks(view)
-	_check(view._pending.is_empty() and not view._active.is_empty(),
+	_check(frames >= 0,
 		"Панорама " + str(scenario["name"]) + " не имеет незагруженных чанков")
 	var image: Image = view.get_viewport().get_texture().get_image()
 	_check(image != null and image.get_width() >= CAPTURE_SIZE.x and
