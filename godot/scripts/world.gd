@@ -348,6 +348,18 @@ func _setup_environment() -> void:
 	options.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	options.ambient_light_color = Color(0.74, 0.81, 0.85)
 	options.ambient_light_energy = 0.37
+	# Один туман для воды, леса и гор. В Compatibility используем
+	# обычный экспоненциальный и высотный fog вместо дорогого
+	# volumetric, недоступного на мобильном рендерере.
+	options.fog_enabled = false
+	options.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+	options.fog_light_color = Color(0.67, 0.76, 0.80)
+	options.fog_density = 0.001
+	options.fog_height = 2.5
+	options.fog_height_density = 0.0
+	options.fog_light_energy = 0.84
+	options.fog_sun_scatter = 0.0
+	options.fog_sky_affect = 0.18
 	sky.environment = options
 	_sky_environment = options
 	add_child(sky)
@@ -692,12 +704,26 @@ func _write_weather_lighting(lighting: Dictionary) -> void:
 	if _sky_environment != null:
 		_sky_environment.ambient_light_energy = float(lighting["ambient_energy"])
 		_sky_environment.background_color = lighting["sky_color"]
+		# Плотность интерполируется вместе со светом. Профиль
+		# лишь уменьшает GPU-нагрузку/контраст: физика не меняется.
+		var fog_scale: float = [0.62, 0.84, 1.0][_atmosphere_quality]
+		var strength: float = float(lighting["fog_strength"])
+		_sky_environment.fog_enabled = _view_mode == 0 and strength > 0.008
+		_sky_environment.fog_density = float(lighting["fog_density"]) * fog_scale
+		_sky_environment.fog_height_density = (
+			float(lighting["fog_height_density"]) * fog_scale)
+		_sky_environment.fog_light_color = lighting["fog_color"]
+		_sky_environment.fog_sun_scatter = float(lighting["fog_sun_scatter"])
 	if _ground_material != null:
 		# Пятна облачности читают абсолютные мировые координаты.
 		_ground_material.set_shader_parameter("cloud_coverage",
 			float(lighting["cloud_coverage"]))
 		_ground_material.set_shader_parameter("cloud_wind",
 			float(lighting["wind"]))
+		_ground_material.set_shader_parameter("cloud_direction", Vector2(
+			float(lighting["wind_x"]), float(lighting["wind_y"])))
+		_ground_material.set_shader_parameter("cloud_sunbreak",
+			float(lighting["cloud_sunbreak"]))
 
 
 func _advance_weather_lighting(delta: float) -> void:
@@ -803,6 +829,10 @@ func _set_atmosphere_quality(preset: int) -> void:
 	_atmosphere_quality = clampi(preset, 0, 2)
 	if _atmosphere != null:
 		_atmosphere.set_quality(_atmosphere_quality)
+	# Изменение качества тумана действует немедленно даже при
+	# неподвижной камере и неизменном климатическом снимке.
+	if not _weather_light_current.is_empty():
+		_write_weather_lighting(_weather_light_current)
 	_weather_fx_cooldown = 0.0
 
 
