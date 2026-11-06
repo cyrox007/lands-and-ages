@@ -40,6 +40,11 @@ func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
 	natural_disasters = disasters
 	nature = vegetation
 	fire = fires
+	# Одна и та же сохранённая зола должна влиять на перенос грунта
+	# в игре, тестах и загруженных мирах. Старые тесты без огня
+	# по-прежнему используют нейтральный коэффициент.
+	if natural_processes != null:
+		natural_processes.fire = fire
 
 
 func synchronize_world() -> bool:
