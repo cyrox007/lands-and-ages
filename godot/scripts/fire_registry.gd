@@ -3,12 +3,14 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 3
+const FORMAT_VERSION := 4
 const MAX_FIRES := 1024
 const MAX_SCORCHED_CELLS := 4096
 const MAX_EMBERS := 512
 const MAX_LITTER_FUEL := 360
 const ASH_RECOVERY_PER_DAY := 12
+const SOIL_HEAL_PER_DAY := 4
+const MAX_SOIL_SCARS := 4096
 const MAX_EVENTS_PER_DAY := 64
 
 var world: RefCounted
@@ -22,6 +24,7 @@ var last_events: Array[Dictionary] = []
 var _burning: Dictionary = {}
 var _scorched: Dictionary = {}
 var _embers: Dictionary = {}
+var _soil_damage: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -77,6 +80,21 @@ func smolder_in_chunk(chunk: Vector2i) -> Array[Dictionary]:
     return result
 
 
+func soil_scar_count() -> int:
+    return _soil_damage.size()
+
+
+func soil_damage_at(cell: Vector2i) -> float:
+    # Обожжённая почва хранится отдельно от золы: дождь может
+    # смыть пепел, но не восстанавливает плодородие мгновенно.
+    if not world.config.contains_cell(cell):
+        return 0.0
+    var index: int = hydro.cell_index(cell)
+    if not _soil_damage.has(index):
+        return 0.0
+    return float(_soil_damage[index]["damage"]) / 1000.0
+
+
 func scorched_count() -> int:
     return _scorched.size()
 
@@ -120,6 +138,15 @@ func _scorch(cell: Vector2i, heat: int, changed: Dictionary) -> void:
         "ash": mini(1000, previous + maxi(1, heat * 4)),
         "last_burn": last_day
     }
+    # Потеря почвенного плодородия не перемещается вместе с золой.
+    # Не создаём бесконечные записи, ограничиваем карту повреждений.
+    if _soil_damage.has(index) or _soil_damage.size() < MAX_SOIL_SCARS:
+        var old_damage: int = int(_soil_damage.get(index, {}).get(
+            "damage", 0))
+        _soil_damage[index] = {
+            "damage": mini(1000, old_damage + maxi(1, heat * 2)),
+            "last_burn": last_day
+        }
     changed[world.config.chunk_of(cell)] = true
 
 
@@ -141,6 +168,28 @@ func _recover_ground(changed: Dictionary) -> void:
         else:
             data["ash"] = updated
             _scorched[index] = data
+        var cell := Vector2i(index % world.config.width,
+            index / world.config.width)
+        changed[world.config.chunk_of(cell)] = true
+
+
+func _recover_soil(changed: Dictionary) -> void:
+    # Восстановление плодородия идёт медленнее естественной убыли
+    # золы. Даже если дождь смыл пепел, физический ожог остаётся.
+    var indices: Array[int] = []
+    for key in _soil_damage.keys():
+        indices.append(int(key))
+    indices.sort()
+    for index in indices:
+        var scar: Dictionary = _soil_damage[index]
+        if int(scar["last_burn"]) >= last_day:
+            continue
+        var healed := maxi(0, int(scar["damage"]) - SOIL_HEAL_PER_DAY)
+        if healed == 0:
+            _soil_damage.erase(index)
+        else:
+            scar["damage"] = healed
+            _soil_damage[index] = scar
         var cell := Vector2i(index % world.config.width,
             index / world.config.width)
         changed[world.config.chunk_of(cell)] = true
@@ -256,7 +305,8 @@ func _ignite_litter(cell: Vector2i, changed: Dictionary) -> bool:
     if _embers.has(index) or _embers.size() >= MAX_EMBERS \
             or _flammability(cell) < 0.20 or scorched_at(cell) > 0.15:
         return false
-    var soil: Dictionary = surface.profile_at(cell)
+    var soil: Dictionary = surface.profile_at(
+        cell, soil_damage_at(cell))
     if soil.is_empty() or soil.get("substrate", "") == "скала":
         return false
     var fertility: float = clampf(float(soil.get("fertility", 0.0)),
@@ -476,6 +526,7 @@ func advance_day(day: int, strikes: Array = [],
     # не исчезает в тот же физический день, когда образовался.
     var ground_changed := {}
     _recover_ground(ground_changed)
+    _recover_soil(ground_changed)
     # Сначала естественная убыль золы, затем дождевой перенос.
     # Масса при переносе остаётся на суше без нового источника пепла.
     _wash_ash(ground_changed)
@@ -548,11 +599,20 @@ func to_data() -> Dictionary:
     for index in ember_indices:
         var ember: Dictionary = _embers[index]
         ember_entries.append([index, int(ember["fuel"]), int(ember["since"])])
+    var scar_entries := []
+    var scar_indices: Array[int] = []
+    for index in _soil_damage.keys():
+        scar_indices.append(int(index))
+    scar_indices.sort()
+    for index in scar_indices:
+        var scar: Dictionary = _soil_damage[index]
+        scar_entries.append([index, int(scar["damage"]),
+            int(scar["last_burn"])])
     return {
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
         "fires": entries, "scorched": ash_entries,
-        "embers": ember_entries
+        "embers": ember_entries, "soil_damage": scar_entries
     }
 
 
@@ -566,10 +626,10 @@ func load_data(data: Dictionary) -> bool:
             or not is_finite(float(raw_version)):
         return false
     var version := int(raw_version)
-    # JSON восстанавливает 1–3 как вещественные числа; проверяем
+    # JSON восстанавливает 1–4 как вещественные числа; проверяем
     # значение явно, иначе Array.has() сравнивает типы слишком строго.
     if float(version) != float(raw_version) \
-            or version not in [1, 2, FORMAT_VERSION]:
+            or version not in [1, 2, 3, FORMAT_VERSION]:
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -635,7 +695,7 @@ func load_data(data: Dictionary) -> bool:
     # Тление — самостоятельный сохраняемый реестр. Старые v1/v2
     # не содержали углей и продолжают загружаться с пустым слоем.
     var parsed_embers := {}
-    if version == FORMAT_VERSION:
+    if version >= 3:
         var raw_embers: Variant = data.get("embers")
         if not (raw_embers is Array) or raw_embers.size() > MAX_EMBERS:
             return false
@@ -658,9 +718,36 @@ func load_data(data: Dictionary) -> bool:
             parsed_embers[cell_index] = {
                 "fuel": fuel, "since": since
             }
+    # Старый JSON v1–v3 не имел самостоятельной почвенной травмы.
+    # Повреждённые новые записи полностью отвергаются до записи
+    # в реестр, включая дубли, нецелые числа и будущие даты.
+    var parsed_soil := {}
+    if version == FORMAT_VERSION:
+        var raw_soil: Variant = data.get("soil_damage")
+        if not (raw_soil is Array) or raw_soil.size() > MAX_SOIL_SCARS:
+            return false
+        for record in raw_soil:
+            if not (record is Array) or record.size() != 3:
+                return false
+            for value in record:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)):
+                    return false
+            var index := int(record[0])
+            var damage := int(record[1])
+            var burn_day := int(record[2])
+            if index < 0 or index >= world.config.width * world.config.height \
+                    or parsed_soil.has(index) or damage <= 0 \
+                    or damage > 1000 or burn_day < 0 or burn_day > day:
+                return false
+            parsed_soil[index] = {
+                "damage": damage, "last_burn": burn_day
+            }
     _burning = parsed
     _scorched = parsed_scorched
     _embers = parsed_embers
+    _soil_damage = parsed_soil
     last_day = day
     total_ignitions = total
     last_events.clear()
