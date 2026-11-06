@@ -99,6 +99,7 @@ func _ignite(id: int, strength: float, forced: bool = false) -> bool:
             world.config.world_seed + climate.day * 71 + 8201) >= chance:
         return false
     _burning[id] = {"fuel": _fuel(item), "since": last_day}
+    nature.refresh_object_visual(id)
     total_ignitions += 1
     _record("возгорание", id, cell)
     return true
@@ -192,6 +193,7 @@ func advance_day(day: int, strikes: Array[Dictionary] = [],
         var dryness := _flammability(cell)
         if dryness < 0.12:
             _burning.erase(id)
+            nature.refresh_object_visual(id)
             _record("затухание", id, cell)
             continue
         # Топливо реально расходуется и влияет на древесину/здоровье.
