@@ -15,6 +15,9 @@ on:
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
       - "godot/tests/weather_precipitation_11_1_smoke.gd"
+      - "godot/tests/lightning_11_4_smoke.gd"
+      - "godot/scripts/lightning_fx_controller.gd"
+      - "godot/scripts/nature_registry.gd"
       - "godot/tests/weather_precipitation_visual_11_1.gd"
       - "godot/shaders/local_precipitation.gdshader"
       - ".github/workflows/godot-weather.yml"
@@ -32,6 +35,9 @@ on:
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
       - "godot/tests/weather_precipitation_11_1_smoke.gd"
+      - "godot/tests/lightning_11_4_smoke.gd"
+      - "godot/scripts/lightning_fx_controller.gd"
+      - "godot/scripts/nature_registry.gd"
       - "godot/tests/weather_precipitation_visual_11_1.gd"
       - "godot/shaders/local_precipitation.gdshader"
       - ".github/workflows/godot-weather.yml"
@@ -87,6 +93,18 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-precipitation-11-1.log; then
             exit 1
           fi
+      - name: "11.4 — физический разряд, видимая молния и пространственный гром"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/lightning_11_4_smoke.gd \
+            2>&1 | tee /tmp/weather-lightning-11-4.log
+          grep -q "Этап 11.4:.*успешно" /tmp/weather-lightning-11-4.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-lightning-11-4.log; then
+            exit 1
+          fi
+
       - name: "11.3/V2: физическое направление и порывы ветра"
         run: |
           set -o pipefail
@@ -166,6 +184,7 @@ jobs:
             /tmp/weather-import.log
             /tmp/weather-visual-test.log
             /tmp/weather-precipitation-11-1.log
+            /tmp/weather-lightning-11-4.log
             /tmp/weather-wind-v2.log
             /tmp/weather-physics-test.log
             /tmp/weather-l4.log
