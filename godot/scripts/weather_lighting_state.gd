@@ -17,9 +17,14 @@ static func from_snapshot(snapshot: Dictionary) -> Dictionary:
 	var rain := clampf(float(snapshot.get("rain", 0.0)), 0.0, 1.0)
 	var snow := clampf(float(snapshot.get("snow", 0.0)), 0.0, 1.0)
 	var wind := clampf(float(snapshot.get("wind", 0.0)), 0.0, 1.0)
-	var quiet_mist := cloud * (1.0 - storm) * (1.0 - wind * 0.70)
-	var fog_strength := clampf(quiet_mist * 0.52 +
-		rain * 0.29 + snow * 0.20 + storm * 0.34, 0.0, 1.0)
+	# Разорванные облака сами по себе НЕ создают серую завесу.
+	# Приземный туман требует фактической влажности выше 84% и
+	# слабого ветра; ливень и гроза добавляют свою дождевую дымку.
+	var humidity := clampf(float(snapshot.get("humidity", 0.0)), 0.0, 1.0)
+	var quiet_mist := smoothstep(0.84, 0.96, humidity) * (
+		1.0 - storm) * (1.0 - wind * 0.70)
+	var fog_strength := clampf(quiet_mist * 0.38 +
+		rain * 0.26 + snow * 0.17 + storm * 0.32, 0.0, 1.0)
 	# Солнечные окна ярче всего при разорванной облачности,
 	# а во время сплошной грозы исчезают без искусственных вспышек.
 	var sunbreak := (smoothstep(0.13, 0.42, cloud)
