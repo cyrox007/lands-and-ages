@@ -41,6 +41,15 @@ static func _mesh(kind: String) -> Mesh:
         blade.height = 0.36
         blade.radial_segments = 3
         mesh = blade
+    elif kind == "пламя":
+        # Один простой меш с инстансингом для всех видимых очагов
+        # вместо отдельных узлов/частиц на каждом дереве.
+        var flame := CylinderMesh.new()
+        flame.top_radius = 0.0
+        flame.bottom_radius = 0.24
+        flame.height = 0.95
+        flame.radial_segments = 6
+        mesh = flame
     elif kind in ["ствол", "пень", "бревно"]:
         var cylinder := CylinderMesh.new()
         cylinder.top_radius = 0.10 if kind == "ствол" else 0.16
@@ -73,6 +82,11 @@ static func _mesh(kind: String) -> Mesh:
         var material := StandardMaterial3D.new()
         material.vertex_color_use_as_albedo = true
         material.roughness = 0.98
+        if kind == "пламя":
+            material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+            material.emission_enabled = true
+            material.emission = Color(1.0, 0.28, 0.04)
+            material.emission_energy_multiplier = 1.9
         mesh.material = material
     _meshes[kind] = mesh
     return mesh
@@ -141,7 +155,8 @@ static func _place_model(groups: Dictionary, key: String, origin: Vector3,
 
 
 static func create_chunk(world: RefCounted, nature: RefCounted,
-        coord: Vector2i, detail: float = 1.0) -> Node3D:
+        coord: Vector2i, detail: float = 1.0,
+        fire: RefCounted = null) -> Node3D:
     var result := Node3D.new()
     result.name = "Природные объекты"
     if nature == null or not nature.generated:
@@ -167,6 +182,16 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
         var season: String = str(
             nature.climate.weather_at(cell).get("season", "лето"))
         var winter: bool = season == "зима"
+        if fire != null and fire.is_burning(int(item["id"])):
+            # Огонь визуализируется только из реестра физических
+            # очагов. При удалении камеры или загрузке не появляется
+            # независимое вымышленное бедствие.
+            _push(groups, "пламя",
+                Transform3D(Basis.IDENTITY.scaled(
+                    Vector3.ONE * (0.8 if item["kind"] == "кустарник"
+                    else 1.35)),
+                    origin + Vector3(0.0, 0.55, 0.0)),
+                Color(1.0, 0.38, 0.08), phase)
         if item["kind"] == "дерево":
             if state == "пень":
                 _push(groups, "пень",
