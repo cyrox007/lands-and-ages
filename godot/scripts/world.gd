@@ -1157,6 +1157,12 @@ func _debug_test_dust_storm() -> void:
 				var cell := Vector2i(x, y)
 				if not _natural_disasters.dust_source_ready(cell):
 					continue
+				# Предпочитаем тепло и мало осадков — выбранный
+				# участок с меньшей вероятностью намокнет за сутки.
+				var index: int = _hydro.cell_index(cell)
+				if _climate.temperature_at_index(index) < 5.0 \
+						or _climate.precipitation_at_index(index) > 0.25:
+					continue
 				var wind: Vector2 = _climate.wind_direction_at_index(
 					_hydro.cell_index(cell))
 				var downwind := cell + Vector2i(
@@ -1514,6 +1520,10 @@ func _complete_day(result: Dictionary) -> void:
 		else:
 			_weather_fx.show_storm_event(
 				float(hazard["severity"]), direction)
+	if bool(result.get("dust_test_failed", false)):
+		# Фактический снег и дождь имеют приоритет над кнопкой
+		# испытания; пользователь видит, почему грунт не перенесён.
+		_storage_status = "Пыльная буря отменена: грунт намок или покрыт снегом"
 	if not hazards.is_empty():
 		var latest: Dictionary = hazards[hazards.size() - 1]
 		_disaster_status = "%s · день %d · %s · интенсивность %.0f%%" % [
