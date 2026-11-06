@@ -201,8 +201,9 @@ func _wash_ash(changed: Dictionary) -> void:
         if not _scorched.has(destination) \
                 and _scorched.size() + incoming.size() >= MAX_SCORCHED_CELLS:
             continue
-        var amount := mini(int(_scorched[index]["ash"]),
-            clampi(roundi(runoff * 65.0), 0, 160), maxi(0, capacity))
+        var request := mini(int(_scorched[index]["ash"]),
+            clampi(roundi(runoff * 65.0), 0, 160))
+        var amount := mini(request, maxi(0, capacity))
         if amount <= 0:
             continue
         outgoing[index] = amount
