@@ -218,6 +218,8 @@ func _run() -> void:
 
 	# Диагностика сетчатых артефактов: отделяем полупрозрачную воду
 	# от грунта, затем проверяем сам грунт без PBR-шейдера.
+	# Погодные частицы не должны попадать в сравнение двух материалов.
+	view._weather_fx.hide()
 	var wet_scene: Dictionary = scenes[scenes.size() - 1]
 	var water_nodes: Array[MeshInstance3D] = []
 	var ground_nodes: Array[MeshInstance3D] = []
@@ -249,6 +251,7 @@ func _run() -> void:
 	for ground_node in ground_nodes:
 		ground_node.material_override = view._ground_material
 
+	view._weather_fx.show()
 	var benchmark: Dictionary = await Runner.new().run(view)
 	benchmark["evaluation"] = "ПРОГРАММНЫЙ GL; НЕ ФАКТИЧЕСКИЕ FPS GPU"
 	benchmark["hardware_accepted"] = false
