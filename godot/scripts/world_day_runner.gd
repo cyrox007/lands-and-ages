@@ -76,6 +76,7 @@ func run_day() -> void:
 	var erosion_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var hazards: Array[Dictionary] = natural_disasters.advance_day(climate.day)
+	var dust_test_failed := false
 	if world.config.contains_cell(test_storm_cell):
 		# Это явно запрошенное испытание, а не естественный погодный
 		# фронт. Урон и ресурсы обрабатывает обычный NatureRegistry.
@@ -117,7 +118,11 @@ func run_day() -> void:
 		# что и естественное бедствие, вместо декоративной подмены.
 		var moved: Dictionary = natural_disasters.apply_dust_storm(
 			test_dust_cell, 1.0)
-		if not moved.is_empty():
+		if moved.is_empty():
+			# Если грунт намок или снег покрыл поверхность за сутки,
+			# не изображаем фиктивное бедствие без переноса массы.
+			dust_test_failed = true
+		else:
 			hazards.append({
 				"kind": "пыльная буря", "cell": test_dust_cell,
 				"severity": 1.0, "day": climate.day,
@@ -155,6 +160,7 @@ func run_day() -> void:
 		"strikes": strikes,
 		"erosion": erosion,
 		"hazards": hazards,
+		"dust_test_failed": dust_test_failed,
 		"windfalls": nature.last_windfalls.duplicate(true)
 			if nature != null and nature.generated else [],
 		"terrain_changed": changed
