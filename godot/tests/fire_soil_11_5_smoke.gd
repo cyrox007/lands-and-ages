@@ -196,10 +196,16 @@ func _test_fertility() -> void:
         and fire.soil_damage_at(cell) > 0.0,
         "Дождь потушил огонь, но почва ещё восстанавливается")
 
-    # Полный цикл восстановления не зависит от камеры и кадров.
-    # Жизненный цикл восстанавливает почву медленнее потери пепла.
+    # Полный цикл проверяем при благоприятном, умеренно влажном
+    # климате: холод и засуха в новой модели вправе замедлить заживление.
+    # Температуру фиксируем только в физическом тесте, после расчёта
+    # календарного дня; сама система не зависит от кадров и камеры.
+    var cell_index: int = hydro.cell_index(cell)
     for day in range(12, 132):
-        _day(models, day, 1.0, nature, fire)
+        _day(models, day, 0.55, nature, fire)
+        climate._temperature[cell_index] = 20.0
+        surface._air_temperature[cell_index] = 20.0
+        surface._frost[cell_index] = 0.0
         fire.advance_day(day)
     _check(fire.soil_damage_at(cell) == 0.0
         and fire.soil_scar_count() == 0,

@@ -173,9 +173,29 @@ func _recover_ground(changed: Dictionary) -> void:
         changed[world.config.chunk_of(cell)] = true
 
 
+static func soil_recovery_per_day(moisture: float, temperature: float,
+        snow: float, frost: float, flooded: bool) -> int:
+    # Считаем целочисленную суточную регенерацию: результат не зависит
+    # от FPS, масштаба времени или порядка обхода повреждённых клеток.
+    # Условные пороги отражают ограничения роста микроорганизмов,
+    # а не претендуют на лабораторную модель почвенной биологии.
+    if flooded or snow >= 0.2 or frost >= 0.55 or temperature <= 0.0:
+        return 1
+    if moisture < 0.18 or temperature > 36.0:
+        return 1
+    if moisture >= 0.35 and moisture <= 0.75 \
+            and temperature >= 8.0 and temperature <= 32.0:
+        # В тёплом умеренно влажном грунте растительность и
+        # подстилка восстанавливают почву быстрее обычного.
+        return 6
+    # В слишком влажной и переходной погоде сохраняем прежнюю
+    # умеренную скорость без изменения формата сохранений.
+    return SOIL_HEAL_PER_DAY
+
+
 func _recover_soil(changed: Dictionary) -> void:
-    # Восстановление плодородия идёт медленнее естественной убыли
-    # золы. Даже если дождь смыл пепел, физический ожог остаётся.
+    # Ожог сохраняется отдельно от золы: перенос пепла дождём
+    # не обнуляет повреждение и не ускоряет биологический цикл.
     var indices: Array[int] = []
     for key in _soil_damage.keys():
         indices.append(int(key))
@@ -184,14 +204,22 @@ func _recover_soil(changed: Dictionary) -> void:
         var scar: Dictionary = _soil_damage[index]
         if int(scar["last_burn"]) >= last_day:
             continue
-        var healed := maxi(0, int(scar["damage"]) - SOIL_HEAL_PER_DAY)
+        var cell := Vector2i(index % world.config.width,
+            index / world.config.width)
+        # Берём уже рассчитанные физические поля этой клетки,
+        # поэтому почва за пределами камеры восстанавливается так же.
+        var daily_recovery := soil_recovery_per_day(
+            surface.moisture_at_index(index),
+            climate.temperature_at_index(index),
+            surface.snow_at_index(index),
+            surface.frost_at_index(index),
+            hydro.flooded_at(index))
+        var healed := maxi(0, int(scar["damage"]) - daily_recovery)
         if healed == 0:
             _soil_damage.erase(index)
         else:
             scar["damage"] = healed
             _soil_damage[index] = scar
-        var cell := Vector2i(index % world.config.width,
-            index / world.config.width)
         changed[world.config.chunk_of(cell)] = true
 
 
