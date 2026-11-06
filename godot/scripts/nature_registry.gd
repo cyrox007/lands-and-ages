@@ -444,7 +444,8 @@ func burn_object(id: int, heat: int, day: int) -> bool:
         # Сгорает часть существующей древесины: новое дерево или
         # запас брёвен не появляется. Это реальная потеря топлива.
         item["wood_units"] = maxi(0,
-            previous_wood - mini(previous_wood, maxi(1, heat / 100)))
+            previous_wood - mini(previous_wood,
+                maxi(1, floori(float(heat) / 100.0))))
     if int(item["health"]) == 0 and item["state"] == "целое":
         item["state"] = "сухостой"
         item["dead_since_day"] = day
