@@ -10,6 +10,7 @@ var weather_events: RefCounted
 var natural_processes: RefCounted
 var natural_disasters: RefCounted
 var nature: RefCounted
+var fire: RefCounted
 
 var last_result: Dictionary = {}
 var last_profile_us: Dictionary = {}
@@ -21,13 +22,15 @@ var test_storm_cell := Vector2i(-1, -1)
 var test_squall_cell := Vector2i(-1, -1)
 var test_hurricane_cell := Vector2i(-1, -1)
 var test_shrub_cell := Vector2i(-1, -1)
+var test_fire_cell := Vector2i(-1, -1)
 var test_tornado_cell := Vector2i(-1, -1)
 var test_dust_cell := Vector2i(-1, -1)
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
 		weather: RefCounted, lightning: RefCounted, erosion: RefCounted,
-		disasters: RefCounted, vegetation: RefCounted = null) -> void:
+		disasters: RefCounted, vegetation: RefCounted = null,
+		fires: RefCounted = null) -> void:
 	world = map
 	hydro = water
 	surface = ground
@@ -36,6 +39,7 @@ func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
 	natural_processes = erosion
 	natural_disasters = disasters
 	nature = vegetation
+	fire = fires
 
 
 func synchronize_world() -> bool:
@@ -150,6 +154,14 @@ func run_day() -> void:
 		var plants_started := Time.get_ticks_usec()
 		nature.advance_day(climate.day, hazards, strikes)
 		vegetation_us = Time.get_ticks_usec() - plants_started
+	# После природного шага огонь изменяет те же физические объекты.
+	# В старых тестовых сценариях без FireRegistry поле остаётся null.
+	var fire_events: Array[Dictionary] = []
+	var fire_started := Time.get_ticks_usec()
+	if fire != null and nature != null and nature.generated:
+		fire_events = fire.advance_day(climate.day, strikes, test_fire_cell)
+	test_fire_cell = Vector2i(-1, -1)
+	var fire_us := Time.get_ticks_usec() - fire_started
 	var synchronization_us := Time.get_ticks_usec() - previous
 	last_duration_us = Time.get_ticks_usec() - start
 	last_statistics = {
@@ -164,6 +176,7 @@ func run_day() -> void:
 		"эрозия": erosion_us,
 		"бедствия": disasters_us,
 		"растительность": vegetation_us,
+		"горение": fire_us,
 		"согласование": synchronization_us
 	}
 	last_result = {
@@ -172,6 +185,8 @@ func run_day() -> void:
 		"erosion": erosion,
 		"hazards": hazards,
 		"dust_test_failed": dust_test_failed,
+		"fire_events": fire_events,
+		"fires_active": fire.burning_count() if fire != null else 0,
 		"windfalls": nature.last_windfalls.duplicate(true)
 			if nature != null and nature.generated else [],
 		"terrain_changed": changed

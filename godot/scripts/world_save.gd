@@ -12,6 +12,7 @@ const Disasters = preload("res://scripts/natural_disasters.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
 const Runner = preload("res://scripts/world_day_runner.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
+const Fire = preload("res://scripts/fire_registry.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -77,6 +78,13 @@ static func capture(state: Dictionary) -> Dictionary:
 		if nature.last_day != climate.day:
 			return {}
 		snapshot["nature"] = nature.to_data()
+	# Новый раздел необязателен, чтобы старые сохранения формата v1
+	# не переписывались без причины и продолжали загружаться.
+	var fire: RefCounted = state.get("fire")
+	if fire != null:
+		if fire.last_day != climate.day:
+			return {}
+		snapshot["fire"] = fire.to_data()
 	return snapshot
 
 
@@ -129,13 +137,20 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 		if not (snapshot["nature"] is Dictionary) \
 				or not nature.load_data(snapshot["nature"]):
 			return {}
+	# Старый мир не содержит очагов. Для нового мира строго
+	# валидируем все активные горящие записи до подмены моделей.
+	var fire := Fire.new(world, hydro, surface, climate, nature)
+	if snapshot.has("fire") and (not (snapshot["fire"] is Dictionary) \
+			or not fire.load_data(snapshot["fire"])):
+		return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
-		"nature": nature, "landscape": Landscape.new(world),
+		"nature": nature, "fire": fire,
+		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
-			weather, natural, disasters, nature)
+			weather, natural, disasters, nature, fire)
 	}
 
 

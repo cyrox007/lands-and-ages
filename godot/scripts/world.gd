@@ -31,6 +31,7 @@ const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
+const Fire = preload("res://scripts/fire_registry.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
 const NatureFelling = preload("res://scripts/nature_felling_visual.gd")
 const NatureCollision = preload("res://scripts/nature_collision.gd")
@@ -58,6 +59,7 @@ var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
 var _nature: RefCounted
+var _fire: RefCounted
 var _nature_dirty: Dictionary = {}
 var _landscape_events: RefCounted
 var _natural_processes: RefCounted
@@ -163,6 +165,7 @@ func _ready() -> void:
 	_hydro.apply_rainfall_map(_surface.runoff_map())
 	_nature = Nature.new(_world_model, _hydro, _surface, _climate)
 	_nature.generate()
+	_fire = Fire.new(_world_model, _hydro, _surface, _climate, _nature)
 	_bind_nature_events()
 	_ensure_day_runner()
 	_last_completed_day = _climate.day
@@ -329,6 +332,10 @@ func _setup_interface() -> void:
 	dust_button.text = "Испытать пыльную бурю: перенос сухого грунта"
 	dust_button.pressed.connect(_debug_test_dust_storm)
 	_debug_details.add_child(dust_button)
+	var fire_button := Button.new()
+	fire_button.text = "Испытать пожар: поджечь сухое дерево"
+	fire_button.pressed.connect(_debug_test_fire)
+	_debug_details.add_child(fire_button)
 	for kind in ["поднятие", "просадка", "эрозия", "оползень"]:
 		var event_button := Button.new()
 		event_button.text = "Изменить рельеф: " + kind
@@ -984,7 +991,7 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 		node.add_child(water_node)
 	if _view_mode == 0 and _nature != null:
 		node.add_child(NatureRenderer.create_chunk(_world_model, _nature, coord,
-			_detail_for_zoom(_camera.size)))
+			_detail_for_zoom(_camera.size), _fire))
 	# Новый чанк получает корректный бюджет теней до добавления в сцену.
 	# При движении камеры существующие чанки перенастраиваются без пересборки.
 	if _camera != null:
@@ -1026,7 +1033,7 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 		chunk_node.remove_child(previous)
 		previous.queue_free()
 	chunk_node.add_child(NatureRenderer.create_chunk(_world_model, _nature, chunk,
-		_detail_for_zoom(_camera.size)))
+		_detail_for_zoom(_camera.size), _fire))
 	# После обновления растений восстанавливаем тени без задержки кадра.
 	if _camera != null:
 		ShadowLOD.configure_chunk(chunk_node,
@@ -1121,6 +1128,38 @@ func _on_tree_felled(previous: Dictionary) -> void:
 	var chunk_node: Node3D = _active[chunk]
 	chunk_node.add_child(visual)
 	NatureFelling.animate(visual)
+
+
+func _debug_test_fire() -> void:
+	# Испытание выбирает настоящий объект; сухость в следующем
+	# физическом дне проверяется тем же FireRegistry, что у молний.
+	if _nature == null or _fire == null or _benchmark_running \
+			or _day_task_id >= 0 or _days_pending > 0 \
+			or _view_mode != 0 or not _storage_request.is_empty():
+		_storage_status = "Испытание огня доступно после расчёта дня"
+		_update_hud()
+		return
+	var selected := Vector2i(-1, -1)
+	var nearest := INF
+	for chunk in _active.keys():
+		for item in _nature.objects_in_chunk(chunk):
+			if item["kind"] != "дерево" or item["state"] != "целое":
+				continue
+			var cell := Vector2i(int(item["x"]), int(item["y"]))
+			var distance := (Vector2(cell) + Vector2(0.5, 0.5)) \
+				.distance_squared_to(_center)
+			if distance < nearest:
+				selected = cell
+				nearest = distance
+	if selected.x < 0:
+		_storage_status = "В видимой области нет дерева для испытания"
+		_update_hud()
+		return
+	_ensure_day_runner()
+	_day_runner.test_fire_cell = selected
+	_queue_days(1)
+	_storage_status = "Пробное возгорание ждёт следующего дня · %s" % selected
+	_update_hud()
 
 
 func _debug_test_storm() -> void:
@@ -1303,7 +1342,7 @@ func _ensure_day_runner() -> void:
 		return
 	_day_runner = WorldDayRunner.new(_world_model, _hydro, _surface,
 		_climate, _weather_events, _natural_processes, _natural_disasters,
-		_nature)
+		_nature, _fire)
 
 
 func _flush_world_changes() -> void:
@@ -1322,7 +1361,8 @@ func _storage_models() -> Dictionary:
 		"world": _world_model, "hydro": _hydro,
 		"surface": _surface, "climate": _climate,
 		"weather": _weather_events, "natural": _natural_processes,
-		"disasters": _natural_disasters, "nature": _nature
+		"disasters": _natural_disasters, "nature": _nature,
+		"fire": _fire
 	}
 
 
@@ -1382,6 +1422,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 		if _nature.tree_struck.is_connected(_on_tree_struck):
 			_nature.tree_struck.disconnect(_on_tree_struck)
 	_nature = models["nature"]
+	_fire = models["fire"]
 	_bind_nature_events()
 	_nature_dirty.clear()
 	_landscape_events = models["landscape"]
@@ -1480,6 +1521,12 @@ func _complete_day(result: Dictionary) -> void:
 		_lightning_life = 0.28
 		_weather_status = "Молний сегодня %d · всего %d · удар %s" % [
 			strikes.size(), _weather_events.total_strikes, hit]
+	var fire_events: Array[Dictionary] = result.get("fire_events", [])
+	if not fire_events.is_empty():
+		var fire_last: Dictionary = fire_events[fire_events.size() - 1]
+		_storage_status = "Огонь: %s · %s · очагов %d" % [
+			fire_last["kind"], fire_last["cell"],
+			int(result.get("fires_active", 0))]
 	var event: Dictionary = result["erosion"]
 	if not event.is_empty():
 		_process_status = "%s, день %d: %s" % [
@@ -1687,6 +1734,9 @@ func _update_hud() -> void:
 	_status.text += "Ветер %.1f · изменённых вершин %d\n" % [
 		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
 	_status.text += "%s\n" % _weather_status
+	if _fire != null:
+		_status.text += "Огонь: очагов %d · возгораний всего %d\n" % [
+			_fire.burning_count(), _fire.total_ignitions]
 	_status.text += "%s · событий всего %d\n" % [
 		_disaster_status, _natural_disasters.total_events]
 	_status.text += "%s\n" % _process_status
