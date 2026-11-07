@@ -1852,7 +1852,7 @@ func _complete_day(result: Dictionary) -> void:
 		var direction: Vector2 = _climate.wind_direction_at_index(
 			_hydro.cell_index(storm_cell))
 		if _atmosphere != null:
-			_atmosphere.show_hazard(hazard, direction)
+			_atmosphere.show_hazard(hazard, direction, _world_model)
 	if bool(result.get("dust_test_failed", false)):
 		# Фактический снег и дождь имеют приоритет над кнопкой
 		# испытания; пользователь видит, почему грунт не перенесён.
