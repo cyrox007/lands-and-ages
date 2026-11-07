@@ -25,7 +25,7 @@ static func _weight(distance: float, radius: float) -> float:
 
 func apply(kind: String, center: Vector2, radius: float, strength: float) -> Dictionary:
 	# Применяется к вершинам, а не к произвольно выбранным типам клеток.
-	if kind not in ["поднятие", "просадка", "эрозия", "оползень"]:
+	if kind not in ["поднятие", "просадка", "эрозия", "оползень", "обвал", "кратер"]:
 		return {}
 	if not is_finite(center.x) or not is_finite(center.y):
 		return {}
@@ -66,8 +66,14 @@ func apply(kind: String, center: Vector2, radius: float, strength: float) -> Dic
 			deltas[i] = direction_sign * strength * weights[i]
 	elif kind == "эрозия":
 		_plan_erosion(points, weights, strength, deltas)
-	else:
+	elif kind == "оползень":
 		if not _plan_landslide(center, radius, points, strength, deltas):
+			return {}
+	elif kind == "обвал":
+		if not _plan_rockfall(center, radius, points, strength, deltas):
+			return {}
+	else:
+		if not _plan_crater(center, radius, points, strength, deltas):
 			return {}
 
 	var changes := {}
@@ -152,4 +158,89 @@ func _plan_landslide(center: Vector2, radius: float,
 	for i in range(points.size()):
 		deltas[i] = volume * (target_weights[i] / target_sum
 			- source_weights[i] / source_sum)
+	return true
+
+
+func _plan_rockfall(center: Vector2, radius: float,
+		points: Array[Vector2i], strength: float,
+		deltas: PackedFloat32Array) -> bool:
+	# Скальный обвал отличается от оползня: обрушение локализовано
+	# в верхней части уступа, а каменная масса собирается у подножия.
+	# Направление берём из физической нормали, а не из камеры.
+	var probe := Vector2i(roundi(center.x), roundi(center.y))
+	var normal: Vector3 = world.normal_at(probe)
+	var downhill := Vector2(normal.x, normal.z)
+	if downhill.length() < 0.16:
+		return false
+	downhill = downhill.normalized()
+	var source := center - downhill * radius * 0.30
+	var target := center + downhill * radius * 0.34
+	# Возле границы нельзя терять часть осыпи за пределами карты.
+	# Разность высот подтверждает реальный уклон до изменения рельефа.
+	if not world.config.contains_point(source) or not world.config.contains_point(target):
+		return false
+	if world.height_at(source) - world.height_at(target) < 0.45:
+		return false
+
+	var upper_weights := PackedFloat32Array()
+	var lower_weights := PackedFloat32Array()
+	var upper_total := 0.0
+	var lower_total := 0.0
+	for point in points:
+		var position := Vector2(point)
+		var upper := _weight(position.distance_to(source), radius * 0.44)
+		var lower := _weight(position.distance_to(target), radius * 0.47)
+		upper_weights.append(upper)
+		lower_weights.append(lower)
+		upper_total += upper
+		lower_total += lower
+	if upper_total < 0.01 or lower_total < 0.01:
+		return false
+
+	# Снятый объём распределяем по зоне осыпи с той же суммой.
+	# Это деформация каменной основы, а не создание рыхлого грунта
+	# или отдельного ресурса в Surface.
+	var volume := strength * minf(upper_total, lower_total)
+	for i in range(points.size()):
+		deltas[i] = volume * (lower_weights[i] / lower_total
+			- upper_weights[i] / upper_total)
+	return true
+
+
+func _plan_crater(center: Vector2, radius: float,
+		points: Array[Vector2i], strength: float,
+		deltas: PackedFloat32Array) -> bool:
+	# Кратер создаётся только явным мощным локальным воздействием.
+	# Землетрясение само по себе не выдумывает ударный кратер.
+	# Полный край нужен, чтобы выброшенная порода не исчезала
+	# за пределами мира и оставалась в том же физическом слое.
+	if radius < 3.0 or center.x - radius < 0.0 \
+			or center.y - radius < 0.0 \
+			or center.x + radius > float(world.config.width) \
+			or center.y + radius > float(world.config.height):
+		return false
+
+	var pit_weights := PackedFloat32Array()
+	var rim_weights := PackedFloat32Array()
+	var pit_total := 0.0
+	var rim_total := 0.0
+	for point in points:
+		var distance := Vector2(point).distance_to(center) / radius
+		# Глубина уменьшается к внутреннему склону; выброс образует
+		# отдельный кольцевой вал, а не просто цветную текстуру.
+		var pit := pow(1.0 - smoothstep(0.0, 0.63, distance), 2.0)
+		var rim := pow(maxf(0.0, 1.0 - absf(distance - 0.79) / 0.21), 2.0)
+		pit_weights.append(pit)
+		rim_weights.append(rim)
+		pit_total += pit
+		rim_total += rim
+	if pit_total < 0.01 or rim_total < 0.01:
+		return false
+
+	# Высоту впадины и вала рассчитываем единым атомарным пакетом.
+	# Сумма снятой породы равна сумме отложенной до округления
+	# вершин в WorldMap, в том числе после сохранения/загрузки.
+	var ratio := pit_total / rim_total
+	for i in range(points.size()):
+		deltas[i] = strength * (rim_weights[i] * ratio - pit_weights[i])
 	return true
