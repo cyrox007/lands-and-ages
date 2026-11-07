@@ -120,6 +120,44 @@ func _test_dust(atmosphere: Node3D, world: RefCounted) -> void:
 		"Визуализация пылевого баланса не меняет физическую почву")
 
 
+func _test_wind_signatures(atmosphere: Node3D, world: RefCounted) -> void:
+	# Разные физические бедствия должны менять рисунок фронта,
+	# а не только описание в HUD. Все варианты используют
+	# одну сетку, одно солнце и одинаковый климатический снимок.
+	var fx: Node3D = atmosphere.precipitation
+	var variants := [
+		{"kind": "шторм", "mode": 1, "width": 77.0},
+		{"kind": "шквал", "mode": 2, "width": 74.0},
+		{"kind": "ураган", "mode": 3, "width": 90.0}
+	]
+	var count := fx.get_child_count()
+	for variant in variants:
+		var hazard: Dictionary = {
+			"kind": variant["kind"], "severity": 0.97,
+			"cell": Vector2i(22, 18), "day": 8
+		}
+		atmosphere.show_hazard(hazard, Vector2.RIGHT, world)
+		fx.apply_snapshot(_snapshot(), Vector2(22, 18),
+			2.0, 44.0, 1729)
+		var sheet: MeshInstance3D = fx._dust_haze
+		var material := sheet.material_override as ShaderMaterial
+		_check(sheet.visible and int(material.get_shader_parameter(
+			"event_mode")) == int(variant["mode"]),
+			"Шторм, шквал и ураган имеют разные художественные режимы")
+		_check(is_equal_approx((sheet.mesh as PlaneMesh).size.x,
+			float(variant["width"])),
+			"Ветровые фронты различаются по ширине без новых GPU-узлов")
+		_check(fx.get_child_count() == count,
+			"Ветровые состояния не размножают сцену")
+	atmosphere.show_hazard({
+		"kind": "смерч", "severity": 0.97,
+		"cell": Vector2i(22, 18), "day": 9
+	}, Vector2.RIGHT, world)
+	fx.apply_snapshot(_snapshot(), Vector2(22, 18), 2.0, 44.0, 1729)
+	_check(fx._tornado_funnel.visible and not fx._dust_haze.visible,
+		"Смерч показывает собственную спираль, а не лист урагана")
+
+
 func _test_budget_and_load(atmosphere: Node3D) -> void:
 	# Новая сетка не выделяет дополнительные GPU-эмиттеры;
 	# на выгрузке перестают существовать все временные эффекты.
@@ -151,6 +189,7 @@ func _run() -> void:
 	root.add_child(atmosphere)
 	_test_geometry(atmosphere, world)
 	_test_dust(atmosphere, world)
+	_test_wind_signatures(atmosphere, world)
 	_test_budget_and_load(atmosphere)
 	if failures.is_empty():
 		print("Этап 11.3/ART: физическая локализация, спираль и пылевой баланс — успешно")
