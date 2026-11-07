@@ -2,6 +2,8 @@ extends RefCounted
 ## Суточная физика мира. Не обращается к сцене, камере и GPU.
 ## При работе в потоке главный поток не читает физические модели.
 
+const ImpactContract = preload("res://scripts/world_impact_contract.gd")
+
 var world: RefCounted
 var hydro: RefCounted
 var surface: RefCounted
@@ -65,52 +67,45 @@ func synchronize_world() -> bool:
 
 static func nature_hazards(hazards: Array[Dictionary],
 		erosion: Dictionary) -> Array[Dictionary]:
-	# Стихийный реестр хранит свои события независимо от медленных
-	# геологических процессов. Для леса объединяем только воздействия,
-	# которые действительно передвинули вершины WorldMap.
-	# Обычные наносы и неудавшиеся оползни не наносят вымышленный урон.
-	var result: Array[Dictionary] = []
-	result.append_array(hazards)
-	if erosion.get("kind") != "оползень" \
-			or erosion.get("process") != "slide" \
-			or int(erosion.get("vertices", 0)) <= 0 \
-			or not (erosion.get("cell") is Vector2i):
+	# Реестр стихий сохраняет собственные записи. Медленный оползень
+	# повреждает лес только после фактического перемещения вершин:
+	# визуальный эффект или неподтверждённый запрос сюда не попадает.
+	var result: Array[Dictionary] = hazards.duplicate(true)
+	if erosion.get("process") != "slide":
 		return result
-	var severity: float = float(erosion.get("severity", 0.0))
-	if not is_finite(severity) or severity <= 0.0 or severity > 1.0:
+	var confirmed: Dictionary = ImpactContract.natural_deformation(erosion)
+	if confirmed.is_empty() or confirmed["kind"] != "оползень":
 		return result
 	result.append({
-		"kind": "оползень", "cell": erosion["cell"],
-		"vertices": int(erosion["vertices"]),
-		"severity": severity, "day": int(erosion.get("day", 0))
+		"kind": confirmed["kind"],
+		"cell": confirmed["cell"],
+		"vertices": confirmed["vertices"],
+		"severity": confirmed["severity"],
+		"day": int(erosion.get("day", 0))
 	})
 	return result
 
 
 static func register_geological_aftermath(ground: RefCounted,
 		events: Array[Dictionary]) -> int:
-	# Подтверждённые деформации оставляют след в физическом Surface.
-	# Списки NaturalDisasters и NaturalProcesses не подменяем:
-	# они по-прежнему независимо отвечают за само событие.
+	# Все естественные деформации используют один проверяемый
+	# контракт. Он отвергает неверный тип, нулевую геометрию,
+	# NaN и чрезмерную интенсивность до записи в Surface.
 	var count := 0
 	for event in events:
-		var kind := str(event.get("kind", ""))
-		if kind not in ["обвал", "оползень", "землетрясение"]:
+		var impact: Dictionary = ImpactContract.natural_deformation(event)
+		if impact.is_empty():
 			continue
-		if int(event.get("vertices", 0)) <= 0 \
-				or not (event.get("cell") is Vector2i):
+		var cell: Vector2i = impact["cell"]
+		# Даже корректный по типам отчёт не может воздействовать
+		# на область, отсутствующую в физической карте.
+		if not ground.world.config.contains_cell(cell):
 			continue
-		var intensity := float(event.get("severity", 0.0))
-		if not is_finite(intensity) or intensity <= 0.0 or intensity > 1.0:
-			continue
-		var radius := 7.0 if kind == "землетрясение" else (
-			6.0 if kind == "оползень" else 5.0)
-		if ground.register_geological_scar(kind,
-				Vector2(event["cell"]) + Vector2(0.5, 0.5),
-				radius, intensity):
+		if ground.register_geological_scar(
+				impact["kind"], Vector2(cell) + Vector2(0.5, 0.5),
+				float(impact["radius"]), float(impact["severity"])):
 			count += 1
 	return count
-
 
 func run_day() -> void:
 	# Метод исполняется WorkerThreadPool, пока GPU читает лишь старые
