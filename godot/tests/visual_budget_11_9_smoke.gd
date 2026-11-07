@@ -77,9 +77,15 @@ func _season_world(seed: int, day: int) -> Dictionary:
 	surface.rebuild()
 	var climate := Climate.new(world, hydro)
 	climate.rebuild()
-	_check(climate.set_day(day), "Сезонный климат установлен")
-	surface.advance_climate_day(climate)
-	hydro.apply_rainfall_map(surface.runoff_map())
+	# Surface требует строго последовательных суток. Простое
+	# перемещение календаря на сезон вперед без промежуточного
+	# почвенного расчёта было бы невалидным WorldSave.
+	for current_day in range(1, day + 1):
+		_check(climate.set_day(current_day),
+			"Климатические сутки %d установлены" % current_day)
+		_check(surface.advance_climate_day(climate),
+			"Почва согласована с климатическим днём %d" % current_day)
+		hydro.apply_rainfall_map(surface.runoff_map())
 	var nature := Nature.new(world, hydro, surface, climate)
 	_check(nature.generate(), "Сезонный природный мир создан")
 	return {
