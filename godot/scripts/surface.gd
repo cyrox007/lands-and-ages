@@ -661,10 +661,16 @@ func to_snapshot() -> Dictionary:
 
 func load_snapshot(data: Dictionary) -> bool:
 	ensure_ready()
-	var version: Variant = data.get("version")
-	# Старые снимки не содержали нарушенного грунта — на них
-	# физический слой начинается с нуля, остальные поля прежние.
-	if version not in [1, 2] \
+	var raw_version: Variant = data.get("version")
+	# JSON передаёт целые номера версий как числа с плавающей
+	# точкой. Сначала проверяем тип и точность, не принимая 2.5.
+	if not (raw_version is int or raw_version is float) \
+			or not is_finite(float(raw_version)):
+		return false
+	var version := int(raw_version)
+	# Старые снимки не содержали нарушенного грунта: при загрузке
+	# их физический слой начинается с нуля без изменений геометрии.
+	if float(version) != float(raw_version) or version not in [1, 2] \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
 	var saved_day: Variant = data.get("day")
