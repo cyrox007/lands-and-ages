@@ -81,6 +81,33 @@ jobs:
           print("RF4: 288 игровых суток, 18 воздействий, 9 загрузок — успешно")
           PY
 
+      - name: "512×384 — реальный кратер, глобальный водосбор и WorldSave"
+        timeout-minutes: 8
+        run: |
+          set -o pipefail
+          timeout 450s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/landscape_11_7_rf4_large.gd \
+            -- --out=/tmp/landscape-rf4-large.json \
+            2>&1 | tee /tmp/landscape-rf4-large.log
+          grep -q "11.7/RF4/LARGE:.*успешно" /tmp/landscape-rf4-large.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/landscape-rf4-large.log; then
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Размер и физические последствия подтверждаются самим Godot.
+          p = json.loads(Path("/tmp/landscape-rf4-large.json").read_text())
+          assert p["map_width"] == 512 and p["map_height"] == 384
+          assert p["cells"] == 196608 and p["impact_vertices"] > 100
+          assert p["checks_passed"] is True
+          assert p["android_pc_fps_verified"] is False
+          print("RF4: большая карта после кратера и сохранения — успешно")
+          PY
+
       - name: Опубликовать CPU-отчёт и журнал
         if: always()
         uses: actions/upload-artifact@v4
@@ -89,6 +116,8 @@ jobs:
           path: |
             /tmp/landscape-rf4-stress.json
             /tmp/landscape-rf4-stress.log
+            /tmp/landscape-rf4-large.json
+            /tmp/landscape-rf4-large.log
           if-no-files-found: warn
           retention-days: 30
 
