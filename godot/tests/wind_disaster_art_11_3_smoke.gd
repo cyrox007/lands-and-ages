@@ -55,7 +55,7 @@ func _test_geometry(atmosphere: Node3D, world: RefCounted) -> void:
 	}
 	atmosphere.show_hazard(event, Vector2.RIGHT, world)
 	fx.apply_snapshot(_snapshot(), Vector2(center), 2.0, 44.0, 1729)
-	var position := world.config.to_scene(Vector2(center) + Vector2(0.5, 0.5),
+	var position: Vector3 = world.config.to_scene(Vector2(center) + Vector2(0.5, 0.5),
 		world.height_at(Vector2(center) + Vector2(0.5, 0.5)))
 	_check(funnel.visible and funnel.position.distance_to(position) < 0.001,
 		"Воронка видна в физическом эпицентре, а не в центре камеры")
@@ -124,7 +124,7 @@ func _test_budget_and_load(atmosphere: Node3D) -> void:
 	# Новая сетка не выделяет дополнительные GPU-эмиттеры;
 	# на выгрузке перестают существовать все временные эффекты.
 	var fx: Node3D = atmosphere.precipitation
-	var budget := atmosphere.debug_budget()
+	var budget: Dictionary = atmosphere.debug_budget()
 	_check(int(budget["gpu_emitters"]) == 8
 		and int(budget["gpu_max_particles"]) == 2300,
 		"Графика смерча и пыли укладывается в старый бюджет")
