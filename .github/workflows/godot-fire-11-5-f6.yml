@@ -1,0 +1,78 @@
+name: "11.5/F6 — свет, звук и GPU-бюджет настоящего пожара"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/fire_presentation_controller.gd"
+      - "godot/scripts/fire_registry.gd"
+      - "godot/scripts/nature_renderer.gd"
+      - "godot/scripts/world.gd"
+      - "godot/shaders/fire_*.gdshader"
+      - "godot/tests/fire_presentation_11_5_f6_smoke.gd"
+      - ".github/workflows/godot-fire-11-5-f6.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/fire_presentation_controller.gd"
+      - "godot/scripts/fire_registry.gd"
+      - "godot/scripts/nature_renderer.gd"
+      - "godot/scripts/world.gd"
+      - "godot/shaders/fire_*.gdshader"
+      - "godot/tests/fire_presentation_11_5_f6_smoke.gd"
+      - ".github/workflows/godot-fire-11-5-f6.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: fire-11-5-f6-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fire-presentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Скачать Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-fire.zip
+          unzip -q /tmp/godot-fire.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+
+      - name: "Импортировать материалы и проверить компиляцию"
+        run: |
+          set -o pipefail
+          timeout 140s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/fire-visual-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/fire-visual-import.log; then
+            exit 1
+          fi
+
+      - name: "11.5/F6 — физический огонь, свет, звук и сохранение"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          timeout 260s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/fire_presentation_11_5_f6_smoke.gd 2>&1 \
+            | tee /tmp/fire-visual-11-5-f6.log
+          grep -q "11.5/F6:.*успешно" /tmp/fire-visual-11-5-f6.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/fire-visual-11-5-f6.log; then
+            exit 1
+          fi
+
+      - name: "Опубликовать диагностические логи"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fire-11-5-f6-test-logs
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/fire-visual-import.log
+            /tmp/fire-visual-11-5-f6.log
