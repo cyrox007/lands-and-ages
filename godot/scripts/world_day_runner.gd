@@ -63,6 +63,30 @@ func synchronize_world() -> bool:
 	return true
 
 
+static func nature_hazards(hazards: Array[Dictionary],
+		erosion: Dictionary) -> Array[Dictionary]:
+	# Стихийный реестр хранит свои события независимо от медленных
+	# геологических процессов. Для леса объединяем только воздействия,
+	# которые действительно передвинули вершины WorldMap.
+	# Обычные наносы и неудавшиеся оползни не наносят вымышленный урон.
+	var result: Array[Dictionary] = []
+	result.append_array(hazards)
+	if erosion.get("kind") != "оползень" \
+			or erosion.get("process") != "slide" \
+			or int(erosion.get("vertices", 0)) <= 0 \
+			or not (erosion.get("cell") is Vector2i):
+		return result
+	var severity: float = float(erosion.get("severity", 0.0))
+	if not is_finite(severity) or severity <= 0.0 or severity > 1.0:
+		return result
+	result.append({
+		"kind": "оползень", "cell": erosion["cell"],
+		"vertices": int(erosion["vertices"]),
+		"severity": severity, "day": int(erosion.get("day", 0))
+	})
+	return result
+
+
 func run_day() -> void:
 	# Метод исполняется WorkerThreadPool, пока GPU читает лишь старые
 	# готовые меши. Сцену и её узлы здесь не трогаем.
@@ -160,7 +184,11 @@ func run_day() -> void:
 		var plants_started := Time.get_ticks_usec()
 		# Тот же реестр почвенного ожога поступает в рост растений,
 		# восстановление и геологические процессы.
-		nature.advance_day(climate.day, hazards, strikes, fire)
+		# Учитываем также медленные оползни NaturalProcesses.
+		# Сами hazards остаются реестром NaturalDisasters, а лес
+		# получает оба физически подтверждённых источника деформаций.
+		nature.advance_day(climate.day,
+			nature_hazards(hazards, erosion), strikes, fire)
 		vegetation_us = Time.get_ticks_usec() - plants_started
 	# После природного шага огонь изменяет те же физические объекты.
 	# В старых тестовых сценариях без FireRegistry поле остаётся null.

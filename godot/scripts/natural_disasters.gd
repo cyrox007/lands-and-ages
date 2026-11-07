@@ -417,8 +417,11 @@ func advance_day(day: int) -> Array[Dictionary]:
 	_settle_airborne_day(day)
 	var dimensions: Vector2i = world.config.region_count()
 	# Склоны проверяем только в дни возможного схода масс.
+	# День 13 обязателен для обвалов: без него выборка обнуляла
+	# крутизну и физический риск у уже запланированного события.
 	# Шторм, паводок, засуха и напряжение обновляются ежедневно.
-	var check_slopes := day % 5 == 0 or day % 7 == 0 or day % 19 == 0
+	var check_slopes := day % 5 == 0 or day % 7 == 0 \
+		or day % 13 == 0 or day % 19 == 0
 	var terrain_changed := false
 	var dust_occurred := false
 	for ry in range(dimensions.y):

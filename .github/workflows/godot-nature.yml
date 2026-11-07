@@ -23,6 +23,7 @@ on:
       - "godot/scripts/climate.gd"
       - "godot/scripts/weather_events.gd"
       - "godot/scripts/natural_disasters.gd"
+      - "godot/scripts/natural_processes.gd"
       - "godot/scripts/landscape_events.gd"
       - "godot/scripts/fire_registry.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
@@ -45,6 +46,7 @@ on:
       - "godot/tests/fire_river_ash_11_5_smoke.gd"
       - "godot/tests/landscape_11_7_smoke.gd"
       - "godot/tests/nature_terrain_11_7_smoke.gd"
+      - "godot/tests/landscape_chain_11_7_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
@@ -75,6 +77,7 @@ on:
       - "godot/scripts/climate.gd"
       - "godot/scripts/weather_events.gd"
       - "godot/scripts/natural_disasters.gd"
+      - "godot/scripts/natural_processes.gd"
       - "godot/scripts/landscape_events.gd"
       - "godot/scripts/fire_registry.gd"
       - "godot/tests/nature_stage_10_smoke.gd"
@@ -97,6 +100,7 @@ on:
       - "godot/tests/fire_river_ash_11_5_smoke.gd"
       - "godot/tests/landscape_11_7_smoke.gd"
       - "godot/tests/nature_terrain_11_7_smoke.gd"
+      - "godot/tests/landscape_chain_11_7_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
@@ -406,6 +410,18 @@ jobs:
             | tee /tmp/nature-terrain-11-7.log
           grep -q "11.7/RF2:.*успешно" /tmp/nature-terrain-11-7.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-terrain-11-7.log; then
+            exit 1
+          fi
+      - name: "11.7/RF3 — цепочки деформаций, почвы, водосбор и WorldSave"
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 210s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/landscape_chain_11_7_smoke.gd 2>&1 \
+            | tee /tmp/nature-landscape-rf3.log
+          grep -q "11.7/RF3:.*успешно" /tmp/nature-landscape-rf3.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-landscape-rf3.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
