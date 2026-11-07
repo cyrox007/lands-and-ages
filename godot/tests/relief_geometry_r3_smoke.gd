@@ -1,6 +1,6 @@
 extends SceneTree
-## R3 — физическая выразительность гор и оврагов без потери старых сохранений.
-## Проверяем профиль геометрии, единые источники высоты и восстановление.
+## R3/R5 — геометрия гор и оврагов в единственной актуальной модели.
+## Старые сохранения не мигрируем; новая физика и PBR едины.
 
 const Config = preload("res://scripts/world_config.gd")
 const Terrain = preload("res://scripts/terrain.gd")
@@ -19,7 +19,7 @@ func _check(valid: bool, message: String) -> void:
 		failures.append(message)
 
 
-func _section(kind: int, world_seed: int, version: int) -> Vector2:
+func _section(kind: int, world_seed: int) -> Vector2:
 	## Ищем одну реальную географическую форму указанного вида,
 	## ориентируем сечение поперёк её оси и сравниваем физические высоты.
 	for gy in range(4):
@@ -37,78 +37,51 @@ func _section(kind: int, world_seed: int, version: int) -> Vector2:
 			var core := midpoint - transverse * (30.0 * meander * sin(angle))
 			var edge := core + transverse * (12.0 if kind == 4 else 9.0)
 			var peak: float = Terrain._feature(
-				core.x, core.y, gx, gy, world_seed, version).x
+				core.x, core.y, gx, gy, world_seed).x
 			var shoulder: float = Terrain._feature(
-				edge.x, edge.y, gx, gy, world_seed, version).x
+				edge.x, edge.y, gx, gy, world_seed).x
 			return Vector2(peak, shoulder)
 	return Vector2.ZERO
 
 
 func _test_shape() -> void:
-	## Версия 2 создаёт более выразительную **физическую** форму:
-	## увеличение контраста между гребнем и склоном, дном и бровкой.
-	var mountain_old: Vector2 = _section(4, 1729, Terrain.RELIEF_LEGACY)
-	var mountain_new: Vector2 = _section(4, 1729, Terrain.RELIEF_SHARP)
-	var ridge_gain: float = (mountain_new.x - mountain_new.y) 		- (mountain_old.x - mountain_old.y)
-	_check(ridge_gain > 2.0, "Горный гребень физически острее пологого профиля")
-
-	var ravine_old: Vector2 = _section(6, 1729, Terrain.RELIEF_LEGACY)
-	var ravine_new: Vector2 = _section(6, 1729, Terrain.RELIEF_SHARP)
-	var trench_gain: float = (ravine_new.y - ravine_new.x) 		- (ravine_old.y - ravine_old.x)
-	_check(trench_gain > 0.35, "Овраг имеет более заметную физическую бровку")
-	_check(mountain_new.x > 0.0 and ravine_new.x < 0.0,
-		"Горы не превращаются в впадины, овраги не поднимаются над землёй")
-	print("R3 сечение: горный контраст +", snappedf(ridge_gain, 0.001),
-		"; овражный контраст +", snappedf(trench_gain, 0.001))
+	# Физический гребень должен сильно превышать предгорья.
+	# Овраг остаётся долиной с настоящими кромками и стоком.
+	var mountain: Vector2 = _section(4, 1729)
+	var ravine: Vector2 = _section(6, 1729)
+	_check(mountain.x - mountain.y >= 12.0,
+		"Высокий хребет существенно выше физического предгорья")
+	_check(ravine.y - ravine.x >= 0.65,
+		"Овраг имеет заметные физические бровки")
+	_check(mountain.x > 18.0 and ravine.x < 0.0,
+		"Горы имеют вершины, овраги сохраняют отрицательный разрез")
 
 
 func _test_versions() -> void:
-	## Старый JSON не содержит relief_version; его необходимо
-	## прочесть по первоначальным формулам без дрейфа базовых высот.
-	var old_config = Config.new(256, 192, 1729, 16, 32, 0.9, Config.RELIEF_LEGACY)
-	var new_config = Config.new(256, 192, 1729, 16, 32, 0.9, Config.RELIEF_SHARP)
-	_check(not old_config.to_data().has("relief_version"),
-		"Старый формат JSON и подписи природных моделей не меняются")
-	_check(int(new_config.to_data().get("relief_version", 0)) == 2,
-		"Новый физический профиль явно закреплён в сохранении")
+	# Версионируем только действующую геометрию. Старый JSON
+	# отклоняем с ошибкой, не симулируем полугодовые миграции.
+	var config := Config.new(256, 192, 1729, 16, 32)
+	_check(int(config.to_data().get("terrain_version", -1)) ==
+		Config.TERRAIN_VERSION, "Сохранение указывает только R5")
+	var rejected: Dictionary = config.to_data()
+	rejected.erase("terrain_version")
+	_check(Config.from_data(rejected) == null,
+		"Устаревшее сохранение без нового рельефа отвергнуто")
+	rejected["terrain_version"] = 2
+	_check(Config.from_data(rejected) == null,
+		"Устаревший номер геометрии отвергнут")
+	_check(Config.from_data(config.to_data()) != null,
+		"Актуальный физический конфиг восстанавливается")
 
-	var recovered_config = Config.from_data(old_config.to_data())
-	_check(recovered_config != null and recovered_config.relief_version == 1,
-		"Старое сохранение восстанавливает исходный профиль")
-	var corrupt: Dictionary = new_config.to_data()
-	corrupt["relief_version"] = 9
-	_check(Config.from_data(corrupt) == null, "Неизвестная версия высот отвергается")
-
-	var old_world = Map.new(old_config)
-	var new_world = Map.new(new_config)
-	var different := 0
-	for point in [
-		Vector2i(176, 35), Vector2i(182, 44),
-		Vector2i(182, 108), Vector2i(190, 116),
-		Vector2i(68, 75), Vector2i(136, 140)
-	]:
-		var old_height: float = old_world.vertex_at(point)
-		_check(is_equal_approx(old_height,
-			Terrain.vertex_height_on_map(point.x, point.y, 256, 192, 1729, 1)),
-			"Старый мир использует исходный генератор высот")
-		if absf(old_height - new_world.vertex_at(point)) > 0.01:
-			different += 1
-	_check(different > 0, "Новый физический рельеф отличается от старого")
-
-	# Даже после физической деформации старый мир остаётся идентичен
-	# при загрузке, включая уже накопленные изменения поверхности.
-	var edit := Vector2i(113, 91)
-	_check(old_world.set_vertex(edit, old_world.vertex_at(edit) + 0.5),
-		"Изменение старого мира сохраняется поверх прежнего генератора")
-	var saved_legacy: Variant = JSON.parse_string(JSON.stringify(old_world.to_data()))
-	var restored_legacy = Map.from_data(saved_legacy)
-	_check(restored_legacy != null and restored_legacy.to_data() == old_world.to_data(),
-		"Исторический мир и его деформации восстанавливаются без дрейфа")
-	var saved_new: Variant = JSON.parse_string(JSON.stringify(new_world.to_data()))
-	var restored_new = Map.from_data(saved_new)
-	_check(restored_new != null and restored_new.to_data() == new_world.to_data(),
-		"Новый мир после загрузки сохраняет тот же профиль и seed")
-
+	var world := Map.new(config)
+	var edited := Vector2i(113, 91)
+	_check(world.set_vertex(edited, world.vertex_at(edited) + 0.5),
+		"Деформация хранится поверх единственного генератора")
+	var saved: Variant = JSON.parse_string(JSON.stringify(
+		world.to_data(), "", true, true))
+	var restored = Map.from_data(saved)
+	_check(restored != null and restored.to_data() == world.to_data(),
+		"Текущий WorldMap и деформации восстановлены без дрейфа")
 
 func _test_physics_and_render() -> void:
 	## Гидрология, грунты и меш должны видеть одну новую физическую карту,
