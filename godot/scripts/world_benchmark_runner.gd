@@ -125,3 +125,102 @@ func run(view: Node3D) -> Dictionary:
 		},
 		"phases": phases
 	}
+
+
+func run_landscape(view: Node3D) -> Dictionary:
+	# Отдельный аппаратный маршрут RF4: камера и настройки остаются
+	# настоящими игровыми, а физические воздействия проходят через
+	# тот же LandscapeEvents и WorldDayRunner, что ручные команды.
+	# В отличие от маршрута 8.8, изменения мира здесь ожидаемы.
+	var route: Array[Dictionary] = [
+		{"kind": "кратер", "offset": Vector2.ZERO,
+			"radius": 9.0, "strength": 2.0},
+		{"kind": "оползень", "offset": Vector2(-6.0, 0.0),
+			"radius": 8.0, "strength": 0.8},
+		{"kind": "просадка", "offset": Vector2(6.0, 1.0),
+			"radius": 6.0, "strength": 1.5}
+	]
+	var center := Vector2(view._world_model.config.width,
+		view._world_model.config.height) * 0.5
+	var original_revision: int = view._world_model.revision
+	var results: Array[Dictionary] = []
+	for entry in route:
+		# Не измеряем работу с устаревшими чанками: сначала
+		# завершаем предыдущую очередь, затем начинаем новый удар.
+		view._wait_chunk_jobs()
+		var position: Vector2 = center + entry["offset"]
+		var kind: String = entry["kind"]
+		var start := Time.get_ticks_usec()
+		var changed: Dictionary = view._landscape_events.apply(
+			kind, position, entry["radius"], entry["strength"])
+		if changed.is_empty():
+			results.append({"kind": kind, "applied": false})
+			continue
+		var impact: Dictionary = view._nature.apply_landscape_impact(
+			kind, position, entry["radius"], 1.0, view._climate.day)
+		view._flush_world_changes()
+		var sync_ms := float(Time.get_ticks_usec() - start) / 1000.0
+
+		# Измеряем именно кадровый интервал, пока игровая очередь
+		# перестраивает видимые меши и коллизии. Ограничиваем
+		# ожидание 30 секундами: на быстром CPU 240 кадров проходят
+		# раньше, чем два фоновых потока закончат строить геометрию.
+		var frames: Array[float] = []
+		var peak_pending := 0
+		var timed_out := true
+		var last_tick := Time.get_ticks_usec()
+		for frame in range(1800):
+			await view.get_tree().process_frame
+			var tick := Time.get_ticks_usec()
+			frames.append(float(tick - last_tick) / 1000.0)
+			last_tick = tick
+			var pending: int = view._pending.size() + view._chunk_jobs.size() \
+				+ view._rebuild_pending.size() + view._nature_dirty.size()
+			peak_pending = maxi(peak_pending, pending)
+			if float(tick - start) / 1000.0 > 30000.0:
+				break
+			# Дожидаемся четырёх игровых кадров после воздействия
+			# и полного опустошения очередей. Размер wanted может
+			# включать отсечённые камерой чанки, поэтому не сравниваем
+			# его с числом созданных мешей: это давало ложный тайм-аут.
+			if pending == 0 and frame >= 3:
+				timed_out = false
+				break
+		results.append({
+			"kind": kind, "applied": true,
+			"vertices": int(changed.get("vertices", 0)),
+			"world_revision": view._world_model.revision,
+			"trees_felled": int(impact.get("trees_felled", 0)),
+			"sync_cpu_ms": sync_ms,
+			"frame_interval_p50_ms": Metrics.percentile(frames, 0.50),
+			"frame_interval_p95_ms": Metrics.percentile(frames, 0.95),
+			"frame_interval_p99_ms": Metrics.percentile(frames, 0.99),
+			"frames_observed": frames.size(),
+			"peak_pending_chunks": peak_pending,
+			"queue_timeout": timed_out,
+			"remaining_pending": view._pending.size(),
+			"remaining_jobs": view._chunk_jobs.size(),
+			"remaining_rebuilds": view._rebuild_pending.size(),
+			"remaining_nature": view._nature_dirty.size()
+		})
+	# Результат содержит только измерения реального запущенного
+	# Godot. Не выдаём интервалы CPU за время GPU или VRAM.
+	var dimensions: Vector2 = view.get_viewport().get_visible_rect().size
+	return {
+		"schema_version": 1, "stage": "11.7/RF4",
+		"route": "ландшафтные_воздействия_3",
+		"platform": OS.get_name(),
+		"engine": Engine.get_version_info().get("string", "unknown"),
+		"render_backend": DisplayServer.get_name(),
+		"headless": DisplayServer.get_name() == "headless",
+		"viewport": {"width": int(dimensions.x), "height": int(dimensions.y)},
+		"map": view._world_model.config.to_data(),
+		"initial_revision": original_revision,
+		"final_revision": view._world_model.revision,
+		"units": {
+			"sync_cpu_ms": "время физической синхронизации и постановки чанков, не GPU",
+			"frame_interval_p95_ms": "95-й перцентиль интервала между кадрами",
+			"queue_timeout": "очередь не завершилась за 30 секунд или 1800 кадров"
+		},
+		"events": results
+	}
