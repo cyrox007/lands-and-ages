@@ -104,9 +104,11 @@ func _validate_shape(world: RefCounted, seed: int) -> Dictionary:
 	# физические вершины даже на крутом гребне.
 	var seam_x := clampi(ceili(float(peak.x) / 16.0) * 16,
 		16, SIZE.x - 16)
-	var cy := clampi(peak.y / 16, 0, SIZE.y / 16 - 1)
-	var left: Array = Chunk.prepare_arrays(seam_x / 16 - 1, cy, 1, world)
-	var right: Array = Chunk.prepare_arrays(seam_x / 16, cy, 1, world)
+	var cy := clampi(floori(float(peak.y) / 16.0), 0,
+		floori(float(SIZE.y) / 16.0) - 1)
+	var left: Array = Chunk.prepare_arrays(floori(float(seam_x) / 16.0) - 1,
+		cy, 1, world)
+	var right: Array = Chunk.prepare_arrays(floori(float(seam_x) / 16.0), cy, 1, world)
 	var va: PackedVector3Array = left[Mesh.ARRAY_VERTEX]
 	var vb: PackedVector3Array = right[Mesh.ARRAY_VERTEX]
 	var row: int = clampi(peak.y - cy * 16, 0, 16)
