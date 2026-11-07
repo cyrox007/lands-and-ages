@@ -294,7 +294,7 @@ func register_geological_scar(kind: String, center: Vector2,
 			# Повторное разрушение усиливает уже повреждённый участок,
 			# но не может поднять степень разрушения выше единицы.
 			var fraction := 1.0 - distance / radius
-			var i := y * world.config.width + x
+			var i: int = y * world.config.width + x
 			var before: float = _geological_scar[i]
 			var after := minf(1.0, before + intensity * fraction * (1.0 - before))
 			if after <= before + 0.000001:
