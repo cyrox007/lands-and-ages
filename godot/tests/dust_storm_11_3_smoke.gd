@@ -123,7 +123,8 @@ func _test_physics_and_save() -> void:
         and world.vertex_at(source) < before_source
         and world.vertex_at(target) >= before_target - 0.00001,
         "Грунт уходит с наветренной клетки по направлению ветра")
-    _check(absf(_total_sediment(surface) - before_mass) < 0.00001,
+    _check(absf(_total_sediment(surface) + disasters.airborne_volume()
+        - before_mass) < 0.00001,
         "Перемещение не создаёт и не уничтожает массу")
 
     # Вода или снежная поверхность не должны отдавать пыль даже в
@@ -213,7 +214,8 @@ func _test_two_step_track() -> void:
         and absf(world.vertex_at(middle) - before_middle) < 0.0001
         and world.vertex_at(last) > before_last,
         "Пыль проходит промежуточную клетку и оседает дальше")
-    _check(absf(_total_sediment(surface) - before_mass) < 0.00001,
+    _check(absf(_total_sediment(surface) + disasters.airborne_volume()
+        - before_mass) < 0.00001,
         "Двухшаговая траектория сохраняет массу")
 
 

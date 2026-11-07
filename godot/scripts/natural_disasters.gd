@@ -7,7 +7,10 @@ signal disaster_occurred(event: Dictionary)
 const Terrain = preload("res://scripts/terrain.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
 const Climate = preload("res://scripts/climate.gd")
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
+const AIRBORNE_UNITS := 1000000.0
+const MAX_AIRBORNE_PLUMES := 16
+const AIRBORNE_LIFT_FRACTION := 0.22
 const MAX_EVENTS_PER_DAY := 4
 const SAMPLE_AXIS := 4
 const DIRECTIONS := [
@@ -24,6 +27,7 @@ var climate: RefCounted
 var last_day := 0
 var total_events := 0
 var last_events: Array[Dictionary] = []
+var airborne_dust: Array[Dictionary] = []
 var _storms := PackedInt32Array()
 var _floods := PackedInt32Array()
 var _droughts := PackedInt32Array()
@@ -209,7 +213,8 @@ func _record(kind: String, cell: Vector2i, severity: float,
 		"duration_days": duration,
 		"vertices": int(impact.get("vertices", 0)),
 		"snow_volume": float(impact.get("snow_volume", 0.0)),
-		"sediment_volume": float(impact.get("sediment_volume", 0.0))
+		"sediment_volume": float(impact.get("sediment_volume", 0.0)),
+		"airborne_volume": float(impact.get("airborne_volume", 0.0))
 	}
 	last_events.append(event)
 	total_events += 1
@@ -253,8 +258,10 @@ func apply_dust_storm(cell: Vector2i, severity: float) -> Dictionary:
 	# и ограничение sediment_volume <= 0.05 остаются совместимы.
 	var amount := clampf(severity * 0.007, 0.002, 0.007)
 	var moved := 0
+	var lifted := 0.0
 	for lane in [0, -1, 1]:
 		var source: Vector2i = cell + side * lane
+		var lane_moved := 0
 		for step in range(2):
 			# Нельзя брать новый грунт из воды, скалы, снега или
 			# мокрой клетки. Если цепочка оборвалась, дальше не идём.
@@ -268,15 +275,82 @@ func apply_dust_storm(cell: Vector2i, severity: float) -> Dictionary:
 			if not surface.transfer_sediment(source, target, amount):
 				break
 			moved += 1
+			lane_moved += 1
 			# Второй перенос использует тот же физический осадок
 			# на новой клетке и не создаёт дополнительной массы.
 			source = target
+		# Только из уже действительно доставленного Surface-наноса
+		# поднимаем в воздух малую долю. Вычитание из грунта
+		# атомарно, а ограниченный реестр хранит физическую массу.
+		if lane_moved > 0 and airborne_dust.size() < MAX_AIRBORNE_PLUMES:
+			var suspension := amount * AIRBORNE_LIFT_FRACTION
+			if surface.lift_airborne_sediment(source, suspension):
+				airborne_dust.append({
+					"cell": source, "mass": suspension, "born": climate.day
+				})
+				lifted += suspension
 	if moved == 0:
 		return {}
 	return {
 		"vertices": moved * 2,
-		"sediment_volume": float(moved) * amount
+		"sediment_volume": float(moved) * amount,
+		"airborne_volume": lifted
 	}
+
+
+func airborne_volume() -> float:
+	# Сумма вычисляется по ограниченному числу фронтов, а не
+	# по всей карте: важно для длительных прогонов и HUD.
+	var amount := 0.0
+	for entry in airborne_dust:
+		amount += float(entry["mass"])
+	return amount
+
+
+func _settle_airborne_day(day: int) -> void:
+	# Воздушная масса может переместиться за сутки строго по
+	# физическому направлению Climate. Дождь и слабый ветер
+	# ускоряют выпадение, а после трёх суток оседает весь остаток.
+	# Не используем RNG, камеру и отдельные GPU-погодные события.
+	var remaining: Array[Dictionary] = []
+	for entry in airborne_dust:
+		if int(entry["born"]) >= day:
+			remaining.append(entry)
+			continue
+		var position: Vector2i = entry["cell"]
+		var index: int = hydro.cell_index(position)
+		var direction: Vector2 = climate.wind_direction_at_index(index)
+		var next := position + Vector2i(
+			roundi(direction.x * 2.0), roundi(direction.y * 2.0))
+		if not world.config.contains_cell(next):
+			next = position
+		elif hydro.has_water(hydro.cell_index(next)):
+			next = position
+		var rain: float = climate.precipitation_at_index(index)
+		var gust: float = climate.wind_gust_at_index(index)
+		var age := day - int(entry["born"])
+		var portion := clampf(
+			0.26 + rain * 0.42 + (1.0 - clampf(gust / 36.0, 0.0, 1.0)) * 0.20,
+			0.25, 1.0)
+		if age >= 3 or rain >= 0.8:
+			portion = 1.0
+		var volume: float = float(entry["mass"])
+		var deposited := volume * portion
+		if volume - deposited < 0.000001:
+			deposited = volume
+		# Не теряем массу над затопленной или слишком высокой
+		# клеткой: если перенос не удался, пробуем прежний участок.
+		var settled: bool = surface.settle_airborne_sediment(next, deposited)
+		if not settled and next != position:
+			settled = surface.settle_airborne_sediment(position, deposited)
+			next = position
+		if settled:
+			volume -= deposited
+		if volume > 0.0000005:
+			remaining.append({
+				"cell": next, "mass": volume, "born": entry["born"]
+			})
+	airborne_dust = remaining
 
 
 func _slope_event(kind: String, cell: Vector2i, risk: float) -> Dictionary:
@@ -324,6 +398,9 @@ func advance_day(day: int) -> Array[Dictionary]:
 		return []
 	last_day = day
 	last_events.clear()
+	# Сначала переносим и осаждаем взвесь предыдущих суток.
+	# Новая пыль текущего бедствия оседать в тот же день не может.
+	_settle_airborne_day(day)
 	var dimensions: Vector2i = world.config.region_count()
 	# Склоны проверяем только в дни возможного схода масс.
 	# Шторм, паводок, засуха и напряжение обновляются ежедневно.
@@ -444,11 +521,22 @@ func to_data() -> Dictionary:
 		events.append([
 			event["kind"], event["day"], cell.x, cell.y,
 			event["severity"], event["duration_days"],
-			event["vertices"], event["snow_volume"], event["sediment_volume"]
+			event["vertices"], event["snow_volume"], event["sediment_volume"],
+			float(event.get("airborne_volume", 0.0))
 		])
+	# Воздушная масса записывается отдельно от старой истории
+	# девятипольных событий и в целых микродолях: точная
+	# повторная загрузка не дублирует пыль поверх грунта.
+	var plumes := []
+	for entry in airborne_dust:
+		var point: Vector2i = entry["cell"]
+		plumes.append([point.x, point.y,
+			roundi(float(entry["mass"]) * AIRBORNE_UNITS),
+			int(entry["born"])])
 	return {
 		"version": FORMAT_VERSION,
 		"world_signature": JSON.stringify(world.to_data()),
+		"airborne_dust": plumes,
 		"last_day": last_day, "total_events": total_events,
 		"storms": _numbers(_storms), "floods": _numbers(_floods),
 		"droughts": _numbers(_droughts), "strain": _floats(_strain),
@@ -476,8 +564,13 @@ func _read_streak(data: Dictionary, key: String, count: int) -> PackedInt32Array
 
 
 func load_data(data: Dictionary) -> bool:
-	if data.get("version") != FORMAT_VERSION \
-			or data.get("world_signature") != JSON.stringify(world.to_data()):
+	# Версия 1 сохраняет прежнюю историю без воздушной массы.
+	# Версия 2 добавляет реестр в пути и по-прежнему проверяет
+	# подпись настоящей карты до изменения полей живой модели.
+	var version: Variant = data.get("version")
+	if version != 1 and version != FORMAT_VERSION:
+		return false
+	if data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
 	if not _valid_integer(data.get("last_day"), 10000000) \
 			or not _valid_integer(data.get("total_events"), 100000000):
@@ -507,7 +600,7 @@ func load_data(data: Dictionary) -> bool:
 		return false
 	var restored: Array[Dictionary] = []
 	for item in entries:
-		if not (item is Array) or item.size() != 9:
+		if not (item is Array) or item.size() != (9 if version == 1 else 10):
 			return false
 		if not (item[0] is String) or item[0] not in KINDS + ["чрезвычайный паводок"]:
 			return false
@@ -524,12 +617,43 @@ func load_data(data: Dictionary) -> bool:
 				return false
 		if float(item[4]) > 1.0 or float(item[7]) > 0.5 or float(item[8]) > 0.05:
 			return false
+		var suspended := 0.0
+		if version == FORMAT_VERSION:
+			if not (item[9] is int or item[9] is float) \
+					or not is_finite(float(item[9])):
+				return false
+			suspended = float(item[9])
+			if suspended < 0.0 or suspended > 0.05:
+				return false
 		restored.append({
 			"kind": item[0], "day": int(item[1]), "cell": cell,
 			"severity": float(item[4]), "duration_days": int(item[5]),
 			"vertices": int(item[6]),
 			"snow_volume": float(item[7]),
-			"sediment_volume": float(item[8])
+			"sediment_volume": float(item[8]),
+			"airborne_volume": suspended
+		})
+	# Проверяем новые массы, индексы и возраст до записи
+	# каких-либо полей. Сломанный JSON не оставляет полузагруженную
+	# атмосферу или неверные серии штормов.
+	var plumes: Variant = data.get("airborne_dust", []) \
+		if version == FORMAT_VERSION else []
+	if not (plumes is Array) or plumes.size() > MAX_AIRBORNE_PLUMES:
+		return false
+	var restored_air: Array[Dictionary] = []
+	for plume in plumes:
+		if not (plume is Array) or plume.size() != 4:
+			return false
+		for index in range(4):
+			if not _valid_integer(plume[index], 10000000):
+				return false
+		var place := Vector2i(int(plume[0]), int(plume[1]))
+		var mass: float = float(plume[2]) / AIRBORNE_UNITS
+		if not world.config.contains_cell(place) or mass < 0.0000005 \
+				or mass > 0.05 or int(plume[3]) > int(data["last_day"]):
+			return false
+		restored_air.append({
+			"cell": place, "mass": mass, "born": int(plume[3])
 		})
 	_storms = storms
 	_floods = floods
@@ -538,4 +662,5 @@ func load_data(data: Dictionary) -> bool:
 	last_day = int(data["last_day"])
 	total_events = int(data["total_events"])
 	last_events = restored
+	airborne_dust = restored_air
 	return true

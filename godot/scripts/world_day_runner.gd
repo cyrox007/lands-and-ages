@@ -148,7 +148,8 @@ func run_day() -> void:
 				"severity": 1.0, "day": climate.day,
 				"source": "диагностика", "duration_days": 1,
 				"vertices": moved["vertices"],
-				"sediment_volume": moved["sediment_volume"]
+				"sediment_volume": moved["sediment_volume"],
+				"airborne_volume": moved.get("airborne_volume", 0.0)
 			})
 	test_dust_cell = Vector2i(-1, -1)
 	var disasters_us := Time.get_ticks_usec() - previous
