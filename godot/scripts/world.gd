@@ -66,6 +66,14 @@ var _climate: RefCounted
 var _nature: RefCounted
 var _fire: RefCounted
 var _nature_dirty: Dictionary = {}
+# Природную физику синхронизируем только при смене области или чанков.
+# Флаг не относится к сохранению: препятствия можно восстановить из природы.
+var _collider_plan_dirty := true
+var _collider_last_center := Vector2i(-1000000, -1000000)
+var _collider_last_mode := -1
+var _collider_sweeps := 0
+var _collider_idle_skips := 0
+var _collider_chunks_created := 0
 var _landscape_events: RefCounted
 var _natural_processes: RefCounted
 var _natural_disasters: RefCounted
@@ -1083,6 +1091,9 @@ func _apply_chunk_plan(desired: Dictionary, force: bool) -> void:
 			continue
 		var node: Node3D = _active[coord]
 		_active.erase(coord)
+		# Камера больше не нуждается в коллизиях этой области.
+		# Следующую синхронизацию проводим по изменённому набору.
+		_collider_plan_dirty = true
 		if _rebuild_pending.has(coord):
 			_rebuild_pending.erase(coord)
 			node.queue_free()
@@ -1105,6 +1116,8 @@ func _apply_chunk_plan(desired: Dictionary, force: bool) -> void:
 			var restored: Node3D = _render_cache.take(coord)
 			if restored != null:
 				_active[coord] = restored
+				# У кешированного чанка физические формы были удалены.
+				_collider_plan_dirty = true
 	_pending.clear()
 	for coord in desired:
 		if not _chunk_jobs.has(coord) and (
@@ -1273,6 +1286,8 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 	if old_node != null:
 		old_node.queue_free()
 	_active[coord] = node
+	# Новому GPU-чанку нужны физические формы при близкой камере.
+	_collider_plan_dirty = true
 	_rebuild_pending.erase(coord)
 	_chunk_rebuilds += 1
 
@@ -1288,8 +1303,14 @@ func _bind_nature_events() -> void:
 
 
 func _on_nature_changed(chunks: Array[Vector2i], _revision: int) -> void:
+	# За невидимые чанки не платим кадровым бюджетом: при
+	# возвращении камера построит их из актуального NatureRegistry.
+	# Кеш инвалидируем сразу, иначе устаревший чанк мог вернуться
+	# в кадр до того, как до него дошла очередь обновления.
 	for chunk in chunks:
-		_nature_dirty[chunk] = true
+		_render_cache.discard(chunk)
+		if _active.has(chunk) and _view_mode == 0:
+			_nature_dirty[chunk] = true
 
 
 func _refresh_nature_chunk(chunk: Vector2i) -> void:
@@ -1322,9 +1343,22 @@ func _refresh_nature_chunk(chunk: Vector2i) -> void:
 
 func _sync_nature_colliders() -> void:
 	# В физическом сервере держим только препятствия возле камеры.
+	# В обычном кадре с неподвижной камерой даже не обходим чанки.
 	if _nature == null or _day_task_id >= 0 or _days_pending > 0:
 		return
+	if not _collider_plan_dirty and _collider_last_center == _chunk_center \
+			and _collider_last_mode == _view_mode:
+		_collider_idle_skips += 1
+		return
+	_collider_sweeps += 1
+	_collider_last_center = _chunk_center
+	_collider_last_mode = _view_mode
+
+	# Лимит на создание физических тел действует при панораме и
+	# холодном старте. Если близких чанков больше лимита, помним
+	# незавершённую очередь и продолжаем её в следующем кадре.
 	var created := 0
+	var pending := false
 	for chunk in _active.keys():
 		var chunk_node: Node3D = _active[chunk]
 		var current: Node = chunk_node.get_node_or_null(
@@ -1336,26 +1370,37 @@ func _sync_nature_colliders() -> void:
 				chunk_node.remove_child(current)
 				current.queue_free()
 			continue
-		if current != null or created >= NatureCollision.MAX_NEW_CHUNKS_PER_FRAME:
+		if current != null:
+			continue
+		if created >= NatureCollision.MAX_NEW_CHUNKS_PER_FRAME:
+			pending = true
 			continue
 		var collision_started := Time.get_ticks_usec()
 		chunk_node.add_child(NatureCollision.create_chunk(
 			_world_model, _nature, chunk))
 		_total_collider_attach_us += Time.get_ticks_usec() - collision_started
 		created += 1
+	_collider_chunks_created += created
+	_collider_plan_dirty = pending
 
 
 func _flush_nature_visuals() -> void:
-	# В кадре обновляем только изменённые чанки, без перестройки грунта.
+	# Обновляем только видимые чанки, максимум два за кадр.
+	# Невидимые записи можно удалить без пересоздания GPU-объектов:
+	# свежую природу они получат при возвращении камеры.
 	if _day_task_id >= 0 or _nature_dirty.is_empty():
 		return
 	var processed := 0
 	for chunk in _nature_dirty.keys():
+		if not _active.has(chunk) or _view_mode != 0:
+			_render_cache.discard(chunk)
+			_nature_dirty.erase(chunk)
+			continue
+		if processed >= MAX_NATURE_REFRESHES_PER_FRAME:
+			continue
 		_refresh_nature_chunk(chunk)
 		_nature_dirty.erase(chunk)
 		processed += 1
-		if processed >= MAX_NATURE_REFRESHES_PER_FRAME:
-			break
 
 
 func _show_hit_effect(previous: Dictionary, chunk: Vector2i) -> void:
@@ -1727,6 +1772,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	for chunk in _active.keys():
 		_active[chunk].queue_free()
 	_active.clear()
+	_collider_plan_dirty = true
 	_pending.clear()
 	_wanted_chunks.clear()
 	_display_chunks.clear()
@@ -2096,6 +2142,8 @@ func _update_hud() -> void:
 	_status.text += "Очередь GPU %d · обновить %d · бюджет %d мкс · отброшено %d\n" % [
 		_pending.size() + _chunk_jobs.size(), _rebuild_pending.size(),
 		_mesh_build_budget_us, _skipped_stale_jobs]
+	_status.text += "Коллизии: обходов %d · пропусков %d · создано чанков %d\n" % [
+		_collider_sweeps, _collider_idle_skips, _collider_chunks_created]
 	_status.text += "Видимость: %.2f мс · быстрых отсечений %d · точных проверок %d\n" % [
 		float(_last_visibility_us) / 1000.0,
 		_visibility_fast_rejects, _visibility_precise_checks]
