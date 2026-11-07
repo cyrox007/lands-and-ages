@@ -176,12 +176,12 @@ func _process(delta: float) -> void:
 	_event_life = maxf(0.0, _event_life - delta)
 	# Только материал вращается, коллизии и физический след
 	# не меняются. Пауза уже обработана выше.
-	if (_event_tornado or _event_dust) and _tornado_funnel != null:
+	if _tornado_funnel != null:
 		_tornado_phase += delta
 		if _event_tornado:
 			(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
 				"animation_phase", _tornado_phase)
-		if _event_dust and _dust_haze != null:
+		if _dust_haze != null and _dust_haze.visible:
 			(_dust_haze.material_override as ShaderMaterial).set_shader_parameter(
 				"animation_phase", _tornado_phase)
 	if _event_life == 0.0 and _gusts != null:
@@ -205,6 +205,7 @@ func show_storm_event(severity: float, direction: Vector2,
 	# Только визуальный отклик на реальный hazard из суточного результата;
 	# не создаём новую грозу и не передаём силу назад в Climate.
 	_event_life = maxf(0.0, duration)
+	_tornado_phase = 0.0
 	_event_squall = false
 	_event_hurricane = false
 	_event_tornado = false
@@ -473,9 +474,38 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		_tornado_funnel.rotation.y = -atan2(
 			_event_direction.y, _event_direction.x)
 	if _dust_haze != null:
-		_dust_haze.visible = event_visible and _event_dust and _event_aerosol > 0.025
-		if _event_dust and not _event_has_origin:
+		# Сохраняем одну сетку и для штормовых потоков, и для
+		# пыльного вихря. Цвета и полоса выбираются лишь по
+		# реально зарегистрированному виду NaturalDisasters.
+		var mode := 0
+		var sheet_intensity := 0.0
+		var sheet_size := Vector2(58.0, 28.0)
+		if _event_dust:
+			mode = 0
+			sheet_intensity = _event_severity * _event_aerosol
+		elif _event_squall:
+			mode = 2
+			sheet_intensity = _event_severity * 0.94
+			sheet_size = Vector2(74.0, 13.0)
+		elif _event_hurricane:
+			mode = 3
+			sheet_intensity = _event_severity * 0.95
+			sheet_size = Vector2(90.0, 80.0)
+		elif _event_life > 0.0 and not _event_tornado:
+			mode = 1
+			sheet_intensity = _event_severity * 0.65
+			sheet_size = Vector2(77.0, 47.0)
+		_dust_haze.visible = event_visible and not _event_tornado \
+			and sheet_intensity > 0.025
+		if not _event_has_origin:
 			_dust_haze.position = Vector3(center.x, altitude + 3.0, center.y)
+		_dust_haze.rotation.y = -atan2(_event_direction.y,
+			_event_direction.x)
+		(_dust_haze.mesh as PlaneMesh).size = sheet_size
+		var veil_material := _dust_haze.material_override as ShaderMaterial
+		veil_material.set_shader_parameter("event_mode", mode)
+		veil_material.set_shader_parameter("transported_mass",
+			clampf(sheet_intensity, 0.0, 1.0))
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
 	var precipitation_lod := 1.0 - smoothstep(72.0, 105.0, zoom)
 	# Ветровой снос наследует нормализованное направление пяти
