@@ -147,8 +147,9 @@ static func from_data(data: Dictionary) -> RefCounted:
 	# Ни старых генераторов, ни автоматической миграции высот.
 	# Требуем точный профиль: иначе повреждённое сохранение
 	# было бы принято с другой физикой рек и деревьев.
-	if not (data.get("terrain_version") is int) \
-			or int(data["terrain_version"]) != TERRAIN_VERSION \
+	if not (data.get("terrain_version") is int \
+			or data.get("terrain_version") is float) \
+			or float(data["terrain_version"]) != float(TERRAIN_VERSION) \
 			or data.has("relief_version") or data.has("generator_version"):
 		return null
 	return load("res://scripts/world_config.gd").new(w, h, int(data["seed"]),
