@@ -522,9 +522,19 @@ func to_data() -> Dictionary:
 			event["severity"], event["duration_days"],
 			event["vertices"], event["snow_volume"], event["sediment_volume"]
 		])
+	# Воздушная масса записывается отдельно от старой истории
+	# девятипольных событий и в целых микродолях: точная
+	# повторная загрузка не дублирует пыль поверх грунта.
+	var plumes := []
+	for entry in airborne_dust:
+		var point: Vector2i = entry["cell"]
+		plumes.append([point.x, point.y,
+			roundi(float(entry["mass"]) * AIRBORNE_UNITS),
+			int(entry["born"])])
 	return {
 		"version": FORMAT_VERSION,
 		"world_signature": JSON.stringify(world.to_data()),
+		"airborne_dust": plumes,
 		"last_day": last_day, "total_events": total_events,
 		"storms": _numbers(_storms), "floods": _numbers(_floods),
 		"droughts": _numbers(_droughts), "strain": _floats(_strain),
@@ -552,8 +562,13 @@ func _read_streak(data: Dictionary, key: String, count: int) -> PackedInt32Array
 
 
 func load_data(data: Dictionary) -> bool:
-	if data.get("version") != FORMAT_VERSION \
-			or data.get("world_signature") != JSON.stringify(world.to_data()):
+	# Версия 1 сохраняет прежнюю историю без воздушной массы.
+	# Версия 2 добавляет реестр в пути и по-прежнему проверяет
+	# подпись настоящей карты до изменения полей живой модели.
+	var version: Variant = data.get("version")
+	if version != 1 and version != FORMAT_VERSION:
+		return false
+	if data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
 	if not _valid_integer(data.get("last_day"), 10000000) \
 			or not _valid_integer(data.get("total_events"), 100000000):
@@ -607,6 +622,28 @@ func load_data(data: Dictionary) -> bool:
 			"snow_volume": float(item[7]),
 			"sediment_volume": float(item[8])
 		})
+	# Проверяем новые массы, индексы и возраст до записи
+	# каких-либо полей. Сломанный JSON не оставляет полузагруженную
+	# атмосферу или неверные серии штормов.
+	var plumes: Variant = data.get("airborne_dust", []) \
+		if version == FORMAT_VERSION else []
+	if not (plumes is Array) or plumes.size() > MAX_AIRBORNE_PLUMES:
+		return false
+	var restored_air: Array[Dictionary] = []
+	for plume in plumes:
+		if not (plume is Array) or plume.size() != 4:
+			return false
+		for index in range(4):
+			if not _valid_integer(plume[index], 10000000):
+				return false
+		var place := Vector2i(int(plume[0]), int(plume[1]))
+		var mass: float = float(plume[2]) / AIRBORNE_UNITS
+		if not world.config.contains_cell(place) or mass < 0.0000005 \
+				or mass > 0.05 or int(plume[3]) > int(data["last_day"]):
+			return false
+		restored_air.append({
+			"cell": place, "mass": mass, "born": int(plume[3])
+		})
 	_storms = storms
 	_floods = floods
 	_droughts = droughts
@@ -614,4 +651,5 @@ func load_data(data: Dictionary) -> bool:
 	last_day = int(data["last_day"])
 	total_events = int(data["total_events"])
 	last_events = restored
+	airborne_dust = restored_air
 	return true
