@@ -1,0 +1,110 @@
+name: "11.10 — длительный аудит физики, сезонов и сохранений"
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_impact_contract.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/tests/world_stage_11_10_audit.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/scripts/natural_disasters.gd"
+      - "godot/scripts/natural_processes.gd"
+      - "godot/scripts/nature_registry.gd"
+      - "godot/scripts/fire_registry.gd"
+      - "godot/scripts/surface.gd"
+      - "godot/scripts/hydrology.gd"
+      - ".github/workflows/godot-world-stage-11-10.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_impact_contract.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/tests/world_stage_11_10_audit.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/scripts/natural_disasters.gd"
+      - "godot/scripts/natural_processes.gd"
+      - "godot/scripts/nature_registry.gd"
+      - "godot/scripts/fire_registry.gd"
+      - "godot/scripts/surface.gd"
+      - "godot/scripts/hydrology.gd"
+      - ".github/workflows/godot-world-stage-11-10.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: world-11-10-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  world-integration-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-11-10.zip
+          unzip -q /tmp/godot-11-10.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+
+      - name: "Импортировать ресурсы и проверить синтаксис"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/world-11-10-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script|invalid UID|using text path instead" \
+              /tmp/world-11-10-import.log; then
+            exit 1
+          fi
+
+      - name: "11.10 — три seed, четыре сезона, два мира и реальная графика"
+        timeout-minutes: 12
+        run: |
+          set -o pipefail
+          timeout 690s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/world_stage_11_10_audit.gd 2>&1 \
+            | tee /tmp/world-11-10-audit.log
+          grep -q "11.10: 3 seed.*успешно" /tmp/world-11-10-audit.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/world-11-10-audit.log; then
+            exit 1
+          fi
+
+      - name: "Проверить структуру машинного отчёта"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Машинный отчёт описывает только программный CI, не FPS/VRAM.
+          path = Path("godot/tests/world-stage-11-10-audit.json")
+          report = json.loads(path.read_text(encoding="utf-8"))
+          assert report["passed"] is True and not report["failures"]
+          assert report["seeds"] == [1729, 2411, 7291]
+          assert report["total_simulation_days"] == 288
+          assert report["hardware_fps_measured"] is False
+          assert len(report["scenarios"]) == 3
+          for item in report["scenarios"]:
+              assert item["days"] == 96 and item["end_day"] == 97
+              assert item["geological_events_applied"] == 4
+              assert item["save_checkpoints"] >= 7
+              assert item["wood_units"] >= 0 and item["ash_units"] >= 0
+          print("11.10: машинный отчёт проверен; 288 суток, 3 seed.")
+          PY
+
+      - name: "Опубликовать отчёт о физике и диагностические логи"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-stage-11-10-integration-audit
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            godot/tests/world-stage-11-10-audit.json
+            /tmp/world-11-10-import.log
+            /tmp/world-11-10-audit.log
