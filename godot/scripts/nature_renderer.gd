@@ -7,6 +7,8 @@ const ContactShadow = preload("res://shaders/nature_contact_shadow.gdshader")
 const FireSmoke = preload("res://shaders/fire_smoke.gdshader")
 const FireFlame = preload("res://shaders/fire_flame.gdshader")
 const MAX_SMOLDER_PLUMES_PER_CHUNK := 8
+const MAX_FLAME_PLUMES_NEAR := 12
+const MAX_FLAME_PLUMES_FAR := 4
 const Terrain = preload("res://scripts/terrain.gd")
 const Models = preload("res://scripts/nature_asset_library.gd")
 const Felling = preload("res://scripts/nature_felling_visual.gd")
@@ -211,6 +213,11 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
     if nature == null or not nature.generated:
         return result
     var groups := {}
+    # Физических очагов может быть много; рендер ограничен
+    # только визуальными экземплярами текущего чанка.
+    var flame_plumes := 0
+    var flame_limit := MAX_FLAME_PLUMES_NEAR if detail >= \
+        SPARSE_GROUND_COVER_DETAIL else MAX_FLAME_PLUMES_FAR
     var season := Climate.season_name(nature.climate.day)
     var winter := season == "зима"
     for item in nature.objects_in_chunk(coord):
@@ -234,18 +241,24 @@ static func create_chunk(world: RefCounted, nature: RefCounted,
                 "дерево", "кустарник", "валун"]:
             _place_contact_shadow(groups, world, position, origin,
                 item["kind"], state, scale_factor, shadow_direction)
-        if fire != null and fire.is_burning(int(item["id"])):
-            # Огонь визуализируется только из реестра физических
-            # очагов. При удалении камеры или загрузке не появляется
-            # независимое вымышленное бедствие.
-            var fire_scale := 0.8 if item["kind"] == "кустарник" else 1.35
-            var fire_basis := Basis.IDENTITY.scaled(Vector3.ONE * fire_scale)
+        if fire != null and fire.is_burning(int(item["id"])) \
+                and flame_plumes < flame_limit:
+            # Существующий MultiMesh отображает только ближайшие
+            # по списку физические очаги в чанке. Дополнительные
+            # пожары остаются в FireRegistry и продолжают гореть.
+            var intensity: float = fire.burning_visual_strength(
+                int(item["id"]))
+            var scale := (0.8 if item["kind"] == "кустарник" else 1.35) \
+                * lerpf(0.55, 1.10, intensity)
+            var fire_basis := Basis.IDENTITY.scaled(Vector3.ONE * scale)
             _push(groups, "пламя",
                 Transform3D(fire_basis, origin + Vector3(0.0, 0.10, 0.0)),
-                Color.WHITE, phase, wind)
+                Color.WHITE, phase, wind, 0.0, intensity)
             _push(groups, "дым",
                 Transform3D(fire_basis, origin + Vector3(0.0, 0.85, 0.0)),
-                Color.WHITE, phase, wind)
+                Color.WHITE, phase, wind, 0.0,
+                lerpf(0.38, 1.0, intensity))
+            flame_plumes += 1
         if item["kind"] == "дерево":
             if state == "пень":
                 _push(groups, "пень",
