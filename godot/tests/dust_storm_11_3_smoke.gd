@@ -13,6 +13,7 @@ const Disasters = preload("res://scripts/natural_disasters.gd")
 const Runner = preload("res://scripts/world_day_runner.gd")
 const Visual = preload("res://scripts/weather_visual_state.gd")
 const FX = preload("res://scripts/weather_fx_controller.gd")
+const VisualBudget = preload("res://scripts/world_visual_budget.gd")
 
 var failures: Array[String] = []
 
@@ -332,7 +333,10 @@ func _test_runner_and_fx() -> void:
         "Буря видна цветным камерным GPU-эмиттером")
     if dust != null:
         var motion: ParticleProcessMaterial = dust.process_material
-        _check(dust.amount == 220 and motion.emission_box_extents.y == 2.0
+        # При среднем качестве буфер меньше старого максимума:
+        # фактическая пыль не добавляет слоты к физической буре.
+        _check(dust.amount == VisualBudget.particle_amounts(1)[7]
+            and motion.emission_box_extents.y == 2.0
             and Vector2(motion.direction.x,
                 motion.direction.z).dot(direction) > 0.98,
             "Пыль движется по направлению ветра без миллионов узлов")
