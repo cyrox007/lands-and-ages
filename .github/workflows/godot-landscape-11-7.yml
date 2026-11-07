@@ -108,6 +108,17 @@ jobs:
           unzip -q /tmp/godot.zip -d /tmp
           chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
 
+      - name: Импортировать текстуры рельефа и проверить GDScript
+        run: |
+          set -o pipefail
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit \
+            2>&1 | tee /tmp/landscape-rf4-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/landscape-rf4-import.log; then
+            exit 1
+          fi
+
       - name: "Реальные PNG: до и после ударов, панорама и сохранение"
         timeout-minutes: 10
         run: |
@@ -158,5 +169,6 @@ jobs:
           path: |
             /tmp/landscape-rf4/
             /tmp/landscape-rf4-gl.log
+            /tmp/landscape-rf4-import.log
           if-no-files-found: warn
           retention-days: 30
