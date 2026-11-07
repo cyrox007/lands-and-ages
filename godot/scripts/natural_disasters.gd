@@ -18,7 +18,7 @@ const DIRECTIONS := [
 	Vector2i(0, -1), Vector2i(0, 1)
 ]
 const KINDS := ["шторм", "шквал", "ураган", "смерч", "пыльная буря", "паводок", "засуха", "лавина",
-	"сель", "оползень", "землетрясение"]
+	"сель", "оползень", "обвал", "землетрясение"]
 
 var world: RefCounted
 var hydro: RefCounted
@@ -171,17 +171,25 @@ func conditions_at(cell: Vector2i, include_slopes: bool = true) -> Dictionary:
 		* clampf((moisture - 0.55) / 0.45, 0.0, 1.0)
 	var slide_risk := steep * loose \
 		* clampf((moisture - 0.53) / 0.47, 0.0, 1.0)
+	# Обвалы возникают на крутой открытой скале. Переходы температуры
+	# около нуля увеличивают риск трещинообразования, а рыхлая
+	# влажная почва здесь не служит обязательным условием.
+	var thermal_stress := 1.0 - smoothstep(1.5, 12.0, absf(air))
+	var rockfall_risk := steep * (1.0 if rock else 0.0) \
+		* (0.64 + 0.36 * thermal_stress)
 	if covered:
 		drought_risk = 0.0
 		avalanche_risk = 0.0
 		mudflow_risk = 0.0
 		slide_risk = 0.0
+		rockfall_risk = 0.0
 	return {
 		"шторм": storm_risk, "шквал": squall_risk,
 		"ураган": hurricane_risk, "смерч": tornado_risk,
 		"пыльная буря": dust_risk, "паводок": flood_risk,
 		"засуха": drought_risk, "лавина": avalanche_risk,
 		"сель": mudflow_risk, "оползень": slide_risk,
+		"обвал": rockfall_risk,
 		"землетрясение": fault_risk_at(cell),
 		"downhill": target
 	}
@@ -373,6 +381,12 @@ func _slope_event(kind: String, cell: Vector2i, risk: float) -> Dictionary:
 		if not surface.transfer_sediment(cell, target, amount):
 			return {}
 		return {"vertices": 2, "sediment_volume": amount}
+	if kind == "обвал":
+		# Обрушение меняет настоящие вершины; гидрология и визуальные
+		# чанки получают новую ревизию через единый WorldMap.
+		return Landscape.new(world).apply("обвал",
+			Vector2(cell) + Vector2(0.5, 0.5), 5.0,
+			clampf(risk * 0.36, 0.12, 0.36))
 	if kind == "оползень":
 		return Landscape.new(world).apply("оползень",
 			Vector2(cell) + Vector2(0.5, 0.5), 6.0,
@@ -480,6 +494,8 @@ func advance_day(day: int) -> Array[Dictionary]:
 				hazard = "лавина"
 			elif day % 7 == 0:
 				hazard = "сель"
+			elif day % 13 == 0:
+				hazard = "обвал"
 			elif day % 19 == 0:
 				hazard = "оползень"
 			if hazard.is_empty():
