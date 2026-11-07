@@ -47,7 +47,10 @@ func _run() -> void:
 				_check(float(event.get("frame_interval_p95_ms", -1)) >= 0.0,
 					"Интервал кадра получен из игрового цикла")
 				_check(not event.get("queue_timeout", true),
-					"Реальная очередь мешей успела завершиться")
+					"Очередь %s: pending=%d jobs=%d rebuild=%d nature=%d" % [
+						event["kind"], int(event["remaining_pending"]),
+						int(event["remaining_jobs"]), int(event["remaining_rebuilds"]),
+						int(event["remaining_nature"])])
 		_check(revisions == 3, "Все три деформации физически применились")
 		_check(int(report.get("final_revision", 0))
 			- int(report.get("initial_revision", 0)) == 3,
