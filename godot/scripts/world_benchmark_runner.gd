@@ -159,6 +159,12 @@ func run_landscape(view: Node3D) -> Dictionary:
 		var impact: Dictionary = view._nature.apply_landscape_impact(
 			kind, position, entry["radius"], 1.0, view._climate.day)
 		view._flush_world_changes()
+		# Аппаратный маршрут — настоящие природные события: помимо
+		# рельефа оставляем долгоживущий след в почве. Его физическая
+		# ревизия и рендер проверяются тем же испытательным циклом.
+		if view._surface.register_geological_scar(
+				kind, position, entry["radius"], 1.0):
+			view._refresh_visible(true)
 		var sync_ms := float(Time.get_ticks_usec() - start) / 1000.0
 
 		# Измеряем именно кадровый интервал, пока игровая очередь
