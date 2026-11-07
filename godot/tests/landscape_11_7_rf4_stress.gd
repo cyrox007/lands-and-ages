@@ -77,19 +77,28 @@ func _center(state: Dictionary, step: int) -> Vector2:
 	# Нельзя незаметно принять отсутствие подходящего участка.
 	var world: RefCounted = state["world"]
 	var hydro: RefCounted = state["hydro"]
-	var options: Array[Vector2] = []
+	var dry_sites: Array[Vector2] = []
+	var all_sites: Array[Vector2] = []
 	for y in range(16, 49, 8):
 		for x in range(16, 65, 8):
 			var cell := Vector2i(x, y)
 			var index: int = hydro.cell_index(cell)
-			if index < 0 or hydro.has_water(index):
+			if index < 0:
 				continue
 			var point := Vector2(cell) + Vector2(0.5, 0.5)
-			var h: float = world.height_at(point)
-			if h > -8.0 and h < 33.0:
-				options.append(point)
+			var height: float = world.height_at(point)
+			# Море и высокогорье тоже являются частью физического мира.
+			# Запас до граничной высоты позволяет выполнить деформацию.
+			if not is_finite(height) or height < Map.MIN_HEIGHT + 3.0 \
+					or height > Map.MAX_HEIGHT - 3.0:
+				continue
+			all_sites.append(point)
+			if not hydro.has_water(index):
+				dry_sites.append(point)
+	var options: Array[Vector2] = dry_sites if not dry_sites.is_empty() \
+		else all_sites
 	if options.is_empty():
-		_check(false, "Не найден безопасный геологический участок")
+		_check(false, "Нет участка с запасом допустимых высот")
 		return Vector2(40.5, 32.5)
 	return options[posmod(step * 17 + world.config.world_seed, options.size())]
 
@@ -198,6 +207,9 @@ func _season(seed: int) -> Dictionary:
 				impacts += 1
 		if day % SnapshotInterval == 0:
 			state = _snapshot(state)
+			# Восстановленный WorldMap содержит ту же геометрию,
+			# но ревизия отсчитывается заново от нового объекта.
+			last_revision = state["world"].revision
 			loads += 1
 		_check(state["world"]._dirty.is_empty(),
 			"Не сброшены изменённые чанки после суточной физики")
