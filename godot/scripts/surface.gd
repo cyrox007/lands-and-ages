@@ -37,6 +37,8 @@ var _air_temperature := PackedFloat32Array()
 var _runoff := PackedFloat32Array()
 var _sediment := PackedFloat32Array()
 var _waterlogged := PackedFloat32Array()
+# Долговременная нарушенность грунта: физический слой, не GPU-частица.
+var _geological_scar := PackedFloat32Array()
 var _sediment_balance := 0.0
 var snow_coverage := 0.0
 
@@ -97,6 +99,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 	_runoff.resize(count)
 	_sediment.resize(count)
 	_waterlogged.resize(count)
+	_geological_scar.resize(count)
 	if not has_state:
 		_air_temperature.fill(12.0)
 		_runoff.fill(0.0)
@@ -104,6 +107,7 @@ func rebuild(affected_chunks: Array[Vector2i] = []) -> void:
 		_frost.fill(0.0)
 		_sediment.fill(0.0)
 		_waterlogged.fill(0.0)
+		_geological_scar.fill(0.0)
 		_sediment_balance = 0.0
 	last_rebuilt_cells = 0
 	if partial:
@@ -228,6 +232,13 @@ func _apply_weather(i: int, rain: float, air: float) -> void:
 		_waterlogged[i] + infiltration_excess * 0.085
 		+ water_feed * 0.12 + melt * 0.035 - drainage,
 		0.0, 1.0)
+	# Восстановление — медленный суточный процесс, зависящий от
+	# тепла, влаги и промерзания. Простая перерисовка рельефа
+	# не может мгновенно удалить последствия обвала.
+	if _geological_scar[i] > 0.0:
+		var healing := (0.0007 + liquid * 0.0012
+			+ maxf(0.0, air) * 0.00005) * (1.0 - _frost[i] * 0.75)
+		_geological_scar[i] = maxf(0.0, _geological_scar[i] - healing)
 
 
 func _update_snow_coverage() -> void:
@@ -247,6 +258,53 @@ func runoff_map() -> PackedFloat32Array:
 
 func runoff_at_index(index: int) -> float:
 	return _runoff[index] if index >= 0 and index < _runoff.size() else 0.0
+
+
+func geological_scar_at_index(i: int) -> float:
+	# След хранится на физической сетке грунтов. Камера и соседние
+	# чанки не влияют на его силу или продолжительность.
+	return _geological_scar[i] if i >= 0 and i < _geological_scar.size() else 0.0
+
+
+func register_geological_scar(kind: String, center: Vector2,
+		radius: float, intensity: float) -> bool:
+	# После успешного изменения WorldMap заносим именно нарушение
+	# почвенной структуры. Геометрия и масса породы остаются во
+	# владении WorldMap, а снег/наносы здесь не уничтожаются.
+	if kind not in ["обвал", "оползень", "кратер",
+			"землетрясение", "просадка", "поднятие"]:
+		return false
+	if not is_finite(center.x) or not is_finite(center.y) \
+			or not world.config.contains_point(center) \
+			or not is_finite(radius) or radius < 2.0 or radius > 144.0 \
+			or not is_finite(intensity) or intensity <= 0.0 or intensity > 1.0:
+		return false
+	ensure_ready()
+	var changed := false
+	var left := maxi(0, floori(center.x - radius))
+	var right := mini(world.config.width - 1, ceili(center.x + radius))
+	var top := maxi(0, floori(center.y - radius))
+	var bottom := mini(world.config.height - 1, ceili(center.y + radius))
+	for y in range(top, bottom + 1):
+		for x in range(left, right + 1):
+			var distance := (Vector2(float(x) + 0.5,
+				float(y) + 0.5) - center).length()
+			if distance >= radius:
+				continue
+			# Повторное разрушение усиливает уже повреждённый участок,
+			# но не может поднять степень разрушения выше единицы.
+			var fraction := 1.0 - distance / radius
+			var i := y * world.config.width + x
+			var before: float = _geological_scar[i]
+			var after := minf(1.0, before + intensity * fraction * (1.0 - before))
+			if after <= before + 0.000001:
+				continue
+			_geological_scar[i] = after
+			changed = true
+	if changed:
+		revision += 1
+		surface_changed.emit(revision)
+	return changed
 
 
 func transfer_sediment(source: Vector2i, target: Vector2i,
@@ -490,8 +548,10 @@ func exposed_at_index(i: int) -> bool:
 func erosion_risk_at_index(i: int) -> float:
 	if i < 0 or i >= _type.size():
 		return 0.0
+	# Разрушенная корневая сеть временно повышает размываемость.
 	return clampf((1.0 - soil_depth_at_index(i) / 2.5) \
-		* (0.25 + _moisture[i] * 0.5), 0.0, 1.0)
+		* (0.25 + _moisture[i] * 0.5)
+		+ _geological_scar[i] * 0.28, 0.0, 1.0)
 
 
 func profile_at(cell: Vector2i, fire_damage: float = 0.0) -> Dictionary:
@@ -530,14 +590,19 @@ func profile_at(cell: Vector2i, fire_damage: float = 0.0) -> Dictionary:
 	# Ожог уменьшает плодородие до 55%, без уничтожения геологической
 	# основы. По мере суточного исцеления ожога плодородие возвращается.
 	var fire_loss := clampf(fire_damage, 0.0, 1.0)
-	var fertility := base_fertility * (1.0 - fire_loss * 0.55)
+	# Пожар и геологическое разрушение независимы: совмещаем
+	# последствия без потери исходного плодородия при восстановлении.
+	var scar: float = _geological_scar[i]
+	var fertility := base_fertility * (1.0 - fire_loss * 0.55) \
+		* (1.0 - scar * 0.65)
 	var growth := fertility * clampf((wet - 0.12) * 1.8, 0.0, 1.0) * thermal
 	return {
 		"cell": cell, "substrate": NAMES[_type[i]], "depth": depth,
 		"base_depth": _depth[i], "sediment": _sediment[i],
 		"waterlogging": _waterlogged[i], "wetland": is_wetland,
 		"fertility": fertility, "base_fertility": base_fertility,
-		"fire_damage": fire_loss, "porosity": _porosity[i],
+		"fire_damage": fire_loss, "geological_scar": scar,
+		"porosity": _porosity[i],
 		"moisture": wet, "snow": _snow[i], "frost": _frost[i],
 		"muddy": muddy, "cover": cover, "temperature": _air_temperature[i],
 		"growth_potential": growth,
@@ -564,6 +629,10 @@ func color_at(cell: Vector2i, mode: int = 0) -> Color:
 	if _sediment[i] > 0.001:
 		color = color.lerp(Color(0.74, 0.59, 0.37),
 			clampf(_sediment[i] * 9.0, 0.0, 0.55))
+	# Отображение состояния физической почвы в диагностическом виде.
+	# Снег перекрывает повреждённый грунт, но не лечит его.
+	if _geological_scar[i] > 0.0:
+		color = color.lerp(Color(0.49, 0.38, 0.30), _geological_scar[i] * 0.48)
 	if _snow[i] > 0.0:
 		color = color.lerp(Color(0.91, 0.94, 0.96), _snow[i])
 	return color
@@ -574,7 +643,7 @@ func color_at(cell: Vector2i, mode: int = 0) -> Color:
 func to_snapshot() -> Dictionary:
 	ensure_ready()
 	return {
-		"version": 1, "world_signature": JSON.stringify(world.to_data()),
+		"version": 2, "world_signature": JSON.stringify(world.to_data()),
 		"day": day,
 		"daily_summary": Marshalls.raw_to_base64(
 			PackedFloat64Array([temperature, precipitation,
@@ -585,13 +654,17 @@ func to_snapshot() -> Dictionary:
 		"air_temperature": Marshalls.raw_to_base64(_air_temperature.to_byte_array()),
 		"waterlogging": Marshalls.raw_to_base64(_waterlogged.to_byte_array()),
 		"runoff": Marshalls.raw_to_base64(_runoff.to_byte_array()),
-		"sediment": Marshalls.raw_to_base64(_sediment.to_byte_array())
+		"sediment": Marshalls.raw_to_base64(_sediment.to_byte_array()),
+		"geological_scar": Marshalls.raw_to_base64(_geological_scar.to_byte_array())
 	}
 
 
 func load_snapshot(data: Dictionary) -> bool:
 	ensure_ready()
-	if data.get("version") != 1 \
+	var version: Variant = data.get("version")
+	# Старые снимки не содержали нарушенного грунта — на них
+	# физический слой начинается с нуля, остальные поля прежние.
+	if version not in [1, 2] \
 			or data.get("world_signature") != JSON.stringify(world.to_data()):
 		return false
 	var saved_day: Variant = data.get("day")
@@ -615,8 +688,11 @@ func load_snapshot(data: Dictionary) -> bool:
 		return false
 	var decoded := {}
 	var count: int = _type.size()
-	for field in ["moisture", "snow", "frost", "air_temperature",
-			"waterlogging", "runoff", "sediment"]:
+	var fields := ["moisture", "snow", "frost", "air_temperature",
+		"waterlogging", "runoff", "sediment"]
+	if version == 2:
+		fields.append("geological_scar")
+	for field in fields:
 		if not (data.get(field) is String):
 			return false
 		var values: PackedFloat32Array = SnapshotCodec.decode_float32(
@@ -633,6 +709,8 @@ func load_snapshot(data: Dictionary) -> bool:
 				return false
 			if field == "air_temperature" and absf(value) > 150.0:
 				return false
+			if field == "geological_scar" and (value < 0.0 or value > 1.0):
+				return false
 			if field == "sediment" and absf(value) > 64.0:
 				return false
 		decoded[field] = values
@@ -644,6 +722,11 @@ func load_snapshot(data: Dictionary) -> bool:
 	_waterlogged = decoded["waterlogging"]
 	_runoff = decoded["runoff"]
 	_sediment = decoded["sediment"]
+	if version == 2:
+		_geological_scar = decoded["geological_scar"]
+	else:
+		_geological_scar.resize(count)
+		_geological_scar.fill(0.0)
 	_sediment_balance = daily[2]
 	day = int(saved_day)
 	temperature = daily[0]
