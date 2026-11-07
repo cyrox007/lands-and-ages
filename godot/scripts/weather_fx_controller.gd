@@ -428,6 +428,15 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	if _rain == null or _snow == null or _gusts == null:
 		return
 	var distance := clampf(zoom * 0.7, 10.0, 70.0)
+	# Видимость воронки согласована с тем же LOD, что и частицы:
+	# дальний обзор не получает крупный объект вне масштаба.
+	var event_visible := _enabled and _event_life > 0.0 and zoom < 105.0
+	if _tornado_funnel != null:
+		_tornado_funnel.visible = event_visible and _event_tornado
+		if _event_tornado and not _event_has_origin:
+			_tornado_funnel.position = Vector3(center.x, altitude, center.y)
+		_tornado_funnel.rotation.y = -atan2(
+			_event_direction.y, _event_direction.x)
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
 	var precipitation_lod := 1.0 - smoothstep(72.0, 105.0, zoom)
 	# Ветровой снос наследует нормализованное направление пяти
@@ -454,6 +463,10 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		var extent := distance if emitter == _gusts else minf(distance, 34.0)
 		material.emission_box_extents = Vector3(extent, 5.0, extent)
 		if emitter == _gusts:
+			# Физический смерч концентрирует порывы непосредственно
+			# вокруг своей воронки, а не в произвольной точке камеры.
+			if _event_tornado and _event_has_origin and _event_life > 0.0:
+				emitter.position = _event_origin + Vector3.UP * 10.0
 			# У шквала плотная узкая полоса и высокая скорость; у
 			# продолжительной грозы — широкая зона порывов над картой.
 			var visible_squall := _event_squall and _event_life > 0.0
@@ -526,16 +539,36 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	_gusts.visible = _gusts.emitting
 	# Сухая буря рисуется низко над грунтом. Ширина и число частиц
 	# зависят от приближения камеры и уровня качества, а не от FPS.
-	_dust.position = Vector3(center.x, altitude + 4.5, center.y)
+	# Пыль поднимается у физического эпицентра бедствия.
+	# Количество и насыщенность зависят от фактической массы
+	# грунта, перенесённой NaturalDisasters, а не от числа кадров.
+	_dust.position = _event_origin + Vector3.UP * 2.4 \
+		if _event_has_origin else Vector3(center.x, altitude + 2.4, center.y)
 	var dust_motion: ParticleProcessMaterial = _dust.process_material
-	dust_motion.emission_box_extents = Vector3(distance * 0.78,
-		2.0, distance * 0.46)
-	dust_motion.direction = Vector3(airflow.x, 0.13, airflow.y).normalized()
+	var dust_strength := 0.0
+	if _event_dust and _event_life > 0.0:
+		dust_strength = _event_severity * _event_aerosol
+	elif _event_tornado and _event_life > 0.0:
+		# Низовой пылевой вихрь использует тот же эмиттер;
+		# второй аэрозольный бюджет не создаём.
+		dust_strength = _event_severity * 0.23
+	dust_motion.emission_box_extents = Vector3(
+		distance * (0.23 if _event_tornado else 0.78),
+		0.7 if _event_tornado else 2.0,
+		distance * (0.22 if _event_tornado else 0.46))
+	dust_motion.direction = Vector3(airflow.x, 0.14, airflow.y).normalized()
+	dust_motion.initial_velocity_min = lerpf(6.0, 13.0, dust_strength)
+	dust_motion.initial_velocity_max = lerpf(10.0, 22.0, dust_strength)
+	var dust_quad := _dust.draw_pass_1 as QuadMesh
+	dust_quad.size = Vector2(lerpf(0.78, 1.62, dust_strength),
+		lerpf(0.44, 1.08, dust_strength))
+	var dust_material := dust_quad.material as StandardMaterial3D
+	dust_material.albedo_color = Color(0.73, 0.58, 0.35,
+		0.11 + dust_strength * 0.28)
 	_dust.seed = world_seed + 71
-	_dust.amount_ratio = _event_severity * quality_factor \
-		if _event_dust and _event_life > 0.0 else 0.0
-	_dust.amount_ratio *= precipitation_lod
-	_dust.emitting = _enabled and _dust.amount_ratio >= 0.08
+	_dust.amount_ratio = clampf(
+		dust_strength * quality_factor * precipitation_lod, 0.0, 1.0)
+	_dust.emitting = _enabled and _dust.amount_ratio >= 0.025
 	_dust.visible = _dust.emitting
 
 
