@@ -462,6 +462,12 @@ func _setup_interface() -> void:
 	benchmark_button.text = "Измерить производительность камеры (8.8)"
 	benchmark_button.pressed.connect(_run_device_benchmark)
 	_debug_details.add_child(benchmark_button)
+	# Отдельный замер реальной перестройки кратера, оползня и
+	# просадки: не смешиваем его с неизменяемым маршрутом камеры 8.8.
+	var landscape_benchmark := Button.new()
+	landscape_benchmark.text = "Измерить перестройку рельефа (11.7/RF4)"
+	landscape_benchmark.pressed.connect(_run_landscape_benchmark)
+	_debug_details.add_child(landscape_benchmark)
 	var felling_button := Button.new()
 	felling_button.text = "Ударить по ближайшему дереву"
 	felling_button.pressed.connect(_debug_fell_nearest_tree)
@@ -1952,6 +1958,40 @@ func _run_device_benchmark() -> void:
 	_update_material_detail()
 	_update_camera()
 	_refresh_visible(false)
+	_benchmark_running = false
+	_update_hud()
+
+
+func _run_landscape_benchmark() -> void:
+	# Протокол RF4 работает только в живой сцене, без фоновых
+	# расчётов дней и сохранений. Во время замера ввод отключён,
+	# а после него результат остаётся в пользовательском JSON.
+	if _benchmark_running:
+		return
+	if _days_pending > 0 or _day_task_id >= 0 or not _storage_request.is_empty():
+		_benchmark_status = "Сначала завершите расчёт дней и сохранение"
+		_update_hud()
+		return
+	_benchmark_running = true
+	_benchmark_status = "RF4: три физических события и перестройка мешей"
+	_update_hud()
+	var report: Dictionary = await BenchmarkRunner.new().run_landscape(self)
+	var path := "user://world-landscape-11-7-rf4-device.json"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	var saved := file != null
+	if saved:
+		file.store_string(JSON.stringify(report, "\t") + "\n")
+		file.close()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.clipboard_set(JSON.stringify(report))
+	var events: Array = report["events"]
+	var completed := 0
+	for event in events:
+		if event.get("applied", false) and not event.get("queue_timeout", true):
+			completed += 1
+	_benchmark_status = "RF4: %d/3 перестроек. %s" % [
+		completed, "JSON сохранён и скопирован: " + path
+		if saved else "JSON скопирован; запись файла не удалась"]
 	_benchmark_running = false
 	_update_hud()
 
