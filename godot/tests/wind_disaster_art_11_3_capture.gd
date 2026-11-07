@@ -86,7 +86,7 @@ func _render_event(view: Node3D, folder: String, name: String,
 	# расчёты ветровала/пыли проверяют отдельные физические smoke.
 	view._atmosphere.clear_after_load(-1)
 	var position: Vector2 = view._center
-	var cell := view._world_model.config.cell_at(position)
+	var cell: Vector2i = view._world_model.config.cell_at(position)
 	var hazard: Dictionary = {
 		"kind": name, "cell": cell, "day": 5,
 		"severity": 0.98, "sediment_volume": 0.038
@@ -94,7 +94,7 @@ func _render_event(view: Node3D, folder: String, name: String,
 	if name != "спокойно":
 		view._atmosphere.show_hazard(hazard, Vector2.RIGHT,
 			view._world_model)
-	var height := view._world_model.config.to_scene(position,
+	var height: float = view._world_model.config.to_scene(position,
 		view._world_model.height_at(position)).y
 	view._weather_fx.apply_snapshot(_climate(), position, height,
 		view._camera.size, 1729)
