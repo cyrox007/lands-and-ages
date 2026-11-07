@@ -107,8 +107,16 @@ func _test_airborne() -> void:
 	# повреждённые значения без частичной записи в живой объект.
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(disasters.to_data()))
 	var copy := Disasters.new(world, hydro, surface, climate)
-	_check(copy.load_data(saved) and copy.to_data() == disasters.to_data(),
-		"Масса и возраст облаков переживают формат бедствий v2")
+	var loaded_v2: bool = copy.load_data(saved)
+	var equal_v2: bool = loaded_v2 and copy.to_data() == disasters.to_data()
+	if not equal_v2:
+		# Здесь различаем отказ строгого JSON и погрешность при
+		# обратном кодировании микродолей воздушной массы.
+		printerr("11.3/V2.10 диагностика v2: load=", loaded_v2,
+			" last_day=", disasters.last_day, " climate=", climate.day,
+			" surface=", surface.day, " air=", saved.get("airborne_dust"),
+			" roundtrip=", copy.to_data().get("airborne_dust"))
+	_check(equal_v2, "Масса и возраст облаков переживают формат бедствий v2")
 	var before_bad: String = JSON.stringify(copy.to_data())
 	var broken := saved.duplicate(true)
 	broken["airborne_dust"] = [[-1, 0, 2000, 2]]
@@ -130,7 +138,12 @@ func _test_airborne() -> void:
 		if event.size() == 10:
 			event.pop_back()
 	var legacy := Disasters.new(world, hydro, surface, climate)
-	_check(legacy.load_data(old) and legacy.airborne_volume() == 0.0,
+	var loaded_v1: bool = legacy.load_data(old)
+	if not loaded_v1:
+		printerr("11.3/V2.10 диагностика v1: version=", old.get("version"),
+			" last_day=", old.get("last_day"),
+			" air=", old.get("airborne_dust", "отсутствует"))
+	_check(loaded_v1 and legacy.airborne_volume() == 0.0,
 		"Сохранения стихийных бедствий v1 загружаются без выдуманной пыли")
 
 	# Полный WorldSave обязан восстановить высоты, Surface и
@@ -145,6 +158,15 @@ func _test_airborne() -> void:
 		"climate": climate, "weather": weather,
 		"natural": processes, "disasters": disasters
 	})
+	if captured.is_empty():
+		printerr("11.3/V2.10 диагностика WorldSave: day=", climate.day,
+			"/", surface.day, " rev=", world.revision,
+			" hydro=", hydro._terrain_revision,
+			" surface=", surface._terrain_revision,
+			" climate=", climate._terrain_revision,
+			" weather_day=", weather.last_day,
+			" natural_day=", processes.last_day,
+			" disasters_day=", disasters.last_day)
 	_check(not captured.is_empty(),
 		"Полный WorldSave фиксирует одновременные грунт и взвесь")
 	if captured.is_empty():
