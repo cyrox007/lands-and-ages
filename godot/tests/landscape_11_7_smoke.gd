@@ -92,8 +92,8 @@ func _exercise(state: Dictionary) -> Dictionary:
 	var center := Vector2(30.0, 21.0)
 	var pit := Vector2i(30, 21)
 	var rim := Vector2i(36, 21)
-	var before_pit := world.vertex_at(pit)
-	var before_rim := world.vertex_at(rim)
+	var before_pit: float = world.vertex_at(pit)
+	var before_rim: float = world.vertex_at(rim)
 	mass_before = _total_height(world)
 	revision_before = world.revision
 	var impact: Dictionary = landscape.apply("кратер", center, 8.0, 1.4)
