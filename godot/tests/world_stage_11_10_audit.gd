@@ -83,7 +83,10 @@ func _restore(state: Dictionary, context: String) -> Dictionary:
 	var snapshot: Dictionary = _save(state, context)
 	if snapshot.is_empty():
 		return {}
-	var data: Variant = JSON.parse_string(JSON.stringify(snapshot))
+	# WorldSave.write_file использует full_precision=true: короткий
+	# JSON округлил бы Float32-риск стихий и создал ложный дрейф.
+	var data: Variant = JSON.parse_string(JSON.stringify(
+		snapshot, "", true, true))
 	_check(data is Dictionary, "JSON снимка декодирован: " + context)
 	if not (data is Dictionary):
 		return {}
