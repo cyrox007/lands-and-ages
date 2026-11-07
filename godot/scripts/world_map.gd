@@ -40,10 +40,10 @@ func _base_height(coord: Vector2i) -> float:
 	var key := vertex_id(coord)
 	if _base_cache.has(key):
 		return float(_base_cache[key])
-	# Восстанавливаем старую геометрию сохранённых миров по версии:
-	# новая физическая форма не должна перескакивать под объектами.
+	# Единый генератор всегда выдаёт физическую высоту для
+	# рендера, гидрологии, эрозии и коллизий одновременно.
 	var value := Terrain.vertex_height_on_map(coord.x, coord.y,
-		config.width, config.height, config.world_seed, config.relief_version)
+		config.width, config.height, config.world_seed)
 	if _base_cache.size() >= BASE_CACHE_LIMIT:
 		_base_cache.clear()
 	_base_cache[key] = value

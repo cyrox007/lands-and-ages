@@ -1,4 +1,4 @@
-name: R3 — физические горы, овраги и совместимость сохранений
+name: R3/R5 — горные хребты, овраги и актуальные сохранения
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/r3-import.log; then
             exit 1
           fi
-      - name: "Физические гребни и овраги — версии и сохранения"
+      - name: "Физические гребни, овраги и текущие сохранения"
         run: |
           set -o pipefail
           timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
@@ -79,7 +79,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: relief-r3-geometry-compat
+          name: relief-r3-r5-geometry-current
           path: |
             /tmp/r3-*.log
           if-no-files-found: ignore
