@@ -106,9 +106,14 @@ func show_hazard(hazard: Dictionary, direction: Vector2,
 		"пыльная буря":
 			# Физический результат содержит фактически перенесённую
 			# массу: сильный ветер без грунта не даёт густой завесы.
+			# Новое событие сообщает физически взвешенную массу.
+			# Масштаб нормируем к прежнему максимуму 0.042,
+			# чтобы не менять художественный бюджет уже принятых FX.
+			var physical_aerosol := float(hazard.get("airborne_volume", -1.0))
+			var visual_amount := physical_aerosol * 9.0 if physical_aerosol >= 0.0 \
+				else float(hazard.get("sediment_volume", -1.0))
 			precipitation.show_dust_storm_event(severity, direction,
-				5.0, float(hazard.get("sediment_volume", -1.0)),
-				position, located)
+				5.0, visual_amount, position, located)
 
 
 func clear_after_load(last_day: int) -> void:
