@@ -173,9 +173,14 @@ func run_landscape(view: Node3D) -> Dictionary:
 			var tick := Time.get_ticks_usec()
 			frames.append(float(tick - last_tick) / 1000.0)
 			last_tick = tick
-			var pending: int = view._pending.size() + view._chunk_jobs.size()
+			var pending: int = view._pending.size() + view._chunk_jobs.size() \
+				+ view._rebuild_pending.size() + view._nature_dirty.size()
 			peak_pending = maxi(peak_pending, pending)
-			if pending == 0 and frame >= 3:
+			# Дождаться также видимых мешей, иначе пустая очередь
+			# могла бы означать ещё не поставленные на сборку чанки.
+			if pending == 0 and not view._active.is_empty() \
+					and view._active.size() >= view._wanted_chunks.size() \
+					and frame >= 3:
 				timed_out = false
 				break
 		results.append({
