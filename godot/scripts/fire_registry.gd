@@ -60,6 +60,16 @@ func burning_ids() -> Array[int]:
     return ids
 
 
+func burning_visual_strength(id: int) -> float:
+    # Читаем только оставшееся физическое топливо: GPU не может
+    # изменить очаг, ускорить горение или создать новую древесину.
+    # Нулевой результат позволяет отличить погасший огонь от углей.
+    if not _burning.has(id):
+        return 0.0
+    var fuel: int = int(_burning[id]["fuel"])
+    return clampf(float(fuel) / 500.0, 0.25, 1.0)
+
+
 func smolder_count() -> int:
     return _embers.size()
 
