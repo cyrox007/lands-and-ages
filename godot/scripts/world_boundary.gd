@@ -43,7 +43,9 @@ static func _side_info(x: float, y: float, width: int, height: int,
 	if style == COAST:
 		target = -5.8 + 1.1 * sin(along / 27.0 + float(world_seed % 251) * 0.09)
 	elif style == RIDGE:
-		target = 11.0 + 3.0 * sin(along / 19.0 + float(world_seed % 293) * 0.1)
+		# Пограничные хребты не должны выглядеть холмиками:
+		# высота опирается на ту же физическую границу мира.
+		target = 20.0 + 7.0 * sin(along / 19.0 + float(world_seed % 293) * 0.1)
 	return {"style": style, "influence": influence, "target": target}
 
 
