@@ -20,6 +20,7 @@ var _source_id := -1
 var _source_strength := 0.0
 var _scans := 0
 var _idle_frames := 0
+var _muted_for_pause := false
 
 
 func _ready() -> void:
@@ -106,6 +107,7 @@ func _stop_source() -> void:
 		_light.light_energy = 0.0
 	if _audio != null:
 		_audio.stop()
+	_muted_for_pause = false
 
 
 func clear_visuals() -> void:
@@ -175,10 +177,18 @@ func _process(delta: float) -> void:
 	if _audio == null or _light == null:
 		return
 	if get_tree().paused:
-		_audio.stream_paused = true
+		# Godot Dummy AudioDriver может не удерживать флаг
+		# stream_paused. Полная остановка гарантирует тишину
+		# на реальном устройстве и в headless-режиме.
+		if _audio.is_playing():
+			_audio.stop()
+		_muted_for_pause = true
 		_light.light_energy = 0.0
 		return
-	_audio.stream_paused = false
+	if _muted_for_pause:
+		_muted_for_pause = false
+		if _source_id >= 0 and _enabled and not _audio.is_playing():
+			_audio.play()
 	if not _light.visible:
 		return
 	_flicker_time += minf(delta, 0.12)
