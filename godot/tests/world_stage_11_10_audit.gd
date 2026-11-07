@@ -290,16 +290,21 @@ func _audit_seed(seed: int, atmosphere: Node3D) -> Dictionary:
 		peer["runner"].run_day()
 		var original: Dictionary = state["runner"].last_result
 		var replay: Dictionary = peer["runner"].last_result
-		if original != replay and day == 16:
-			# Выводим различающиеся поля первого шага с эрозией,
-			# чтобы установить настоящую причину, не отключая
-			# проверку всего суточного результата.
-			for key in original.keys():
-				if original[key] != replay.get(key):
-					print("11.10 DIFF seed=", seed, " key=", key,
-						" original=", var_to_str(original[key]),
-						" restored=", var_to_str(replay.get(key)))
-		_check(original == replay,
+		# WorldMap.revision — локальный счётчик живого экземпляра.
+		# После Save.restore он по контракту обнуляется, хотя
+		# высоты и весь физический результат идентичны. Исключаем
+		# только эту служебную метку из поля эрозии и проверяем
+		# существование/корректность локальной ревизии отдельно.
+		var first_events: Dictionary = original.duplicate(true)
+		var second_events: Dictionary = replay.duplicate(true)
+		for candidate in [first_events, second_events]:
+			var erosion: Dictionary = candidate.get("erosion", {})
+			if erosion.has("revision"):
+				_check(int(erosion["revision"]) > 0,
+					"Локальная ревизия события эрозии действительна")
+				erosion.erase("revision")
+				candidate["erosion"] = erosion
+		_check(first_events == second_events,
 			"Единые физические события после загрузки: seed %d день %d" %
 			[seed, day])
 		_check(int(original.get("day", -1)) == day,
