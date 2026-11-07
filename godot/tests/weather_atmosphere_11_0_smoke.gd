@@ -39,10 +39,10 @@ func _check_catalog(atmosphere: Node3D) -> void:
 	var ids := {}
 	var required := [
 		"rain", "snow", "wet_snow", "hail", "splashes",
-		"snowdrift", "gusts", "dust", "tornado_funnel", "clouds", "lightning", "thunder"
+		"snowdrift", "gusts", "dust", "dust_haze", "tornado_funnel", "clouds", "lightning", "thunder"
 	]
 	_check(catalog.size() == required.size(),
-		"Каталог содержит двенадцать реально используемых атмосферных ресурсов")
+		"Каталог содержит тринадцать реально используемых атмосферных ресурсов")
 	for entry in catalog:
 		var id: String = str(entry.get("id", ""))
 		_check(not ids.has(id) and required.has(id),
