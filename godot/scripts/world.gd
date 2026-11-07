@@ -9,6 +9,7 @@ const Chunk = preload("res://scripts/chunk.gd")
 const ChunkVisibility = preload("res://scripts/chunk_visibility.gd")
 const ChunkRenderCache = preload("res://scripts/chunk_render_cache.gd")
 const ChunkBuildQueue = preload("res://scripts/chunk_build_queue.gd")
+const VisualBudget = preload("res://scripts/world_visual_budget.gd")
 const ChunkBuildWorker = preload("res://scripts/chunk_build_worker.gd")
 const BenchmarkRoute = preload("res://scripts/world_benchmark_route.gd")
 const BenchmarkRunner = preload("res://scripts/world_benchmark_runner.gd")
@@ -88,6 +89,10 @@ var _shadow_center_chunk := Vector2i(-100000, -100000)
 var _shadow_active := false
 var _shadow_quality := 1
 var _atmosphere_quality := 1
+# Только рендер зависит от адаптивного бюджета, не физические поля.
+var _visual_budget := VisualBudget.new()
+var _applied_visual_quality := -1
+var _last_shadow_zoom := -1.0
 var _atmosphere: Node3D
 var _lightning_life := 0.0
 var _weather_fx: Node3D
@@ -255,7 +260,7 @@ func _ready() -> void:
 	add_child(_atmosphere)
 	_weather_fx = _atmosphere.precipitation
 	_lightning_fx = _atmosphere.lightning
-	_atmosphere.set_quality(_atmosphere_quality)
+	_apply_visual_budget()
 	_atmosphere.sync_world(_climate, _world_model, _center, _camera.size)
 	_sync_water_weather()
 	_setup_interface()
@@ -610,7 +615,8 @@ func _process(delta: float) -> void:
 				var weather_zoom := _display_camera.size if _display_camera != null else _camera.size
 				_atmosphere.sync_world(_climate, _world_model, weather_center, weather_zoom)
 				_sync_water_weather()
-				_weather_fx_cooldown = 0.35
+				_weather_fx_cooldown = VisualBudget.weather_sync_interval(
+					_render_zoom(), _mesh_budget_p95)
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	if _days_pending == 0 and _day_task_id < 0:
@@ -618,6 +624,9 @@ func _process(delta: float) -> void:
 		if _mesh_budget_sample_in <= 0.0:
 			_mesh_budget_p95 = _frame_percentile(_frame_samples, 0.95)
 			_mesh_budget_sample_in = 0.15
+			# Ограничиваем визуальную нагрузку по p95, не меняя
+			# ни климат, ни дневной WorkerThreadPool.
+			_apply_visual_budget()
 		_mesh_build_budget_us = ChunkBuildQueue.budget_us(
 			_mesh_budget_p95, _pan_pending, MESH_BUDGET_US)
 		if is_inside_tree():
@@ -838,12 +847,29 @@ func _set_shadow_quality(preset: int) -> void:
 	_update_shadow_lod()
 
 
+func _apply_visual_budget() -> void:
+	# Автор выбирает максимум качества, а p95/масштаб ограничивают
+	# только графические затраты. Физические данные не изменяем.
+	if _camera == null:
+		return
+	var old_pressure: int = _visual_budget._pressure_cap
+	var level: int = _visual_budget.resolve(
+		_atmosphere_quality, _camera.size, _mesh_budget_p95)
+	if _atmosphere != null and _applied_visual_quality != level:
+		_atmosphere.set_quality(level)
+		_applied_visual_quality = level
+		_weather_fx_cooldown = 0.0
+	# При смене профиля давления корректируем дальность теней
+	# даже без движения камеры.
+	if old_pressure != _visual_budget._pressure_cap:
+		_update_shadow_lod()
+
+
 func _set_atmosphere_quality(preset: int) -> void:
-	# Переключение графического профиля обновляет только GPU и звук.
-	# Очередь игровых дней, сохранения и физические параметры не меняем.
+	# Ручная настройка остаётся потолком и не переписывается
+	# автоматикой. Сохранения и игровые сутки не затрагиваются.
 	_atmosphere_quality = clampi(preset, 0, 2)
-	if _atmosphere != null:
-		_atmosphere.set_quality(_atmosphere_quality)
+	_apply_visual_budget()
 	# Изменение качества тумана действует немедленно даже при
 	# неподвижной камере и неизменном климатическом снимке.
 	if not _weather_light_current.is_empty():
@@ -857,8 +883,10 @@ func _contact_shadow_direction() -> Vector2:
 
 
 func _shadow_zoom() -> float:
-	# Меняем дальность теневой карты независимо от камеры и геометрии.
-	return _render_zoom() * [1.5, 1.0, 0.82][_shadow_quality]
+	# Давление кадра временно снижает теневой профиль,
+	# но не повышает его выше ручного значения автора.
+	var quality := mini(_shadow_quality, _visual_budget._pressure_cap)
+	return _render_zoom() * [1.5, 1.0, 0.82][quality]
 
 
 func _update_shadow_lod() -> void:
@@ -882,10 +910,12 @@ func _update_shadow_lod() -> void:
 				_ground_material.set_shader_parameter("geometry_shadow_opacity", opacity)
 		if _world_light.shadow_enabled != enabled:
 			_world_light.shadow_enabled = enabled
-	if _shadow_active == enabled and _shadow_center_chunk == center_chunk:
+	if _shadow_active == enabled and _shadow_center_chunk == center_chunk \
+			and is_equal_approx(_last_shadow_zoom, zoom):
 		return
 	_shadow_active = enabled
 	_shadow_center_chunk = center_chunk
+	_last_shadow_zoom = zoom
 	for coord in _active.keys():
 		var near_ground: bool = ShadowLOD.chunk_casts(coord, center_chunk,
 			zoom, _view_mode)
@@ -898,6 +928,7 @@ func _change_zoom(multiplier: float) -> void:
 	var previous_lod := _detail_for_zoom(_camera.size) < NatureRenderer.SPARSE_GROUND_COVER_DETAIL
 	_camera.size = clampf(_camera.size * multiplier, MIN_ZOOM, MAX_ZOOM)
 	var next_lod := _detail_for_zoom(_camera.size) < NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	_apply_visual_budget()
 	_pan_delta = Vector2.ZERO
 	_pan_pending = true
 	_update_material_detail()
@@ -1391,12 +1422,13 @@ func _flush_nature_visuals() -> void:
 	if _day_task_id >= 0 or _nature_dirty.is_empty():
 		return
 	var processed := 0
+	var refresh_limit := VisualBudget.nature_refresh_limit(_mesh_budget_p95)
 	for chunk in _nature_dirty.keys():
 		if not _active.has(chunk) or _view_mode != 0:
 			_render_cache.discard(chunk)
 			_nature_dirty.erase(chunk)
 			continue
-		if processed >= MAX_NATURE_REFRESHES_PER_FRAME:
+		if processed >= refresh_limit:
 			continue
 		_refresh_nature_chunk(chunk)
 		_nature_dirty.erase(chunk)
@@ -2144,6 +2176,15 @@ func _update_hud() -> void:
 		_mesh_build_budget_us, _skipped_stale_jobs]
 	_status.text += "Коллизии: обходов %d · пропусков %d · создано чанков %d\n" % [
 		_collider_sweeps, _collider_idle_skips, _collider_chunks_created]
+	if _atmosphere != null:
+		var gpu: Dictionary = _atmosphere.debug_budget()
+		_status.text += "Графика: автор %d · действующий %d · эмиттеры %d/%d · частицы %d/%d\n" % [
+			_atmosphere_quality, _applied_visual_quality,
+			int(gpu["gpu_emitters"]), VisualBudget.MAX_GPU_EMITTERS,
+			int(gpu["gpu_max_particles"]), VisualBudget.MAX_GPU_PARTICLES]
+		_status.text += "LOD: природа %d чанков/кадр · интервал погоды %.2f с\n" % [
+			VisualBudget.nature_refresh_limit(_mesh_budget_p95),
+			VisualBudget.weather_sync_interval(_render_zoom(), _mesh_budget_p95)]
 	_status.text += "Видимость: %.2f мс · быстрых отсечений %d · точных проверок %d\n" % [
 		float(_last_visibility_us) / 1000.0,
 		_visibility_fast_rejects, _visibility_precise_checks]
