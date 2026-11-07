@@ -214,9 +214,9 @@ func _plan_crater(center: Vector2, radius: float,
 	# Землетрясение само по себе не выдумывает ударный кратер.
 	# Полный край нужен, чтобы выброшенная порода не исчезала
 	# за пределами мира и оставалась в том же физическом слое.
-	if radius < 3.0 or center.x - radius < 0.0 \\
-			or center.y - radius < 0.0 \\
-			or center.x + radius > float(world.config.width) \\
+	if radius < 3.0 or center.x - radius < 0.0 \
+			or center.y - radius < 0.0 \
+			or center.x + radius > float(world.config.width) \
 			or center.y + radius > float(world.config.height):
 		return false
 
