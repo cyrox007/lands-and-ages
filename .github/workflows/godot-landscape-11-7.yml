@@ -1,0 +1,162 @@
+name: "11.7/RF4 — кадры геологии и сезонная нагрузочная регрессия"
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/tests/landscape_11_7_rf4_*.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/natural_disasters.gd"
+      - "godot/scripts/natural_processes.gd"
+      - "godot/scripts/landscape_events.gd"
+      - "godot/scripts/nature_*.gd"
+      - "godot/scripts/world_save.gd"
+      - ".github/workflows/godot-landscape-11-7.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/tests/landscape_11_7_rf4_*.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/natural_disasters.gd"
+      - "godot/scripts/natural_processes.gd"
+      - "godot/scripts/landscape_events.gd"
+      - "godot/scripts/nature_*.gd"
+      - "godot/scripts/world_save.gd"
+      - ".github/workflows/godot-landscape-11-7.yml"
+
+concurrency:
+  group: landscape-rf4-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  physics-year:
+    name: "RF4 — три полных года и девять загрузок"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+
+      - name: "Сезонные цепочки: 3 seed × 96 дней"
+        timeout-minutes: 9
+        run: |
+          set -o pipefail
+          timeout 490s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/landscape_11_7_rf4_stress.gd \
+            -- --out=/tmp/landscape-rf4-stress.json \
+            2>&1 | tee /tmp/landscape-rf4-stress.log
+          grep -q "11.7/RF4/STRESS:.*успешно" /tmp/landscape-rf4-stress.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/landscape-rf4-stress.log; then
+            exit 1
+          fi
+
+      - name: Проверить отчёт нагрузки
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Метрики относятся только к headless CPU CI, не к устройствам.
+          report = json.loads(Path("/tmp/landscape-rf4-stress.json").read_text())
+          assert report["checks_passed"] is True
+          assert report["hardware_fps_verified"] is False
+          assert len(report["seeds"]) == 3
+          assert all(x["days"] == 96 and x["impacts"] == 6
+                     and x["full_restore_cycles"] == 3
+                     and x["day_cpu_ms_p95"] > 0
+                     for x in report["seeds"])
+          print("RF4: 288 игровых суток, 18 воздействий, 9 загрузок — успешно")
+          PY
+
+      - name: Опубликовать CPU-отчёт и журнал
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: landscape-11-7-rf4-seasons
+          path: |
+            /tmp/landscape-rf4-stress.json
+            /tmp/landscape-rf4-stress.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  visual-captures:
+    name: "RF4 — настоящие игровые PNG кратера и сдвига"
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установить программный OpenGL и Godot 4.7.2
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+
+      - name: "Реальные PNG: до и после ударов, панорама и сохранение"
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/landscape-rf4
+          timeout 540s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/landscape_11_7_rf4_capture.gd \
+            -- --out=/tmp/landscape-rf4 \
+            2>&1 | tee /tmp/landscape-rf4-gl.log
+          grep -q "11.7/RF4/GL:.*успешно" /tmp/landscape-rf4-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/landscape-rf4-gl.log; then
+            exit 1
+          fi
+
+      - name: Проверить настоящие кадры и границы приёмки
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Не присваиваем отметки аппаратного FPS или художественного качества.
+          base = Path("/tmp/landscape-rf4")
+          report = json.loads((base / "manifest.json").read_text())
+          assert report["stage"] == "11.7"
+          assert report["subtask"] == "RF4"
+          assert report["checks_passed"] is True
+          assert report["artistic_approval"] is False
+          assert report["pc_android_gpu_verified"] is False
+          assert report["hardware_fps_verified"] is False
+          assert report["real_game_world"] is True
+          assert len(report["captures"]) == 5
+          assert report["crater_changed_sample_pixels"] > 40
+          assert report["shift_changed_sample_pixels"] > 15
+          for name in report["captures"]:
+              assert (base / name).stat().st_size > 18000
+          print("RF4: пять реальных PNG игровой карты Godot — успешно")
+          PY
+
+      - name: Опубликовать кадры, манифест и журнал
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: landscape-11-7-rf4-real-game-captures
+          path: |
+            /tmp/landscape-rf4/
+            /tmp/landscape-rf4-gl.log
+          if-no-files-found: warn
+          retention-days: 30
