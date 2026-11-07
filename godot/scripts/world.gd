@@ -395,6 +395,9 @@ func _setup_materials() -> void:
 	_ground_material.set_shader_parameter("terrain_normal_roughness",
 		TerrainNormalRoughness)
 	_ground_material.set_shader_parameter("macro_strength", 1.0)
+	# Скальная художественная детализация включена для настоящих
+	# обнажений. Для сравнения кадров R4 можно временно задать 0.
+	_ground_material.set_shader_parameter("rock_face_detail", 1.0)
 	# Используем направление уже существующего солнца, а не
 	# декоративный источник дальнего света из отдельной системы.
 	if _world_light != null:

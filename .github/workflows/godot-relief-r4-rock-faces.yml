@@ -1,0 +1,144 @@
+name: "Рельеф R4a — скальные материалы и настоящие кадры Godot"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/scripts/world.gd"
+      - "godot/tests/rock_faces_r4_*.gd"
+      - ".github/workflows/godot-relief-r4-rock-faces.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/scripts/world.gd"
+      - "godot/tests/rock_faces_r4_*.gd"
+      - ".github/workflows/godot-relief-r4-rock-faces.yml"
+  workflow_dispatch:
+
+jobs:
+  rock-physics:
+    name: "R4a — физика, PBR, LOD и швы"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Скачать Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r4.zip
+          unzip -q /tmp/godot-r4.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импорт проекта и проверка шейдера"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/rock-r4-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/rock-r4-import.log; then
+            exit 1
+          fi
+      - name: "Физические инварианты нового скального материала"
+        run: |
+          set -o pipefail
+          for test in rock_faces_r4_smoke relief_visual_contrast_smoke world_pbr_materials_smoke world_pbr_macro_smoke; do
+            timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+              --headless --audio-driver Dummy --path godot \
+              --script "res://tests/$test.gd" 2>&1 | tee "/tmp/$test.log"
+            if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+                "/tmp/$test.log"; then
+              exit 1
+            fi
+          done
+          grep -q "R4a: физические скалы, материал, LOD и швы — успешно" /tmp/rock_faces_r4_smoke.log
+      - name: "Опубликовать результаты физики"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r4a-physics-logs
+          path: |
+            /tmp/rock-r4-import.log
+            /tmp/rock_faces_r4_smoke.log
+            /tmp/relief_visual_contrast_smoke.log
+            /tmp/world_pbr_materials_smoke.log
+            /tmp/world_pbr_macro_smoke.log
+          if-no-files-found: ignore
+
+  rock-real-images:
+    name: "R4a — 4 реальных PNG до/после из игрового World"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Godot и программный OpenGL"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r4-gl.zip
+          unzip -q /tmp/godot-r4-gl.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импорт PBR-текстур"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/rock-r4-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/rock-r4-gl-import.log; then
+            exit 1
+          fi
+      - name: "Два ракурса, парные PNG, одинаковые мир и освещение"
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/rock-r4-gl
+          timeout 530s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/rock_faces_r4_gl_capture.gd \
+            -- --out=/tmp/rock-r4-gl 2>&1 | tee /tmp/rock-r4-gl.log
+          grep -q "R4a/GL: реальные пары до/после скального материала — успешно" /tmp/rock-r4-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/rock-r4-gl.log; then
+            exit 1
+          fi
+      - name: "Проверить четыре PNG и манифест различий"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Реальные сравнения автоматизированы, художественная
+          # приёмка автора намеренно остаётся отдельным решением.
+          folder = Path("/tmp/rock-r4-gl")
+          report = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+          assert report["passed"] and report["real_game_world"]
+          assert report["software_opengl"] is True
+          assert report["hardware_fps_verified"] is False
+          assert report["artistic_approval"] is False
+          assert report["reference_approved"] is False
+          assert len(report["captures"]) == 4
+          assert len(report["comparisons"]) == 2
+          for filename in report["captures"]:
+              assert (folder / filename).stat().st_size > 18000
+          for comparison in report["comparisons"]:
+              assert comparison["changed_pixels"] >= 30
+          print("R4a: четыре настоящих кадра и два сравнения — успешно")
+          PY
+      - name: "Опубликовать реальные PNG до/после"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r4a-real-game-before-after
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/rock-r4-gl/
+            /tmp/rock-r4-gl.log
+            /tmp/rock-r4-gl-import.log
