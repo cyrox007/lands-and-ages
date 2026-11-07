@@ -155,6 +155,9 @@ func _real_fire(controller: Node3D) -> void:
 
 	paused = true
 	controller._process(0.3)
+	print("F6/PAUSE: tree=", paused, " paused_audio=",
+		controller._audio.stream_paused, " light_energy=",
+		controller._light.light_energy, " visible=", controller._light.visible)
 	_check(controller._audio.stream_paused
 		and controller._light.light_energy == 0.0,
 		"Пауза останавливает звук и пульсацию света")
