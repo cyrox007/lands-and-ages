@@ -128,7 +128,7 @@ func _test_budget_and_load(atmosphere: Node3D) -> void:
 	_check(int(budget["gpu_emitters"]) == 8
 		and int(budget["gpu_max_particles"]) == 2300,
 		"Графика смерча и пыли укладывается в старый бюджет")
-	_check(int(budget["catalog_entries"]) == 12,
+	_check(int(budget["catalog_entries"]) == 13,
 		"Новая спираль зарегистрирована в каталоге ассетов")
 	atmosphere.set_effects_enabled(false)
 	_check(not fx._tornado_funnel.visible and not fx._dust.emitting,
@@ -138,8 +138,8 @@ func _test_budget_and_load(atmosphere: Node3D) -> void:
 	_check(not fx._tornado_funnel.visible and not fx._dust.emitting
 		and is_zero_approx(fx._event_life),
 		"Сохранение и загрузка не запускают прежнее бедствие")
-	_check(fx.get_child_count() == 9,
-		"Девять фиксированных узлов: восемь GPU и одна сетка смерча")
+	_check(fx.get_child_count() == 10,
+		"Десять фиксированных узлов: восемь GPU и две сетки бедствий")
 
 
 func _run() -> void:
