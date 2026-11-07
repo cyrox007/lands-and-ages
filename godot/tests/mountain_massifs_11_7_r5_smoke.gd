@@ -17,6 +17,7 @@ const Fire = preload("res://scripts/fire_registry.gd")
 const Save = preload("res://scripts/world_save.gd")
 const Chunk = preload("res://scripts/chunk.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
+const Runner = preload("res://scripts/world_day_runner.gd")
 
 const SEEDS := [1729, 4471, 8429]
 const SIZE := Vector2i(256, 192)
@@ -150,13 +151,17 @@ func _physical_world(seed: int) -> Dictionary:
 	hydro.apply_rainfall_map(surface.runoff_map())
 	var nature := Nature.new(world, hydro, surface, climate)
 	_check(nature.generate(), "Растительность построена на горах")
+	var weather := Weather.new(world, climate, surface, hydro)
+	var natural := Processes.new(world, hydro, surface, climate)
+	var disasters := Disasters.new(world, hydro, surface, climate)
+	var fire := Fire.new(world, hydro, surface, climate, nature)
+	var runner := Runner.new(world, hydro, surface, climate,
+		weather, natural, disasters, nature, fire)
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature,
-		"weather": Weather.new(world, climate, surface, hydro),
-		"natural": Processes.new(world, hydro, surface, climate),
-		"disasters": Disasters.new(world, hydro, surface, climate),
-		"fire": Fire.new(world, hydro, surface, climate, nature)
+		"weather": weather, "natural": natural, "disasters": disasters,
+		"fire": fire, "runner": runner
 	}
 
 
@@ -191,10 +196,13 @@ func _hydrology_and_save(state: Dictionary, seed: int,
 	_check(not impact.is_empty(), "Seed %d: геология меняет горный склон" % seed)
 	if impact.is_empty():
 		return
-	hydro.rebuild()
-	state["surface"].rebuild()
+	# Синхронизируем все физические слои через игровой Runner.
+	# Пересчёт только воды и почвы оставил бы старую ревизию
+	# климата: WorldSave правильно отклоняет такой снимок.
+	_check(state["runner"].synchronize_world(),
+		"Seed %d: климат, почва и водосбор синхронизированы" % seed)
 	_check(hydro.full_rebuilds > 1 and world.changed_vertex_count() > 0,
-		"Seed %d: изменены физические вершины и пересчитана вода" % seed)
+		"Seed %d: физические вершины изменены, вода пересчитана" % seed)
 	var after: Dictionary = Save.capture(state)
 	_check(not after.is_empty(), "Seed %d: мир после деформации сохраняется" % seed)
 	if after.is_empty():
