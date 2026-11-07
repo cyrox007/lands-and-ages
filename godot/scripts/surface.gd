@@ -282,6 +282,56 @@ func transfer_sediment(source: Vector2i, target: Vector2i,
 	return true
 
 
+func lift_airborne_sediment(cell: Vector2i, amount: float) -> bool:
+	# Взять в воздух можно только реально принесённый ранее
+	# рыхлый нанос. Ни базовая скала, ни плодородие из воздуха
+	# не исчезают. Уменьшаем высоту и зарегистрированную массу.
+	ensure_ready()
+	if not world.config.contains_cell(cell):
+		return false
+	if not is_finite(amount) or amount < 0.0005 or amount > 0.05:
+		return false
+	var i: int = _index(cell)
+	if hydro.has_water(i) or _sediment[i] < amount + 0.000001:
+		return false
+	var height: float = world.vertex_at(cell)
+	if not world.apply_vertex_changes({cell: height - amount}):
+		return false
+	# Map пересчитывает чанки через сигнал или через этот запасной
+	# путь; величина уже перенесённого наноса при rebuild не теряется.
+	if _terrain_revision != world.revision:
+		rebuild([world.config.chunk_of(cell)])
+	_sediment[i] -= amount
+	_sediment_balance -= amount
+	revision += 1
+	surface_changed.emit(revision)
+	return true
+
+
+func settle_airborne_sediment(cell: Vector2i, amount: float) -> bool:
+	# Осаждаем только массу, которую передал реестр атмосферной
+	# пыли. Если суша затоплена или высота не допускает изменение,
+	# возвращаем false: реестр сохранит всю взвесь до нового дня.
+	ensure_ready()
+	if not world.config.contains_cell(cell):
+		return false
+	if not is_finite(amount) or amount < 0.00000001 or amount > 0.05:
+		return false
+	var i: int = _index(cell)
+	if hydro.has_water(i) or _sediment[i] + amount > 64.0:
+		return false
+	var height: float = world.vertex_at(cell)
+	if not world.apply_vertex_changes({cell: height + amount}):
+		return false
+	if _terrain_revision != world.revision:
+		rebuild([world.config.chunk_of(cell)])
+	_sediment[i] += amount
+	_sediment_balance += amount
+	revision += 1
+	surface_changed.emit(revision)
+	return true
+
+
 func transfer_snow(source: Vector2i, target: Vector2i,
 		amount: float) -> bool:
 	# Лавина перемещает снег, а не меняет геологическую высоту скалы.
