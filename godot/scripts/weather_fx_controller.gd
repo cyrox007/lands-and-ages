@@ -4,6 +4,7 @@ extends Node3D
 
 const VisualState = preload("res://scripts/weather_visual_state.gd")
 const PrecipitationShader = preload("res://shaders/local_precipitation.gdshader")
+const TornadoShader = preload("res://shaders/tornado_funnel.gdshader")
 const RAIN_PARTICLES := 640
 const MASK_SIZE := 17
 const MASK_STEP := 6.0
@@ -13,6 +14,8 @@ const WET_SNOW_PARTICLES := 220
 const HAIL_PARTICLES := 180
 const SPLASH_PARTICLES := 240
 const DRIFT_PARTICLES := 180
+const TORNADO_RINGS := 19
+const TORNADO_SIDES := 24
 
 var _rain: GPUParticles3D
 var _snow: GPUParticles3D
@@ -22,6 +25,11 @@ var _splashes: GPUParticles3D
 var _snowdrift: GPUParticles3D
 var _gusts: GPUParticles3D
 var _dust: GPUParticles3D
+var _tornado_funnel: MeshInstance3D
+var _tornado_phase := 0.0
+var _event_origin := Vector3.ZERO
+var _event_has_origin := false
+var _event_aerosol := 1.0
 var _event_life := 0.0
 var _event_severity := 0.0
 var _event_direction := Vector2.ZERO
@@ -112,6 +120,33 @@ func _ready() -> void:
 	var dust_motion: ParticleProcessMaterial = _dust.process_material
 	dust_motion.gravity = Vector3(0.0, 0.12, 0.0)
 	dust_motion.spread = 11.0
+	# Мягкий радиальный альфа-градиент вместо прямоугольных
+	# пылевых карточек. Материал создаётся один раз.
+	var fade := Gradient.new()
+	fade.offsets = PackedFloat32Array([0.0, 0.42, 1.0])
+	fade.colors = PackedColorArray([
+		Color(1.0, 1.0, 1.0, 0.95),
+		Color(1.0, 1.0, 1.0, 0.48),
+		Color(1.0, 1.0, 1.0, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.width = 128
+	texture.height = 128
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(0.5, 0.0)
+	texture.gradient = fade
+	var dust_quad := _dust.draw_pass_1 as QuadMesh
+	(dust_quad.material as StandardMaterial3D).albedo_texture = texture
+	# Одна многоугольная воронка вместо нескольких сотен узлов.
+	_tornado_funnel = MeshInstance3D.new()
+	_tornado_funnel.name = "Спиральная воронка физического смерча"
+	_tornado_funnel.mesh = _build_tornado_mesh()
+	_tornado_funnel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var funnel_material := ShaderMaterial.new()
+	funnel_material.shader = TornadoShader
+	_tornado_funnel.material_override = funnel_material
+	_tornado_funnel.visible = false
+	add_child(_tornado_funnel)
 
 
 func _process(delta: float) -> void:
@@ -178,6 +213,41 @@ func show_dust_storm_event(severity: float, direction: Vector2,
 	show_storm_event(severity, direction, duration)
 	_event_dust = true
 
+
+
+func _build_tornado_mesh() -> ArrayMesh:
+	# 19 колец и 24 сегмента: узкая ножка у земли плавно
+	# расширяется к туче. Сетка строится при создании узла
+	# и не пересоздаётся в процессе анимации.
+	var vertices := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	for level in range(TORNADO_RINGS):
+		var progress := float(level) / float(TORNADO_RINGS - 1)
+		var radius := 1.1 + pow(progress, 1.62) * 7.9
+		var centre := Vector2(2.3 * progress,
+			sin(progress * TAU * 1.3) * 1.25 * progress)
+		for side in range(TORNADO_SIDES + 1):
+			var theta := TAU * float(side) / float(TORNADO_SIDES)
+			vertices.append(Vector3(
+				centre.x + cos(theta) * radius,
+				0.45 + progress * 33.0,
+				centre.y + sin(theta) * radius))
+			uvs.append(Vector2(float(side) / float(TORNADO_SIDES), progress))
+	for level in range(TORNADO_RINGS - 1):
+		for side in range(TORNADO_SIDES):
+			var a := level * (TORNADO_SIDES + 1) + side
+			var b := a + TORNADO_SIDES + 1
+			indices.append_array(PackedInt32Array([
+				a, b, a + 1, b, b + 1, a + 1]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 func _make_emitter(title: String, color: Color, size: Vector2,
 		amount: int, speed: float, life: float) -> GPUParticles3D:
