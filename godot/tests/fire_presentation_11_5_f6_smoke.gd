@@ -142,7 +142,7 @@ func _real_fire(controller: Node3D) -> void:
 		and controller._sound.data.size() ==
 			roundi(float(Controller.SOUND_RATE) * Controller.SOUND_SECONDS) * 2,
 		"Треск синтезирован один раз из оригинального моно PCM")
-	_check(controller._audio.playing,
+	_check(controller._audio.is_playing(),
 		"Пространственный треск включается только у видимого огня")
 
 	controller.set_quality(0)
@@ -166,13 +166,16 @@ func _real_fire(controller: Node3D) -> void:
 
 	controller.sync_view(0.4, fire, nature, world, point, 102.0)
 	_check(controller.debug_budget()["source_id"] == -1
-		and not controller._audio.playing,
+		and not controller._audio.is_playing(),
 		"Дальний LOD освобождает локальный свет и звук")
 	controller.sync_view(0.4, fire, nature, world, point, 48.0)
 	_check(controller.debug_budget()["source_id"] == id,
 		"Возврат камеры показывает существующий, а не новый пожар")
 	_check(Save.capture(state) == before_fx,
 		"Пауза, звук, свет, качество и камера не меняют WorldSave")
+	_check(not Save.restore(JSON.parse_string(
+		JSON.stringify(before_fx, "", true, true))).is_empty(),
+		"После визуальных эффектов сохраняется корректный физический JSON")
 
 	# Реальный дождевой эффект останавливает огонь; после
 	# потухшего физического источника новые эффекты невозможны.
@@ -202,7 +205,7 @@ func _visual_cap() -> void:
 	nature._chunks.clear()
 	var chunk := Vector2i(2, 2)
 	for offset in range(24):
-		var cell := Vector2i(32 + offset % 6, 32 + offset / 6)
+		var cell := Vector2i(32 + offset % 6, 32 + floori(float(offset) / 6.0))
 		var id: int = cell.y * world.config.width + cell.x + 1
 		var item := {
 			"id": id, "kind": "дерево", "species": "сосна",
