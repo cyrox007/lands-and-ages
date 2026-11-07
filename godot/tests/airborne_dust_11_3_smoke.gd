@@ -35,6 +35,10 @@ func _setup() -> Dictionary:
 	surface.rebuild()
 	var climate := Climate.new(world, hydro)
 	climate.rebuild()
+	# Surface принимает только соседние сутки: нельзя сразу
+	# прыгнуть с нулевого дня на второй и ожидать валидный Save.
+	climate.set_day(1)
+	surface.advance_climate_day(climate)
 	climate.set_day(2)
 	surface.advance_climate_day(climate)
 	surface._moisture.fill(0.025)
