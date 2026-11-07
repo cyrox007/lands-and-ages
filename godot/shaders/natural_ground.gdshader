@@ -221,7 +221,7 @@ void fragment() {
 	// и мировым координатам скалы. Силуэт, грунт, снег и вода
 	// остаются физическими, а не пересчитываются в фрагменте.
 	float rock_face = (rock / sum) *
-		smoothstep(0.19, 0.51, ground_steepness);
+		smoothstep(0.09, 0.38, ground_steepness);
 	float face_quality = rock_face_detail *
 		smoothstep(0.08, 0.36, detail_strength);
 	float face_bedding = 0.0;
@@ -236,7 +236,14 @@ void fragment() {
 		float layers = sin(phase) * 0.58 +
 			sin(phase * 2.39 + 0.68) * 0.42;
 		float antialias = 1.0 - smoothstep(0.9, 2.2, fwidth(phase));
-		face_bedding = layers * antialias;
+		// Изломы в двух мировых плоскостях разрывают
+		// регулярные полосы на соседних скальных гранях.
+		float weathering = terrain_noise(vec2(
+			ground_position.x * 0.13 + ground_position.y * 0.10,
+			ground_position.z * 0.12 - ground_position.y * 0.06)
+			+ vec2(19.2, 6.7));
+		face_bedding = layers * antialias *
+			mix(0.24, 1.0, smoothstep(0.18, 0.82, weathering));
 		// Трещины нерегулярны и узки; не заменяют геометрию
 		// откоса и не делают грязными пологие лесные участки.
 		float joint_phase = ground_position.x * 0.33 +
@@ -269,9 +276,9 @@ void fragment() {
 	// только поверх существующего веса ROCK и крутизны WorldMap.
 	// У слабого LOD сложные полосы и дополнительные шумы исчезают.
 	float face_weight = rock_face * face_quality;
-	float stone_light = clamp(1.0 + face_bedding * 0.22 -
-		face_joint * 0.19, 0.67, 1.24);
-	vec3 stone_tint = vec3(1.045, 1.015, 0.965);
+	float stone_light = clamp(1.12 + face_bedding * 0.38 -
+		face_joint * 0.28, 0.62, 1.46);
+	vec3 stone_tint = vec3(1.12, 1.085, 1.035);
 	base_albedo *= mix(vec3(1.0),
 		stone_tint * stone_light, face_weight);
 	// Подсветка реального гребня и затемнение настоящей впадины
@@ -324,7 +331,7 @@ void fragment() {
 		0.25, 1.0);
 	// Вогнутость реального рельефа ослабляет рассеянный свет в выемках.
 	AO = clamp(1.0 - ravine * 0.28 - cliff * max(0.0, -strata) * 0.09
-		- face_weight * face_joint * 0.10,
+		- face_weight * face_joint * 0.16,
 		0.62, 1.0);
 	METALLIC = 0.0;
 
