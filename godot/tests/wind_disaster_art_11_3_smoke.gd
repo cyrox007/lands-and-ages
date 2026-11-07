@@ -7,6 +7,7 @@ const Map = preload("res://scripts/world_map.gd")
 const Atmosphere = preload("res://scripts/weather_atmosphere_controller.gd")
 const Visual = preload("res://scripts/weather_visual_state.gd")
 const FX = preload("res://scripts/weather_fx_controller.gd")
+const VisualBudget = preload("res://scripts/world_visual_budget.gd")
 
 var failures: Array[String] = []
 
@@ -109,7 +110,9 @@ func _test_dust(atmosphere: Node3D, world: RefCounted) -> void:
 		and (dust.draw_pass_1.material as StandardMaterial3D)
 			.albedo_color.a > weak_alpha,
 		"Завеса усиливается по физически перенесённому грунту")
-	_check(dust.amount == 220,
+	# Пыль не получает дополнительные слоты при сильном событии:
+	# лимит зависит от качества, а не от физического количества золы.
+	_check(dust.amount == VisualBudget.particle_amounts(1)[7],
 		"Усиление пыли не увеличивает выделенный GPU-лимит")
 	hazard["sediment_volume"] = 0.0
 	atmosphere.show_hazard(hazard, Vector2.RIGHT, world)
@@ -164,7 +167,7 @@ func _test_budget_and_load(atmosphere: Node3D) -> void:
 	var fx: Node3D = atmosphere.precipitation
 	var budget: Dictionary = atmosphere.debug_budget()
 	_check(int(budget["gpu_emitters"]) == 8
-		and int(budget["gpu_max_particles"]) == 2300,
+		and int(budget["gpu_max_particles"]) == VisualBudget.particle_limit(1),
 		"Графика смерча и пыли укладывается в старый бюджет")
 	_check(int(budget["catalog_entries"]) == 13,
 		"Новая спираль зарегистрирована в каталоге ассетов")

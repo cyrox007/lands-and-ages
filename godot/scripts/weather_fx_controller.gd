@@ -3,6 +3,7 @@ extends Node3D
 ## Узел никогда не изменяет климат, грунт, гидрологию и природные объекты.
 
 const VisualState = preload("res://scripts/weather_visual_state.gd")
+const VisualBudget = preload("res://scripts/world_visual_budget.gd")
 const PrecipitationShader = preload("res://shaders/local_precipitation.gdshader")
 const TornadoShader = preload("res://shaders/tornado_funnel.gdshader")
 const DustHazeShader = preload("res://shaders/wind_dust_haze.gdshader")
@@ -162,6 +163,9 @@ func _ready() -> void:
 	_dust_haze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_dust_haze.visible = false
 	add_child(_dust_haze)
+	# Все восемь GPU-буферов подчиняются одному профилю уже при
+	# первом показе. Узлы повторно при смене сезона не создаются.
+	set_quality(_quality)
 
 
 func _process(delta: float) -> void:
@@ -350,9 +354,20 @@ func _make_emitter(title: String, color: Color, size: Vector2,
 
 
 func set_quality(level: int) -> void:
-	## Для слабого GPU используем ту же физическую погоду, но меньше частиц.
-	## Расчёты физики не зависят от графического уровня качества.
+	# Профиль ограничивает реальные слоты GPUParticles3D.amount,
+	# а не только amount_ratio: экономный режим не резервирует
+	# прежние GPU-буферы под скрытые осадки. Пулы и материалы общие.
 	_quality = clampi(level, 0, 2)
+	if _rain == null or _dust == null:
+		return
+	var emitters: Array[GPUParticles3D] = [
+		_rain, _snow, _wet_snow, _hail, _splashes,
+		_snowdrift, _gusts, _dust]
+	var allocations: Array[int] = VisualBudget.particle_amounts(_quality)
+	for index in range(emitters.size()):
+		var emitter: GPUParticles3D = emitters[index]
+		if emitter.amount != allocations[index]:
+			emitter.amount = allocations[index]
 
 
 func set_effects_enabled(enabled: bool) -> void:
@@ -510,7 +525,10 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		veil_material.set_shader_parameter("event_mode", mode)
 		veil_material.set_shader_parameter("transported_mass",
 			clampf(sheet_intensity, 0.0, 1.0))
-	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
+	# Коэффициенты силы не дублируют уменьшение выделенных слотов:
+	# эффективная плотность примерно сохраняет прежние пропорции
+	# 36/72/100 процентов при реальном снижении буфера GPU.
+	var quality_factor: float = [0.80, 1.0, 1.0][_quality]
 	var precipitation_lod := 1.0 - smoothstep(72.0, 105.0, zoom)
 	# Ветровой снос наследует нормализованное направление пяти
 	# климатических проб. При ручных старых снимках без направления

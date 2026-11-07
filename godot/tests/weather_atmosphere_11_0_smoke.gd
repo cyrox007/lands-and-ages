@@ -9,6 +9,7 @@ const Hydro = preload("res://scripts/hydrology.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Visual = preload("res://scripts/weather_visual_state.gd")
 const Atmosphere = preload("res://scripts/weather_atmosphere_controller.gd")
+const Budget = preload("res://scripts/world_visual_budget.gd")
 const GameWorld = preload("res://scripts/world.gd")
 
 var failures: Array[String] = []
@@ -67,13 +68,15 @@ func _test_controller(atmosphere: Node3D, state: Dictionary) -> void:
 	_check(atmosphere.get_child_count() == 2,
 		"В одном атмосферном контроллере ровно два переиспользуемых семейства")
 	_check(int(budget["gpu_emitters"]) == 8
-		and int(budget["gpu_max_particles"]) == 2300
+		and int(budget["gpu_max_particles"]) == Budget.particle_limit(1)
 		and int(budget["lightning_slots"]) == 4,
 		"GPU и звуковой бюджет ограничен, независимо от размера карты")
 	var precipitation: Node3D = atmosphere.precipitation
 	var lightning: Node3D = atmosphere.lightning
 
 	atmosphere.set_quality(-100)
+	_check(int(atmosphere.debug_budget()["gpu_max_particles"]) == Budget.particle_limit(0),
+		"Экономный профиль действительно сокращает GPU-буфер")
 	_check(int(atmosphere.debug_budget()["quality"]) == 0
 		and int(lightning.debug_state()["active_slot_limit"]) == 1,
 		"Экономный профиль ограничивает и осадки, и молнии")
@@ -81,6 +84,8 @@ func _test_controller(atmosphere: Node3D, state: Dictionary) -> void:
 	var rain: GPUParticles3D = precipitation._rain
 	var low: float = rain.amount_ratio
 	atmosphere.set_quality(2)
+	_check(int(atmosphere.debug_budget()["gpu_max_particles"]) == Budget.particle_limit(2),
+		"Подробный профиль восстанавливает конечный GPU-буфер")
 	precipitation.apply_snapshot(state, Vector2(24, 24), 3.0, 44.0, 1729)
 	_check(rain.amount_ratio > low
 		and int(lightning.debug_state()["active_slot_limit"]) == 4,
