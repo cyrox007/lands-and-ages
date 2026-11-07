@@ -119,9 +119,9 @@ func _combined_impacts(state: Dictionary) -> Dictionary:
 	var fire: RefCounted = state["fire"]
 	var cell: Vector2i = state["cell"]
 	var i: int = hydro.cell_index(cell)
-	var id := cell.y * world.config.width + cell.x + 1
+	var id: int = cell.y * world.config.width + cell.x + 1
 	var far: Vector2i = state["distant"]
-	var far_id := far.y * world.config.width + far.x + 1
+	var far_id: int = far.y * world.config.width + far.x + 1
 
 	# Берём реальную потерю топлива из NatureRegistry и передаём её
 	# тем же методам физического FireRegistry, что используют пожарные
@@ -262,7 +262,7 @@ func _resume(state: Dictionary, initial: Dictionary) -> void:
 	var initial_rock: float = float(initial["geological_scar"])
 	var initial_fire: float = float(initial["fire_damage"])
 	var initial_wood: int = int(initial["fallen_wood"])
-	var before_day := state["climate"].day
+	var before_day: int = state["climate"].day
 	for step in range(1, 193):
 		state["runner"].run_day()
 		recovered["runner"].run_day()
