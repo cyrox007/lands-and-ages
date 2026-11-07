@@ -48,6 +48,7 @@ on:
       - "godot/tests/nature_terrain_11_7_smoke.gd"
       - "godot/tests/landscape_chain_11_7_smoke.gd"
       - "godot/tests/geological_recovery_11_8_smoke.gd"
+      - "godot/tests/aftermath_combined_11_8_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
@@ -103,6 +104,7 @@ on:
       - "godot/tests/nature_terrain_11_7_smoke.gd"
       - "godot/tests/landscape_chain_11_7_smoke.gd"
       - "godot/tests/geological_recovery_11_8_smoke.gd"
+      - "godot/tests/aftermath_combined_11_8_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
@@ -437,6 +439,19 @@ jobs:
           grep -q "11.8/P1:.*успешно" /tmp/geological-recovery-11-8.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
               /tmp/geological-recovery-11-8.log; then
+            exit 1
+          fi
+      - name: "11.8/P2 — совместные следы, два seed, сезоны и полный WorldSave"
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          timeout 330s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/aftermath_combined_11_8_smoke.gd 2>&1 \
+            | tee /tmp/nature-aftermath-combined-11-8.log
+          grep -q "11.8/P2:.*успешно" /tmp/nature-aftermath-combined-11-8.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/nature-aftermath-combined-11-8.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
