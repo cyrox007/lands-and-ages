@@ -605,6 +605,19 @@ func _damage_from_events(hazards: Array[Dictionary],
     var events: Array[Dictionary] = []
     for event in hazards:
         var kind := str(event.get("kind", ""))
+        # Геологические изменения уже записаны в WorldMap.
+        # Реагируем только на реально сдвинутые вершины, чтобы
+        # не повалить дерево при несостоявшемся бедствии.
+        if kind in ["оползень", "обвал", "землетрясение"]:
+            if int(event.get("vertices", 0)) > 0 \
+                    and event.get("cell") is Vector2i:
+                var impact_radius := 7.0 if kind == "землетрясение" else (
+                    6.0 if kind == "оползень" else 5.0)
+                _apply_landscape_damage(kind,
+                    Vector2(event["cell"]) + Vector2(0.5, 0.5),
+                    impact_radius, clampf(float(event.get("severity", 0.0)),
+                        0.0, 1.0), climate.day, changed)
+            continue
         # Пыль по-прежнему переносится в Surface, но открытые
         # кустарники на её следе могут получать физический урон.
         # Стволы и камни от самой пыли не повреждаются.
@@ -811,6 +824,121 @@ func _damage_from_events(hazards: Array[Dictionary],
             # Даже неполное повреждение меняет здоровье/вид кроны.
             # Сообщаем рендереру и системе коллизий об изменённом чанке.
             changed[world.config.chunk_of(cell)] = true
+
+
+func _apply_landscape_damage(kind: String, center: Vector2,
+        radius: float, severity: float, day: int,
+        changed: Dictionary) -> Dictionary:
+    # Физическое воздействие затрагивает только соседние чанки.
+    # Деревья теряют устойчивость, кусты — здоровье, а валуны остаются
+    # тем же конечным объектом и перемещаются по вертикали вместе с
+    # WorldMap. Никаких записей о временных GPU-эффектах не создаём.
+    var summary := {
+        "trees_felled": 0, "trees_damaged": 0,
+        "shrubs_damaged": 0, "boulders_rebased": 0
+    }
+    if not generated or kind not in [
+            "оползень", "обвал", "землетрясение", "кратер",
+            "поднятие", "просадка"]:
+        return summary
+    if not is_finite(center.x) or not is_finite(center.y) \
+            or not world.config.contains_point(center) \
+            or not is_finite(radius) or radius <= 0.0 \
+            or not is_finite(severity) or severity <= 0.0 \
+            or severity > 1.0 or day < 0 or day > climate.day:
+        return summary
+
+    var origin_cell: Vector2i = world.config.cell_at(center)
+    var origin_chunk: Vector2i = world.config.chunk_of(origin_cell)
+    var reach := ceili(radius / float(world.config.chunk_size)) + 1
+    var affected_ids: Array[int] = []
+    for cy in range(origin_chunk.y - reach, origin_chunk.y + reach + 1):
+        for cx in range(origin_chunk.x - reach, origin_chunk.x + reach + 1):
+            for id in _chunks.get(Vector2i(cx, cy), []):
+                affected_ids.append(int(id))
+    # Сортировка не позволяет изменению порядка чанков влиять на исход.
+    affected_ids.sort()
+    for id in affected_ids:
+        var item: Dictionary = _objects[id]
+        var cell := Vector2i(int(item["x"]), int(item["y"]))
+        var position := Vector2(cell) + Vector2(0.5, 0.5)
+        var distance := position.distance_to(center)
+        if distance >= radius or not is_finite(world.height_at(position)):
+            continue
+        var chunk: Vector2i = world.config.chunk_of(cell)
+        var pressure := severity * (1.0 - distance / radius)
+
+        # Даже неразрушенный валун должен занять новую физическую
+        # высоту. Его ID, масса и местоположение в клетке неизменны.
+        changed[chunk] = true
+        if item["kind"] == "валун":
+            summary["boulders_rebased"] += 1
+            continue
+        if item["kind"] == "кустарник":
+            if item["state"] != "целое":
+                continue
+            var shrub_damage := roundi(pressure * 1250.0)
+            if shrub_damage <= 0:
+                continue
+            item["health"] = maxi(0, int(item["health"]) - shrub_damage)
+            if int(item["health"]) == 0:
+                item["state"] = "сухостой"
+                item["dead_since_day"] = day
+            _objects[id] = item
+            summary["shrubs_damaged"] += 1
+            continue
+        if item["kind"] != "дерево" or item["state"] == "пень":
+            continue
+
+        # Обрушение корней переводит реальную древесину из стоящего
+        # дерева в лежащий ствол. Для слабого толчка остаётся только
+        # повреждение дерева, без появления второго ресурса.
+        var damage := roundi(pressure * 1150.0)
+        if damage <= 0:
+            continue
+        if pressure >= 0.35:
+            var direction := Vector2.ZERO
+            if kind == "кратер":
+                direction = position - center
+            else:
+                var normal: Vector3 = world.normal_at(cell)
+                direction = Vector2(normal.x, normal.z)
+            if direction.length_squared() < 0.0001:
+                var angle := Terrain.hash2(cell.x, cell.y,
+                    world.config.world_seed + day * 29 + 1177) * TAU
+                direction = Vector2(cos(angle), sin(angle))
+            direction = direction.normalized()
+            item["fallen_wood"] = int(item["fallen_wood"]) + int(item["wood_units"])
+            item["wood_units"] = 0
+            item["state"] = "пень"
+            item["health"] = 0
+            item["cut_progress"] = 0
+            item["dead_since_day"] = -1
+            item["fallen_since_day"] = day
+            item["fall_angle_deg"] = posmod(roundi(rad_to_deg(
+                atan2(-direction.y, direction.x))), 360) \
+                if int(item["fallen_wood"]) > 0 else -1
+            summary["trees_felled"] += 1
+        else:
+            item["health"] = maxi(0, int(item["health"]) - damage)
+            if int(item["health"]) == 0:
+                item["state"] = "сухостой"
+                item["dead_since_day"] = day
+            summary["trees_damaged"] += 1
+        _objects[id] = item
+    return summary
+
+
+func apply_landscape_impact(kind: String, center: Vector2,
+        radius: float, severity: float, day: int) -> Dictionary:
+    # Ручная деформация в игровой сцене проходит по тому же пути,
+    # что суточная стихийная физика; самостоятельные записи о
+    # высотах, объектах или ресурсах здесь не вводятся.
+    var changed := {}
+    var summary := _apply_landscape_damage(
+        kind, center, radius, severity, day, changed)
+    _mark_changes(changed)
+    return summary
 
 
 func advance_day(day: int, hazards: Array[Dictionary] = [],

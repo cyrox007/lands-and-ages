@@ -1758,6 +1758,13 @@ func _apply_landscape_event(kind: String) -> void:
 		return
 	_wait_chunk_jobs()
 	var result: Dictionary = _landscape_events.apply(kind, _center, 18.0, 3.0)
+	if not result.is_empty() and _nature != null and _nature.generated \
+			and kind in ["оползень", "обвал", "кратер", "поднятие", "просадка"]:
+		# Ручное испытание воздействует на те же физические объекты,
+		# что и суточные бедствия. Рендер и коллизии перечитают высоты
+		# после синхронизации, не создавая вторых копий камней и леса.
+		_nature.apply_landscape_impact(
+			kind, _center, 18.0, 1.0, _climate.day)
 	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
 		if not result.is_empty() else "%s: нет подходящего участка" % kind
 	_flush_world_changes()
