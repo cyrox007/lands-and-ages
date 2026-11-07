@@ -278,7 +278,7 @@ func _slow_slide_contract() -> void:
 	var world: RefCounted = state["world"]
 	var nature: RefCounted = state["nature"]
 	var source := Vector2i(42, 30)
-	var old := nature.object_at(source.y * world.config.width + source.x + 1)
+	var old: Dictionary = nature.object_at(source.y * world.config.width + source.x + 1)
 	var none: Array[Dictionary] = []
 	_check(Runner.nature_hazards(none, {
 		"kind": "оползень", "process": "slide",
