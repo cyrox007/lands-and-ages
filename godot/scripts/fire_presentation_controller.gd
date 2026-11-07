@@ -165,7 +165,7 @@ func sync_view(delta: float, fire: RefCounted, nature: RefCounted,
 	_light.visible = _quality > 0
 	_audio.position = position
 	_audio.volume_db = -15.0 + _source_strength * 5.0
-	if not _audio.playing:
+	if not _audio.is_playing():
 		_audio.play()
 
 
