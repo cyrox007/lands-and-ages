@@ -1,0 +1,145 @@
+name: "Рельеф R4b — новая палитра поверхности и реальные PNG Godot"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/scripts/world.gd"
+      - "godot/tests/terrain_palette_r4b_*.gd"
+      - ".github/workflows/godot-relief-r4b-palette.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/shaders/natural_ground.gdshader"
+      - "godot/scripts/world.gd"
+      - "godot/tests/terrain_palette_r4b_*.gd"
+      - ".github/workflows/godot-relief-r4b-palette.yml"
+  workflow_dispatch:
+
+jobs:
+  rock-physics:
+    name: "R4b — палитра, физика, PBR и швы"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Скачать Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r4.zip
+          unzip -q /tmp/godot-r4.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импорт проекта и проверка шейдера"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/palette-r4b-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/palette-r4b-import.log; then
+            exit 1
+          fi
+      - name: "PBR-палитра и физические инварианты"
+        run: |
+          set -o pipefail
+          for test in terrain_palette_r4b_smoke rock_faces_r4_smoke relief_visual_contrast_smoke world_pbr_materials_smoke world_pbr_macro_smoke; do
+            timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+              --headless --audio-driver Dummy --path godot \
+              --script "res://tests/$test.gd" 2>&1 | tee "/tmp/$test.log"
+            if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+                "/tmp/$test.log"; then
+              exit 1
+            fi
+          done
+          grep -q "R4b: палитра, физическая поверхность и швы — успешно" /tmp/terrain_palette_r4b_smoke.log
+      - name: "Опубликовать результаты физики"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r4b-physics-logs
+          path: |
+            /tmp/palette-r4b-import.log
+            /tmp/terrain_palette_r4b_smoke.log
+            /tmp/rock_faces_r4_smoke.log
+            /tmp/relief_visual_contrast_smoke.log
+            /tmp/world_pbr_materials_smoke.log
+            /tmp/world_pbr_macro_smoke.log
+          if-no-files-found: ignore
+
+  rock-real-images:
+    name: "R4b — 8 реальных PNG из четырёх ракурсов World"
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Godot и программный OpenGL"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r4-gl.zip
+          unzip -q /tmp/godot-r4-gl.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импорт PBR-текстур"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/palette-r4b-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/palette-r4b-gl-import.log; then
+            exit 1
+          fi
+      - name: "Четыре ракурса, парные PNG, одинаковые мир и освещение"
+        timeout-minutes: 12
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/palette-r4b-gl
+          timeout 650s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/terrain_palette_r4b_gl_capture.gd \
+            -- --out=/tmp/palette-r4b-gl 2>&1 | tee /tmp/palette-r4b-gl.log
+          grep -q "R4b/GL: четыре реальные пары земли до/после — успешно." /tmp/palette-r4b-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/palette-r4b-gl.log; then
+            exit 1
+          fi
+      - name: "Проверить восемь PNG и манифест различий"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Реальные сравнения автоматизированы, художественная
+          # приёмка автора намеренно остаётся отдельным решением.
+          folder = Path("/tmp/palette-r4b-gl")
+          report = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+          assert report["passed"] and report["real_game_world"]
+          assert report["software_opengl"] is True
+          assert report["hardware_fps_verified"] is False
+          assert report["artistic_approval"] is False
+          assert report["reference_approved"] is False
+          assert len(report["captures"]) == 8
+          assert len(report["comparisons"]) == 4
+          for filename in report["captures"]:
+              assert (folder / filename).stat().st_size > 18000
+          for comparison in report["comparisons"]:
+              assert comparison["changed_pixels"] >= 150
+          print("R4b: восемь настоящих кадров и четыре сравнения — успешно")
+          PY
+      - name: "Опубликовать реальные PNG до/после"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r4b-real-game-before-after
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/palette-r4b-gl/
+            /tmp/palette-r4b-gl.log
+            /tmp/palette-r4b-gl-import.log

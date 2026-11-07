@@ -13,6 +13,9 @@ uniform float relief_contrast : hint_range(0.0, 1.0) = 0.92;
 // R4a: художественная проработка только настоящих скальных обнажений.
 // Ноль показывает исходное покрытие для сравнения в том же кадре.
 uniform float rock_face_detail : hint_range(0.0, 1.0) = 1.0;
+// R4b: калибровка цвета существующих PBR-текстур по типу грунта.
+// Ноль точно возвращает палитру предыдущего этапа для честного сравнения.
+uniform float terrain_palette_strength : hint_range(0.0, 1.0) = 1.0;
 // L3: направление существующего солнца, без дополнительных карт теней.
 // Крупные формы берутся из физической нормали и признаков WorldMap.
 uniform vec3 far_light_direction = vec3(0.0, 1.0, 0.0);
@@ -71,6 +74,29 @@ float terrain_noise(vec2 position) {
 vec2 domain_warp(vec2 position, vec2 signal, float strength) {
 	// Сдвигаем координаты изображения плавно, а не случайно на границе тайла.
 	return position + (signal - vec2(0.5)) * (3.6 * strength);
+}
+
+
+vec3 material_palette(int material) {
+	// Оттенки связаны с шестью реально существующими покрытиями.
+	// Не подменяем камнем снег, не рисуем траву поверх физической скалы.
+	// Изменяется только отражённый цвет PBR; нормали и шероховатость сохранены.
+	if (material == 0) {
+		return vec3(0.65, 1.60, 0.68); // Луговая трава: естественный зелёный.
+	}
+	if (material == 1) {
+		return vec3(1.48, 1.09, 0.79); // Почва: тёплый суглинок.
+	}
+	if (material == 2) {
+		return vec3(1.22, 1.13, 0.93); // Песок: светлая охра.
+	}
+	if (material == 3) {
+		return vec3(1.43, 1.22, 1.03); // Скала: тёплая, но не жёлтая порода.
+	}
+	if (material == 4) {
+		return vec3(1.46, 1.18, 0.92); // Осыпь: промежуточный оттенок.
+	}
+	return vec3(1.0); // Реальный снег оставляем нетронутым.
 }
 
 
@@ -138,6 +164,11 @@ void add_layer(int material, float influence, vec3 position, vec3 normal,
 		packed.b = mix(packed.b, triplanar_roughness, cliff);
 	}
 
+	// Один реальный PBR-атлас остаётся источником микротекстуры.
+	// Палитра меняет разные материалы по-разному и регулируется
+	// одним параметром без перестройки физического мира.
+	albedo *= mix(vec3(1.0), material_palette(material),
+		terrain_palette_strength);
 	albedo_sum += albedo * influence;
 	bump_sum += bump * influence;
 	roughness_sum += packed.b * influence;
@@ -281,6 +312,39 @@ void fragment() {
 	vec3 stone_tint = vec3(1.12, 1.085, 1.035);
 	base_albedo *= mix(vec3(1.0),
 		stone_tint * stone_light, face_weight);
+// R4b: непрерывные оттенки скальных граней и осыпей.
+	// Вес берётся из шести физических масок после смешивания,
+	// а мировая макрофактура лишь разнообразит исходную породу.
+	// На дальнем LOD остаётся дешёвая калибровка PBR-цвета.
+	float exposed_rock = rock / sum;
+	float scree = gravel / sum;
+	float earthy = (grass + soil) / sum;
+	float rock_scree_border = clamp(exposed_rock * scree * 3.5, 0.0, 1.0);
+	float near_palette = terrain_palette_strength *
+		smoothstep(0.08, 0.30, detail_strength);
+	if (near_palette > 0.01) {
+		// На тех же больших участках скалы меняются прохладный
+		// серый и тёплый охристый тон, без видимых границ чанков.
+		vec3 cool_rock = vec3(0.86, 1.035, 1.13);
+		vec3 warm_rock = vec3(1.28, 1.09, 0.86);
+		float weathered = smoothstep(0.20, 0.80, macro);
+		vec3 strata_color = mix(cool_rock, warm_rock, weathered);
+		float rock_variation = exposed_rock *
+			smoothstep(0.08, 0.43, ground_steepness);
+		base_albedo *= mix(vec3(1.0), strata_color,
+			near_palette * rock_variation * 0.80);
+		// Осыпь между голой скалой и почвой получает оттенок
+		// дроблёного камня, но не новую искусственную маску.
+		vec3 scree_color = vec3(1.20, 1.09, 0.88);
+		base_albedo *= mix(vec3(1.0), scree_color,
+			near_palette * rock_scree_border * 0.72);
+		// Лёгкая цветовая неоднородность на уже существующей
+		// траве и почве. Затопленные и снежные доли не меняются.
+		vec3 earth_color = mix(vec3(0.79, 1.20, 0.77),
+			vec3(1.19, 1.055, 0.93), macro);
+		base_albedo *= mix(vec3(1.0), earth_color,
+			near_palette * earthy * 0.62);
+	}
 	// Подсветка реального гребня и затемнение настоящей впадины
 	// основаны только на высотах WorldMap: никакой новой поверхности.
 	float ridge = smoothstep(0.05, 0.90, ground_shape.r);
