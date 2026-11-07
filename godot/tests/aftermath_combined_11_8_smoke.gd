@@ -48,7 +48,10 @@ func _models(seed: int) -> Dictionary:
 	var heights := {}
 	for y in range(65):
 		for x in range(81):
-			heights[Vector2i(x, y)] = 15.0 + (80.0 - float(x)) * 0.12
+			# Умеренная высота оставляет настоящий рыхлый слой.
+			# На высоких горных скалах Surface законно не допускает
+			# перенос наносов из нулевой глубины почвы.
+			heights[Vector2i(x, y)] = 4.5 + (80.0 - float(x)) * 0.018
 	_check(world.apply_vertex_changes(heights), "Контрольный склон создан")
 	world.take_dirty_chunks()
 	var hydro := Hydro.new(world)
