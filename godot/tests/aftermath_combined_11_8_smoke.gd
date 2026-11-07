@@ -292,8 +292,9 @@ func _resume(state: Dictionary, initial: Dictionary) -> void:
 		"Почвенный ожог восстанавливается независимо от геологии")
 	_check(int(after["fallen_wood"]) <= initial_wood,
 		"Лежащая древесина не размножается от смены сезонов")
-	_check(recovered["runner"].run_day == state["runner"].run_day
-		or recovered["surface"].to_snapshot() == state["surface"].to_snapshot(),
+	_check(recovered["surface"].to_snapshot() == state["surface"].to_snapshot()
+		and recovered["nature"].to_data() == state["nature"].to_data()
+		and recovered["fire"].to_data() == state["fire"].to_data(),
 		"Восстановление не расходится с независимым календарём")
 
 
