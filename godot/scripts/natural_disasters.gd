@@ -213,7 +213,8 @@ func _record(kind: String, cell: Vector2i, severity: float,
 		"duration_days": duration,
 		"vertices": int(impact.get("vertices", 0)),
 		"snow_volume": float(impact.get("snow_volume", 0.0)),
-		"sediment_volume": float(impact.get("sediment_volume", 0.0))
+		"sediment_volume": float(impact.get("sediment_volume", 0.0)),
+		"airborne_volume": float(impact.get("airborne_volume", 0.0))
 	}
 	last_events.append(event)
 	total_events += 1
@@ -520,7 +521,8 @@ func to_data() -> Dictionary:
 		events.append([
 			event["kind"], event["day"], cell.x, cell.y,
 			event["severity"], event["duration_days"],
-			event["vertices"], event["snow_volume"], event["sediment_volume"]
+			event["vertices"], event["snow_volume"], event["sediment_volume"],
+			float(event.get("airborne_volume", 0.0))
 		])
 	# Воздушная масса записывается отдельно от старой истории
 	# девятипольных событий и в целых микродолях: точная
@@ -598,7 +600,7 @@ func load_data(data: Dictionary) -> bool:
 		return false
 	var restored: Array[Dictionary] = []
 	for item in entries:
-		if not (item is Array) or item.size() != 9:
+		if not (item is Array) or item.size() != (9 if version == 1 else 10):
 			return false
 		if not (item[0] is String) or item[0] not in KINDS + ["чрезвычайный паводок"]:
 			return false
@@ -615,12 +617,21 @@ func load_data(data: Dictionary) -> bool:
 				return false
 		if float(item[4]) > 1.0 or float(item[7]) > 0.5 or float(item[8]) > 0.05:
 			return false
+		var suspended := 0.0
+		if version == FORMAT_VERSION:
+			if not (item[9] is int or item[9] is float) \
+					or not is_finite(float(item[9])):
+				return false
+			suspended = float(item[9])
+			if suspended < 0.0 or suspended > 0.05:
+				return false
 		restored.append({
 			"kind": item[0], "day": int(item[1]), "cell": cell,
 			"severity": float(item[4]), "duration_days": int(item[5]),
 			"vertices": int(item[6]),
 			"snow_volume": float(item[7]),
-			"sediment_volume": float(item[8])
+			"sediment_volume": float(item[8]),
+			"airborne_volume": suspended
 		})
 	# Проверяем новые массы, индексы и возраст до записи
 	# каких-либо полей. Сломанный JSON не оставляет полузагруженную
