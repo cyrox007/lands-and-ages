@@ -8,6 +8,7 @@ on:
       - "godot/scripts/chunk.gd"
       - "godot/shaders/natural_ground.gdshader"
       - "godot/tests/relief_visual_contrast_smoke.gd"
+      - "godot/tests/relief_r1_physical_profiles_smoke.gd"
       - ".github/workflows/godot-relief-contrast.yml"
   pull_request:
     branches: [develop]
@@ -16,6 +17,7 @@ on:
       - "godot/scripts/chunk.gd"
       - "godot/shaders/natural_ground.gdshader"
       - "godot/tests/relief_visual_contrast_smoke.gd"
+      - "godot/tests/relief_r1_physical_profiles_smoke.gd"
       - ".github/workflows/godot-relief-contrast.yml"
   workflow_dispatch:
 
@@ -54,6 +56,19 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script|Invalid call|ERROR:" /tmp/relief-contrast.log; then
             exit 1
           fi
+      - name: "R1 — три seed, горные вершины, овраги и профиль высот"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          timeout 260s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/relief_r1_physical_profiles_smoke.gd 2>&1 \
+            | tee /tmp/relief-r1-profile.log
+          grep -q "R1: физические горы, овраги, уклоны и LOD — успешно" /tmp/relief-r1-profile.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/relief-r1-profile.log; then
+            exit 1
+          fi
       - name: Регрессия PBR и масок материалов
         run: |
           set -o pipefail
@@ -73,6 +88,8 @@ jobs:
           path: |
             /tmp/relief-import.log
             /tmp/relief-contrast.log
+            /tmp/relief-r1-profile.log
+            relief-r1-physical-profiles.json
             /tmp/world_pbr_materials_smoke.log
             /tmp/world_pbr_macro_smoke.log
           if-no-files-found: ignore
