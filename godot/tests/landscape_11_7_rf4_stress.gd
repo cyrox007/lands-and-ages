@@ -112,7 +112,7 @@ func _resource_invariants(nature: RefCounted, label: String) -> void:
 func _geometry(state: Dictionary, step: int) -> bool:
 	# Сезонный удар применяется после завершения игрового дня:
 	# ресурс изменяется только при успешном физическом событии.
-	var kind := ["кратер", "просадка", "поднятие"][step % 3]
+	var kind: String = ["кратер", "просадка", "поднятие"][step % 3]
 	var world: RefCounted = state["world"]
 	var nature: RefCounted = state["nature"]
 	var center := _center(state, step)
