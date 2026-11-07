@@ -35,6 +35,8 @@ on:
       - "godot/tests/dust_storm_11_3_smoke.gd"
       - "godot/tests/airborne_dust_11_3_smoke.gd"
       - "godot/tests/fire_11_5_smoke.gd"
+      - "godot/scripts/fire_presentation_controller.gd"
+      - "godot/tests/fire_presentation_11_5_f6_smoke.gd"
       - "godot/tests/fire_scorch_11_5_smoke.gd"
       - "godot/tests/fire_smolder_11_5_smoke.gd"
       - "godot/tests/fire_runoff_11_5_smoke.gd"
@@ -92,6 +94,8 @@ on:
       - "godot/tests/dust_storm_11_3_smoke.gd"
       - "godot/tests/airborne_dust_11_3_smoke.gd"
       - "godot/tests/fire_11_5_smoke.gd"
+      - "godot/scripts/fire_presentation_controller.gd"
+      - "godot/tests/fire_presentation_11_5_f6_smoke.gd"
       - "godot/tests/fire_scorch_11_5_smoke.gd"
       - "godot/tests/fire_smolder_11_5_smoke.gd"
       - "godot/tests/fire_runoff_11_5_smoke.gd"
@@ -272,6 +276,19 @@ jobs:
             | tee /tmp/nature-shrubs-weather.log
           grep -q "11.3/V2.9:.*успешно" /tmp/nature-shrubs-weather.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-shrubs-weather.log; then
+            exit 1
+          fi
+      - name: "11.5/F6 — визуальный огонь, один звук/свет, LOD и JSON"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          timeout 260s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/fire_presentation_11_5_f6_smoke.gd 2>&1 \
+            | tee /tmp/fire-11-5-f6.log
+          grep -q "11.5/F6:.*успешно" /tmp/fire-11-5-f6.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/fire-11-5-f6.log; then
             exit 1
           fi
       - name: "11.5/F1 — физический огонь, топливо, дождь и JSON"
