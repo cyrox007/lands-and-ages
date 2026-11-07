@@ -68,7 +68,7 @@ func _profile(seed: int) -> Dictionary:
 
 	# Для одного и того же участка строим два настоящих ArrayMesh.
 	# Сравнение координат доказывает, что LOD не придумывает горы.
-	var chunk := world.config.chunk_of(summit_cell)
+	var chunk: Vector2i = world.config.chunk_of(summit_cell)
 	var close: Array = Chunk.prepare_arrays(chunk.x, chunk.y, 1, world,
 		null, 0, null, null)
 	var far: Array = Chunk.prepare_arrays(chunk.x, chunk.y, 1, world,
@@ -77,7 +77,7 @@ func _profile(seed: int) -> Dictionary:
 	var far_vertices: PackedVector3Array = far[Mesh.ARRAY_VERTEX]
 	_check(close_vertices.size() > 0 and far_vertices.size() > 0,
 		"У seed %d обе геометрии LOD не пустые" % seed)
-	var physical := world.config.to_scene(Vector2(summit_cell), summit)
+	var physical: Vector3 = world.config.to_scene(Vector2(summit_cell), summit)
 	var vertex_found := false
 	for vertex in close_vertices:
 		if vertex.distance_to(physical) < 0.001:
