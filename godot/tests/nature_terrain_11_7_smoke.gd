@@ -231,10 +231,12 @@ func _natural_event() -> void:
     _check(state["surface"].advance_climate_day(climate),
         "Суточная физика поверхности обновлена")
     state["hydro"].apply_rainfall_map(state["surface"].runoff_map())
-    _check(nature.advance_day(2, [{
+    var hazards: Array[Dictionary] = [{
         "kind": "землетрясение", "cell": source,
         "severity": 1.0, "vertices": impact["vertices"]
-    }]) >= 0, "День с тектоническим воздействием выполнен")
+    }]
+    _check(nature.advance_day(2, hazards) >= 0,
+        "День с тектоническим воздействием выполнен")
     _check(nature.object_at(int(_item(world, source, "дерево")["id"]))["state"]
         == "пень", "Естественное землетрясение валит дерево")
     _check(nature.advance_day(2) == 0, "Повтор дня не наносит новый урон")
