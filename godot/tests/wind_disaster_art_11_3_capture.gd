@@ -40,6 +40,25 @@ func _wait_chunks(view: Node3D) -> void:
 	_check(false, "Карта не успела построиться для контрольной сцены")
 
 
+func _dry_land_cell(view: Node3D) -> Vector2i:
+	# Для художественной сцены нужен действительно подходящий
+	# сухой грунт из NaturalDisasters, а не случайный океан
+	# под центром камеры. Правило то же, что у физической бури.
+	var config: RefCounted = view._world_model.config
+	var best := Vector2i(-1, -1)
+	var nearest := INF
+	for y in range(12, config.height - 12, 3):
+		for x in range(12, config.width - 12, 3):
+			var cell := Vector2i(x, y)
+			if not view._natural_disasters.dust_source_ready(cell):
+				continue
+			var dist := Vector2(cell).distance_squared_to(view._center)
+			if dist < nearest:
+				best = cell
+				nearest = dist
+	return best
+
+
 func _climate() -> Dictionary:
 	# Один и тот же климат для всех кадров позволяет отделить
 	# форму бедствия от других погодных или сезонных изменений.
@@ -124,6 +143,16 @@ func _run() -> void:
 		if child is CanvasLayer:
 			child.visible = false
 	await _wait_chunks(view)
+	var dry_cell: Vector2i = _dry_land_cell(view)
+	_check(dry_cell.x >= 0 and
+		view._natural_disasters.dust_source_ready(dry_cell),
+		"Для пыльной бури найден настоящий сухой грунт")
+	if dry_cell.x >= 0:
+		# Контрольный кадр теперь показывает береговую/сухопутную
+		# область с физически возможным выносом пыли.
+		view._move_center(Vector2(dry_cell) + Vector2(0.5, 0.5)
+			- view._center)
+		await _wait_chunks(view)
 	view.set_process(false)
 	var before := JSON.stringify(view._world_model.to_data())
 	var soil_before := JSON.stringify(view._surface.to_data())
