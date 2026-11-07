@@ -1,0 +1,171 @@
+name: "11.7/R5 — реальные горные массивы, вода, WorldSave и кадры"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain.gd"
+      - "godot/scripts/world_config.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/scripts/world_boundary.gd"
+      - "godot/tests/mountain_massifs_11_7_r5_*.gd"
+      - ".github/workflows/godot-mountains-11-7-r5.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain.gd"
+      - "godot/scripts/world_config.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/scripts/world_boundary.gd"
+      - "godot/tests/mountain_massifs_11_7_r5_*.gd"
+      - ".github/workflows/godot-mountains-11-7-r5.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: mountain-r5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  physics-mountains:
+    name: "R5 — вершины, гребни, гидрология и сейвы"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Скачать Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-mountain.zip
+          unzip -q /tmp/godot-mountain.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать проект и проверить новый генератор"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/mountain-r5-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/mountain-r5-import.log; then
+            exit 1
+          fi
+      - name: "R5 — горы, уклоны, швы, три seed, реки и JSON"
+        timeout-minutes: 8
+        run: |
+          set -o pipefail
+          timeout 440s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/mountain_massifs_11_7_r5_smoke.gd \
+            2>&1 | tee /tmp/mountain-r5-physical.log
+          grep -q "11.7/R5:.*успешно" /tmp/mountain-r5-physical.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/mountain-r5-physical.log; then
+            exit 1
+          fi
+      - name: "Проверить отчёт физических гор"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Эти данные относятся к физической карте, не к FPS GPU.
+          path = Path("godot/tests/mountain-r5-report.json")
+          report = json.loads(path.read_text(encoding="utf-8"))
+          assert report["passed"] is True and not report["failures"]
+          assert report["generator_version"] == 3
+          assert len(report["scenarios"]) == 3
+          assert report["hardware_fps_verified"] is False
+          for item in report["scenarios"]:
+              assert item["maximum_height"] >= 18
+              assert item["foothill_prominence"] >= 11.5
+              assert item["seam_verified"] is True
+              assert item["changed_vertices"] > 0
+              assert item["outlets"] > 0
+          print("11.7/R5: 3 seed, настоящие горы, вода и сохранения проверены")
+          PY
+      - name: "Опубликовать отчёт высот и журнал"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mountain-r5-physical-audit
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            godot/tests/mountain-r5-report.json
+            /tmp/mountain-r5-import.log
+            /tmp/mountain-r5-physical.log
+
+  real-game-captures:
+    name: "R5 — настоящие PNG горной сцены из Godot"
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot и программный OpenGL"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-mountain-gl.zip
+          unzip -q /tmp/godot-mountain-gl.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать материалы горного окружения"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/mountain-r5-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/mountain-r5-gl-import.log; then
+            exit 1
+          fi
+      - name: "Два настоящих кадра: горная панорама и гребни"
+        timeout-minutes: 9
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/mountain-r5-gl
+          timeout 500s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/mountain_massifs_11_7_r5_capture.gd \
+            -- --out=/tmp/mountain-r5-gl \
+            2>&1 | tee /tmp/mountain-r5-gl.log
+          grep -q "11.7/R5/GL:.*успешно" /tmp/mountain-r5-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/mountain-r5-gl.log; then
+            exit 1
+          fi
+      - name: "Проверить сохранённые кадры Godot"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Настоящие кадры служат для художественного сравнения,
+          # а не для автоматической отметки качества.
+          folder = Path("/tmp/mountain-r5-gl")
+          report = json.loads((folder / "manifest.json").read_text())
+          assert report["passed"] and report["real_game_world"]
+          assert report["terrain_version"] == 3
+          assert report["software_opengl"] is True
+          assert report["artistic_approval"] is False
+          assert report["hardware_fps_verified"] is False
+          assert report["peak"]["elevation"] >= 18
+          assert len(report["captures"]) == 2
+          for filename in report["captures"]:
+              assert (folder / filename).stat().st_size > 18000
+          print("R5: два настоящих PNG Godot, без фиктивного художественного допуска")
+          PY
+      - name: "Опубликовать настоящие PNG и манифест"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mountain-r5-real-game-png
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/mountain-r5-gl/
+            /tmp/mountain-r5-gl.log
+            /tmp/mountain-r5-gl-import.log
