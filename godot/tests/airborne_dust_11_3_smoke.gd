@@ -41,6 +41,10 @@ func _setup() -> Dictionary:
 	surface.advance_climate_day(climate)
 	climate.set_day(2)
 	surface.advance_climate_day(climate)
+	# Полный WorldSave включает пространственный сток рек. Пустой
+	# _local_rain нельзя сериализовать как массив байтов Godot;
+	# поэтому приводим гидрологию к физически рассчитанному дню.
+	hydro.apply_rainfall_map(surface.runoff_map())
 	surface._moisture.fill(0.025)
 	surface._snow.fill(0.0)
 	surface._frost.fill(0.0)
