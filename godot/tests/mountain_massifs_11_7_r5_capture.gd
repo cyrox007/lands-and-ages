@@ -5,6 +5,7 @@ extends SceneTree
 
 const View = preload("res://scripts/world.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const Config = preload("res://scripts/world_config.gd")
 const Size := Vector2i(960, 540)
 const WaitFrames := 480
 
@@ -38,7 +39,8 @@ func _wait_chunks(view: Node3D) -> bool:
 		if view._chunk_jobs.is_empty() and view._pending.is_empty() \
 				and view._rebuild_pending.is_empty() \
 				and view._nature_dirty.is_empty() \
-				and not view._active.is_empty():
+				and not view._active.is_empty() \
+				and view._active.size() >= view._wanted_chunks.size():
 			await process_frame
 			await process_frame
 			return true
@@ -133,7 +135,7 @@ func _run() -> void:
 		"stage": "11.7/R5", "real_game_world": true,
 		"software_opengl": true, "hardware_fps_verified": false,
 		"artistic_approval": false,
-		"terrain_version": view._world_model.config.TERRAIN_VERSION,
+		"terrain_version": Config.TERRAIN_VERSION,
 		"peak": {"x": peak.x, "y": peak.y, "elevation": summary["height"]},
 		"captures": captures, "passed": failures.is_empty(),
 		"failures": failures
