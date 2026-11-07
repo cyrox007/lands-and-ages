@@ -155,6 +155,11 @@ func advance_day(day: int) -> Dictionary:
 		result = _move_sediment(best)
 	if result.is_empty():
 		return {}
+	# Только реальная геологическая деформация передаёт силу в
+	# NatureRegistry: для обычного речного переноса грунта урона
+	# лесу нет. Показатель — исходный физический риск участка.
+	if kind == "slide" and int(result.get("vertices", 0)) > 0:
+		result["severity"] = clampf(best_score, 0.0, 1.0)
 	result["process"] = kind
 	result["cell"] = cell
 	result["day"] = day
