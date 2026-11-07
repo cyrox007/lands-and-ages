@@ -7,7 +7,10 @@ signal disaster_occurred(event: Dictionary)
 const Terrain = preload("res://scripts/terrain.gd")
 const Landscape = preload("res://scripts/landscape_events.gd")
 const Climate = preload("res://scripts/climate.gd")
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
+const AIRBORNE_UNITS := 1000000.0
+const MAX_AIRBORNE_PLUMES := 16
+const AIRBORNE_LIFT_FRACTION := 0.22
 const MAX_EVENTS_PER_DAY := 4
 const SAMPLE_AXIS := 4
 const DIRECTIONS := [
@@ -24,6 +27,7 @@ var climate: RefCounted
 var last_day := 0
 var total_events := 0
 var last_events: Array[Dictionary] = []
+var airborne_dust: Array[Dictionary] = []
 var _storms := PackedInt32Array()
 var _floods := PackedInt32Array()
 var _droughts := PackedInt32Array()
@@ -253,8 +257,10 @@ func apply_dust_storm(cell: Vector2i, severity: float) -> Dictionary:
 	# и ограничение sediment_volume <= 0.05 остаются совместимы.
 	var amount := clampf(severity * 0.007, 0.002, 0.007)
 	var moved := 0
+	var lifted := 0.0
 	for lane in [0, -1, 1]:
 		var source: Vector2i = cell + side * lane
+		var lane_moved := 0
 		for step in range(2):
 			# Нельзя брать новый грунт из воды, скалы, снега или
 			# мокрой клетки. Если цепочка оборвалась, дальше не идём.
@@ -268,15 +274,82 @@ func apply_dust_storm(cell: Vector2i, severity: float) -> Dictionary:
 			if not surface.transfer_sediment(source, target, amount):
 				break
 			moved += 1
+			lane_moved += 1
 			# Второй перенос использует тот же физический осадок
 			# на новой клетке и не создаёт дополнительной массы.
 			source = target
+		# Только из уже действительно доставленного Surface-наноса
+		# поднимаем в воздух малую долю. Вычитание из грунта
+		# атомарно, а ограниченный реестр хранит физическую массу.
+		if lane_moved > 0 and airborne_dust.size() < MAX_AIRBORNE_PLUMES:
+			var suspension := amount * AIRBORNE_LIFT_FRACTION
+			if surface.lift_airborne_sediment(source, suspension):
+				airborne_dust.append({
+					"cell": source, "mass": suspension, "born": climate.day
+				})
+				lifted += suspension
 	if moved == 0:
 		return {}
 	return {
 		"vertices": moved * 2,
-		"sediment_volume": float(moved) * amount
+		"sediment_volume": float(moved) * amount,
+		"airborne_volume": lifted
 	}
+
+
+func airborne_volume() -> float:
+	# Сумма вычисляется по ограниченному числу фронтов, а не
+	# по всей карте: важно для длительных прогонов и HUD.
+	var amount := 0.0
+	for entry in airborne_dust:
+		amount += float(entry["mass"])
+	return amount
+
+
+func _settle_airborne_day(day: int) -> void:
+	# Воздушная масса может переместиться за сутки строго по
+	# физическому направлению Climate. Дождь и слабый ветер
+	# ускоряют выпадение, а после трёх суток оседает весь остаток.
+	# Не используем RNG, камеру и отдельные GPU-погодные события.
+	var remaining: Array[Dictionary] = []
+	for entry in airborne_dust:
+		if int(entry["born"]) >= day:
+			remaining.append(entry)
+			continue
+		var position: Vector2i = entry["cell"]
+		var index: int = hydro.cell_index(position)
+		var direction: Vector2 = climate.wind_direction_at_index(index)
+		var next := position + Vector2i(
+			roundi(direction.x * 2.0), roundi(direction.y * 2.0))
+		if not world.config.contains_cell(next):
+			next = position
+		elif hydro.has_water(hydro.cell_index(next)):
+			next = position
+		var rain: float = climate.precipitation_at_index(index)
+		var gust: float = climate.wind_gust_at_index(index)
+		var age := day - int(entry["born"])
+		var portion := clampf(
+			0.26 + rain * 0.42 + (1.0 - clampf(gust / 36.0, 0.0, 1.0)) * 0.20,
+			0.25, 1.0)
+		if age >= 3 or rain >= 0.8:
+			portion = 1.0
+		var volume: float = float(entry["mass"])
+		var deposited := volume * portion
+		if volume - deposited < 0.000001:
+			deposited = volume
+		# Не теряем массу над затопленной или слишком высокой
+		# клеткой: если перенос не удался, пробуем прежний участок.
+		var settled: bool = surface.settle_airborne_sediment(next, deposited)
+		if not settled and next != position:
+			settled = surface.settle_airborne_sediment(position, deposited)
+			next = position
+		if settled:
+			volume -= deposited
+		if volume > 0.0000005:
+			remaining.append({
+				"cell": next, "mass": volume, "born": entry["born"]
+			})
+	airborne_dust = remaining
 
 
 func _slope_event(kind: String, cell: Vector2i, risk: float) -> Dictionary:
@@ -324,6 +397,9 @@ func advance_day(day: int) -> Array[Dictionary]:
 		return []
 	last_day = day
 	last_events.clear()
+	# Сначала переносим и осаждаем взвесь предыдущих суток.
+	# Новая пыль текущего бедствия оседать в тот же день не может.
+	_settle_airborne_day(day)
 	var dimensions: Vector2i = world.config.region_count()
 	# Склоны проверяем только в дни возможного схода масс.
 	# Шторм, паводок, засуха и напряжение обновляются ежедневно.
