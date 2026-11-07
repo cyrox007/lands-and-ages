@@ -70,8 +70,8 @@ func resolve(user_quality: int, zoom: float, p95_ms: float) -> int:
 		_slow_samples = 0
 		_stable_samples = 0
 
-	var next_quality := mini(clampi(user_quality, 0, 2),
-		zoom_cap(zoom), _pressure_cap)
+	var next_quality := mini(mini(clampi(user_quality, 0, 2),
+		zoom_cap(zoom)), _pressure_cap)
 	if next_quality != effective_quality:
 		effective_quality = next_quality
 		quality_changes += 1
