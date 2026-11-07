@@ -162,13 +162,14 @@ func run_landscape(view: Node3D) -> Dictionary:
 		var sync_ms := float(Time.get_ticks_usec() - start) / 1000.0
 
 		# Измеряем именно кадровый интервал, пока игровая очередь
-		# перестраивает видимые меши и коллизии. Ограничение в 240
-		# кадров не позволяет зависнуть на слабом Android.
+		# перестраивает видимые меши и коллизии. Ограничиваем
+		# ожидание 30 секундами: на быстром CPU 240 кадров проходят
+		# раньше, чем два фоновых потока закончат строить геометрию.
 		var frames: Array[float] = []
 		var peak_pending := 0
 		var timed_out := true
 		var last_tick := Time.get_ticks_usec()
-		for frame in range(240):
+		for frame in range(1800):
 			await view.get_tree().process_frame
 			var tick := Time.get_ticks_usec()
 			frames.append(float(tick - last_tick) / 1000.0)
@@ -176,6 +177,8 @@ func run_landscape(view: Node3D) -> Dictionary:
 			var pending: int = view._pending.size() + view._chunk_jobs.size() \
 				+ view._rebuild_pending.size() + view._nature_dirty.size()
 			peak_pending = maxi(peak_pending, pending)
+			if float(tick - start) / 1000.0 > 30000.0:
+				break
 			# Дожидаемся четырёх игровых кадров после воздействия
 			# и полного опустошения очередей. Размер wanted может
 			# включать отсечённые камерой чанки, поэтому не сравниваем
@@ -217,7 +220,7 @@ func run_landscape(view: Node3D) -> Dictionary:
 		"units": {
 			"sync_cpu_ms": "время физической синхронизации и постановки чанков, не GPU",
 			"frame_interval_p95_ms": "95-й перцентиль интервала между кадрами",
-			"queue_timeout": "очередь не завершилась за 240 кадров"
+			"queue_timeout": "очередь не завершилась за 30 секунд или 1800 кадров"
 		},
 		"events": results
 	}
