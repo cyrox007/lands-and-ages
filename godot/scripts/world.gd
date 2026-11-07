@@ -29,6 +29,7 @@ const Atmosphere = preload("res://scripts/weather_atmosphere_controller.gd")
 const WeatherLighting = preload("res://scripts/weather_lighting_state.gd")
 const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
+const WorldAftermath = preload("res://scripts/world_aftermath.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
@@ -2060,6 +2061,18 @@ func _update_hud() -> void:
 		float(ground["growth_potential"]) * 100.0]
 	_status.text += "Отложения здесь %.3f · баланс %.6f\n" % [
 		float(ground["sediment"]), _surface.sediment_balance()]
+	# Диагностика читает ровно те же физические реестры, что
+	# движение природы и сохранение. Ни выбор камеры, ни открытие
+	# панели не создают и не удаляют последствия бедствий.
+	var aftermath: Dictionary = WorldAftermath.at(cell, _world_model,
+		_surface, _nature, _fire, _hydro)
+	_status.text += "Следы: геология %.0f%% · ожог %.0f%% · гарь %.0f%%\n" % [
+		float(aftermath["geological_scar"]) * 100.0,
+		float(aftermath["fire_damage"]) * 100.0,
+		float(aftermath["scorched"]) * 100.0]
+	_status.text += "Ресурсы здесь: лежащая древесина %d · уголь %d · взвесь %d\n" % [
+		int(aftermath["fallen_wood"]), int(aftermath["charcoal"]),
+		int(aftermath["suspended_ash"])]
 	_status.text += "Ветер %.1f · изменённых вершин %d\n" % [
 		float(weather["wind_speed"]), _world_model.changed_vertex_count()]
 	_status.text += "%s\n" % _weather_status
