@@ -501,7 +501,11 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 			_dust_haze.position = Vector3(center.x, altitude + 3.0, center.y)
 		_dust_haze.rotation.y = -atan2(_event_direction.y,
 			_event_direction.x)
-		(_dust_haze.mesh as PlaneMesh).size = sheet_size
+		# Размеры геометрии меняем только при переходе к другому
+		# типу ветрового бедствия, а не каждые 0.35 с у камеры.
+		var sheet_mesh := _dust_haze.mesh as PlaneMesh
+		if sheet_mesh.size != sheet_size:
+			sheet_mesh.size = sheet_size
 		var veil_material := _dust_haze.material_override as ShaderMaterial
 		veil_material.set_shader_parameter("event_mode", mode)
 		veil_material.set_shader_parameter("transported_mass",
