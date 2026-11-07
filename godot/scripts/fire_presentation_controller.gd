@@ -82,7 +82,7 @@ func set_quality(level: int) -> void:
 	# физических очагов остаются независимыми от пресета GPU.
 	_quality = clampi(level, 0, 2)
 	if _light != null:
-		_light.omni_range = [0.0, 10.0, 14.0][_quality]
+		_light.omni_range = [7.0, 10.0, 14.0][_quality]
 		_light.visible = _source_id >= 0 and _quality > 0 and _enabled
 
 
@@ -96,17 +96,23 @@ func set_effects_enabled(enabled: bool) -> void:
 		clear_visuals()
 
 
-func clear_visuals() -> void:
-	# Перезапуск мира не переносит предыдущий источник звука
-	# и света. Новые очаги будут считаны из нового FireRegistry.
+func _stop_source() -> void:
+	# Кончился пожар или ушла камера — выключаем один имеющийся
+	# свет и звук. Никаких фиктивных дополнительных источников.
 	_source_id = -1
 	_source_strength = 0.0
-	_elapsed = SYNC_INTERVAL
 	if _light != null:
 		_light.visible = false
 		_light.light_energy = 0.0
 	if _audio != null:
 		_audio.stop()
+
+
+func clear_visuals() -> void:
+	# После загрузки очищаем предыдущую сцену и разрешаем
+	# немедленный поиск по новому физическому состоянию мира.
+	_stop_source()
+	_elapsed = SYNC_INTERVAL
 
 
 func sync_view(delta: float, fire: RefCounted, nature: RefCounted,
@@ -146,7 +152,9 @@ func sync_view(delta: float, fire: RefCounted, nature: RefCounted,
 		chosen_id = id
 		chosen_point = point
 	if chosen_id < 0:
-		clear_visuals()
+		# Отсутствие огня тоже проверяем не чаще SYNC_INTERVAL:
+		# иначе пустая карта заставит обходить реестр каждый кадр.
+		_stop_source()
 		return
 
 	_source_id = chosen_id
