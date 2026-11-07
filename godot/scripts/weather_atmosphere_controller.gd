@@ -78,13 +78,21 @@ func show_lightning(strikes: Array[Dictionary], world: RefCounted,
 		_enabled and allow_visuals)
 
 
-func show_hazard(hazard: Dictionary, direction: Vector2) -> void:
-	# Штормовые частицы — реакция на NaturalDisasters.
-	# Это единая диспетчеризация существующих эффектов; новых
-	# случайных бедствий или урона здесь не создаётся.
+func show_hazard(hazard: Dictionary, direction: Vector2,
+		world: RefCounted = null) -> void:
+	# Передаём координаты ровно того события, которое рассчитано
+	# NaturalDisasters. Визуализация не способна создавать бедствия.
 	if not _enabled or precipitation == null:
 		return
 	var severity := clampf(float(hazard.get("severity", 0.0)), 0.0, 1.0)
+	var position := Vector3.ZERO
+	var located := false
+	if world != null and hazard.get("cell") is Vector2i:
+		var cell: Vector2i = hazard["cell"]
+		if world.config.contains_cell(cell):
+			var point := Vector2(cell) + Vector2(0.5, 0.5)
+			position = world.config.to_scene(point, world.height_at(point))
+			located = true
 	match str(hazard.get("kind", "")):
 		"шторм":
 			precipitation.show_storm_event(severity, direction)
@@ -93,9 +101,14 @@ func show_hazard(hazard: Dictionary, direction: Vector2) -> void:
 		"ураган":
 			precipitation.show_hurricane_event(severity, direction)
 		"смерч":
-			precipitation.show_tornado_event(severity, direction)
+			precipitation.show_tornado_event(severity, direction,
+				4.8, position, located)
 		"пыльная буря":
-			precipitation.show_dust_storm_event(severity, direction)
+			# Физический результат содержит фактически перенесённую
+			# массу: сильный ветер без грунта не даёт густой завесы.
+			precipitation.show_dust_storm_event(severity, direction,
+				5.0, float(hazard.get("sediment_volume", -1.0)),
+				position, located)
 
 
 func clear_after_load(last_day: int) -> void:

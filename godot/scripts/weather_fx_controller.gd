@@ -4,6 +4,8 @@ extends Node3D
 
 const VisualState = preload("res://scripts/weather_visual_state.gd")
 const PrecipitationShader = preload("res://shaders/local_precipitation.gdshader")
+const TornadoShader = preload("res://shaders/tornado_funnel.gdshader")
+const DustHazeShader = preload("res://shaders/wind_dust_haze.gdshader")
 const RAIN_PARTICLES := 640
 const MASK_SIZE := 17
 const MASK_STEP := 6.0
@@ -13,6 +15,8 @@ const WET_SNOW_PARTICLES := 220
 const HAIL_PARTICLES := 180
 const SPLASH_PARTICLES := 240
 const DRIFT_PARTICLES := 180
+const TORNADO_RINGS := 19
+const TORNADO_SIDES := 24
 
 var _rain: GPUParticles3D
 var _snow: GPUParticles3D
@@ -22,6 +26,12 @@ var _splashes: GPUParticles3D
 var _snowdrift: GPUParticles3D
 var _gusts: GPUParticles3D
 var _dust: GPUParticles3D
+var _tornado_funnel: MeshInstance3D
+var _dust_haze: MeshInstance3D
+var _tornado_phase := 0.0
+var _event_origin := Vector3.ZERO
+var _event_has_origin := false
+var _event_aerosol := 1.0
 var _event_life := 0.0
 var _event_severity := 0.0
 var _event_direction := Vector2.ZERO
@@ -112,6 +122,46 @@ func _ready() -> void:
 	var dust_motion: ParticleProcessMaterial = _dust.process_material
 	dust_motion.gravity = Vector3(0.0, 0.12, 0.0)
 	dust_motion.spread = 11.0
+	# Мягкий радиальный альфа-градиент вместо прямоугольных
+	# пылевых карточек. Материал создаётся один раз.
+	var fade := Gradient.new()
+	fade.offsets = PackedFloat32Array([0.0, 0.42, 1.0])
+	fade.colors = PackedColorArray([
+		Color(1.0, 1.0, 1.0, 0.95),
+		Color(1.0, 1.0, 1.0, 0.48),
+		Color(1.0, 1.0, 1.0, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.width = 128
+	texture.height = 128
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(0.5, 0.0)
+	texture.gradient = fade
+	var dust_quad := _dust.draw_pass_1 as QuadMesh
+	(dust_quad.material as StandardMaterial3D).albedo_texture = texture
+	# Одна многоугольная воронка вместо нескольких сотен узлов.
+	_tornado_funnel = MeshInstance3D.new()
+	_tornado_funnel.name = "Спиральная воронка физического смерча"
+	_tornado_funnel.mesh = _build_tornado_mesh()
+	_tornado_funnel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var funnel_material := ShaderMaterial.new()
+	funnel_material.shader = TornadoShader
+	_tornado_funnel.material_override = funnel_material
+	_tornado_funnel.visible = false
+	add_child(_tornado_funnel)
+	# Один мягкий шлейф над реальным сухим участком. GPU-частиц
+	# больше не выделяется, а грунт не пересчитывается в рендере.
+	_dust_haze = MeshInstance3D.new()
+	_dust_haze.name = "Приземная аэрозольная завеса"
+	var sheet := PlaneMesh.new()
+	sheet.size = Vector2(58.0, 28.0)
+	_dust_haze.mesh = sheet
+	var haze_material := ShaderMaterial.new()
+	haze_material.shader = DustHazeShader
+	_dust_haze.material_override = haze_material
+	_dust_haze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_dust_haze.visible = false
+	add_child(_dust_haze)
 
 
 func _process(delta: float) -> void:
@@ -124,14 +174,30 @@ func _process(delta: float) -> void:
 		# уже завершённого физического шторма.
 		return
 	_event_life = maxf(0.0, _event_life - delta)
+	# Только материал вращается, коллизии и физический след
+	# не меняются. Пауза уже обработана выше.
+	if _tornado_funnel != null:
+		_tornado_phase += delta
+		if _event_tornado:
+			(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
+				"animation_phase", _tornado_phase)
+		if _dust_haze != null and _dust_haze.visible:
+			(_dust_haze.material_override as ShaderMaterial).set_shader_parameter(
+				"animation_phase", _tornado_phase)
 	if _event_life == 0.0 and _gusts != null:
+		if _tornado_funnel != null:
+			_tornado_funnel.visible = false
+		if _dust_haze != null:
+			_dust_haze.visible = false
 		_gusts.emitting = false
 		_event_squall = false
 		_event_hurricane = false
 		_event_tornado = false
 		_event_dust = false
+		_event_has_origin = false
 		if _dust != null:
 			_dust.emitting = false
+			_dust.visible = false
 
 
 func show_storm_event(severity: float, direction: Vector2,
@@ -139,10 +205,17 @@ func show_storm_event(severity: float, direction: Vector2,
 	# Только визуальный отклик на реальный hazard из суточного результата;
 	# не создаём новую грозу и не передаём силу назад в Climate.
 	_event_life = maxf(0.0, duration)
+	_tornado_phase = 0.0
 	_event_squall = false
 	_event_hurricane = false
 	_event_tornado = false
 	_event_dust = false
+	_event_has_origin = false
+	_event_aerosol = 1.0
+	if _tornado_funnel != null:
+		_tornado_funnel.visible = false
+	if _dust_haze != null:
+		_dust_haze.visible = false
 	_event_severity = clampf(severity, 0.0, 1.0)
 	_event_direction = direction.normalized() if direction.length_squared() > 0.0 		else Vector2.RIGHT
 
@@ -164,20 +237,78 @@ func show_hurricane_event(severity: float, direction: Vector2,
 
 
 func show_tornado_event(severity: float, direction: Vector2,
-		duration: float = 4.8) -> void:
-	# Видимый узкий след назначается только после расчёта
-	# физического смерча. Отрисовка не создаёт деревьям ущерб.
+		duration: float = 4.8, origin: Vector3 = Vector3.ZERO,
+		located: bool = false) -> void:
+	# Положение получаем от фактического события, а не от камеры;
+	# старые smoke без координат сохраняют камерный fallback.
 	show_storm_event(severity, direction, duration)
 	_event_tornado = true
+	_event_origin = origin
+	_event_has_origin = located
+	_tornado_phase = 0.0
+	if _tornado_funnel != null:
+		_tornado_funnel.visible = _enabled and _event_life > 0.0
+		_tornado_funnel.position = origin
+		(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
+			"severity", _event_severity)
 
 
 func show_dust_storm_event(severity: float, direction: Vector2,
-		duration: float = 5.0) -> void:
-	# Цветное облако показываем только для уже перенесённого грунта.
-	# Эффект не меняет климат и не создаёт дополнительный осадок.
+		duration: float = 5.0, sediment_volume: float = -1.0,
+		origin: Vector3 = Vector3.ZERO, located: bool = false) -> void:
+	# Интенсивность завесы следует за объёмом грунта, который
+	# реально перенёс NaturalDisasters. Старый API тестов без
+	# массы использует прежнюю интенсивность и остаётся совместим.
 	show_storm_event(severity, direction, duration)
 	_event_dust = true
+	_event_origin = origin
+	_event_has_origin = located
+	_event_aerosol = 1.0 if sediment_volume < 0.0 else (
+		clampf(sediment_volume / 0.042, 0.0, 1.0))
+	_tornado_phase = 0.0
+	if _dust_haze != null:
+		_dust_haze.position = origin + Vector3.UP * 3.0
+		_dust_haze.rotation.y = -atan2(_event_direction.y,
+			_event_direction.x)
+		_dust_haze.visible = _enabled and _event_aerosol > 0.025
+		(_dust_haze.material_override as ShaderMaterial).set_shader_parameter(
+			"transported_mass", _event_aerosol * _event_severity)
 
+
+
+func _build_tornado_mesh() -> ArrayMesh:
+	# 19 колец и 24 сегмента: узкая ножка у земли плавно
+	# расширяется к туче. Сетка строится при создании узла
+	# и не пересоздаётся в процессе анимации.
+	var vertices := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	for level in range(TORNADO_RINGS):
+		var progress := float(level) / float(TORNADO_RINGS - 1)
+		var radius := 1.1 + pow(progress, 1.62) * 7.9
+		var centre := Vector2(2.3 * progress,
+			sin(progress * TAU * 1.3) * 1.25 * progress)
+		for side in range(TORNADO_SIDES + 1):
+			var theta := TAU * float(side) / float(TORNADO_SIDES)
+			vertices.append(Vector3(
+				centre.x + cos(theta) * radius,
+				0.45 + progress * 33.0,
+				centre.y + sin(theta) * radius))
+			uvs.append(Vector2(float(side) / float(TORNADO_SIDES), progress))
+	for level in range(TORNADO_RINGS - 1):
+		for side in range(TORNADO_SIDES):
+			var a := level * (TORNADO_SIDES + 1) + side
+			var b := a + TORNADO_SIDES + 1
+			indices.append_array(PackedInt32Array([
+				a, b, a + 1, b, b + 1, a + 1]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 func _make_emitter(title: String, color: Color, size: Vector2,
 		amount: int, speed: float, life: float) -> GPUParticles3D:
@@ -240,6 +371,11 @@ func set_effects_enabled(enabled: bool) -> void:
 		_event_hurricane = false
 		_event_tornado = false
 		_event_dust = false
+		_event_has_origin = false
+		if _tornado_funnel != null:
+			_tornado_funnel.visible = false
+		if _dust_haze != null:
+			_dust_haze.visible = false
 
 
 func clear_visuals() -> void:
@@ -254,6 +390,10 @@ func clear_visuals() -> void:
 	_mask_peak = Vector2.ZERO
 	_mask_special_peak = Vector2.ZERO
 	_mask_origin = Vector2.ZERO
+	_event_aerosol = 1.0
+	if _dust_haze != null:
+		_dust_haze.visible = false
+	_tornado_phase = 0.0
 	# Оставляем настройку качества: это пользовательское предпочтение.
 	# Новую физику и сохранения этот сброс не затрагивает.
 	_enabled = was_enabled
@@ -324,6 +464,52 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	if _rain == null or _snow == null or _gusts == null:
 		return
 	var distance := clampf(zoom * 0.7, 10.0, 70.0)
+	# Видимость воронки согласована с тем же LOD, что и частицы:
+	# дальний обзор не получает крупный объект вне масштаба.
+	var event_visible := _enabled and _event_life > 0.0 and zoom < 105.0
+	if _tornado_funnel != null:
+		_tornado_funnel.visible = event_visible and _event_tornado
+		if _event_tornado and not _event_has_origin:
+			_tornado_funnel.position = Vector3(center.x, altitude, center.y)
+		_tornado_funnel.rotation.y = -atan2(
+			_event_direction.y, _event_direction.x)
+	if _dust_haze != null:
+		# Сохраняем одну сетку и для штормовых потоков, и для
+		# пыльного вихря. Цвета и полоса выбираются лишь по
+		# реально зарегистрированному виду NaturalDisasters.
+		var mode := 0
+		var sheet_intensity := 0.0
+		var sheet_size := Vector2(58.0, 28.0)
+		if _event_dust:
+			mode = 0
+			sheet_intensity = _event_severity * _event_aerosol
+		elif _event_squall:
+			mode = 2
+			sheet_intensity = _event_severity * 0.94
+			sheet_size = Vector2(74.0, 13.0)
+		elif _event_hurricane:
+			mode = 3
+			sheet_intensity = _event_severity * 0.95
+			sheet_size = Vector2(90.0, 80.0)
+		elif _event_life > 0.0 and not _event_tornado:
+			mode = 1
+			sheet_intensity = _event_severity * 0.65
+			sheet_size = Vector2(77.0, 47.0)
+		_dust_haze.visible = event_visible and not _event_tornado \
+			and sheet_intensity > 0.025
+		if not _event_has_origin:
+			_dust_haze.position = Vector3(center.x, altitude + 3.0, center.y)
+		_dust_haze.rotation.y = -atan2(_event_direction.y,
+			_event_direction.x)
+		# Размеры геометрии меняем только при переходе к другому
+		# типу ветрового бедствия, а не каждые 0.35 с у камеры.
+		var sheet_mesh := _dust_haze.mesh as PlaneMesh
+		if sheet_mesh.size != sheet_size:
+			sheet_mesh.size = sheet_size
+		var veil_material := _dust_haze.material_override as ShaderMaterial
+		veil_material.set_shader_parameter("event_mode", mode)
+		veil_material.set_shader_parameter("transported_mass",
+			clampf(sheet_intensity, 0.0, 1.0))
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
 	var precipitation_lod := 1.0 - smoothstep(72.0, 105.0, zoom)
 	# Ветровой снос наследует нормализованное направление пяти
@@ -350,6 +536,10 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 		var extent := distance if emitter == _gusts else minf(distance, 34.0)
 		material.emission_box_extents = Vector3(extent, 5.0, extent)
 		if emitter == _gusts:
+			# Физический смерч концентрирует порывы непосредственно
+			# вокруг своей воронки, а не в произвольной точке камеры.
+			if _event_tornado and _event_has_origin and _event_life > 0.0:
+				emitter.position = _event_origin + Vector3.UP * 10.0
 			# У шквала плотная узкая полоса и высокая скорость; у
 			# продолжительной грозы — широкая зона порывов над картой.
 			var visible_squall := _event_squall and _event_life > 0.0
@@ -422,16 +612,36 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 	_gusts.visible = _gusts.emitting
 	# Сухая буря рисуется низко над грунтом. Ширина и число частиц
 	# зависят от приближения камеры и уровня качества, а не от FPS.
-	_dust.position = Vector3(center.x, altitude + 4.5, center.y)
+	# Пыль поднимается у физического эпицентра бедствия.
+	# Количество и насыщенность зависят от фактической массы
+	# грунта, перенесённой NaturalDisasters, а не от числа кадров.
+	_dust.position = _event_origin + Vector3.UP * 2.4 \
+		if _event_has_origin else Vector3(center.x, altitude + 2.4, center.y)
 	var dust_motion: ParticleProcessMaterial = _dust.process_material
-	dust_motion.emission_box_extents = Vector3(distance * 0.78,
-		2.0, distance * 0.46)
-	dust_motion.direction = Vector3(airflow.x, 0.13, airflow.y).normalized()
+	var dust_strength := 0.0
+	if _event_dust and _event_life > 0.0:
+		dust_strength = _event_severity * _event_aerosol
+	elif _event_tornado and _event_life > 0.0:
+		# Низовой пылевой вихрь использует тот же эмиттер;
+		# второй аэрозольный бюджет не создаём.
+		dust_strength = _event_severity * 0.23
+	dust_motion.emission_box_extents = Vector3(
+		distance * (0.23 if _event_tornado else 0.78),
+		0.7 if _event_tornado else 2.0,
+		distance * (0.22 if _event_tornado else 0.46))
+	dust_motion.direction = Vector3(airflow.x, 0.14, airflow.y).normalized()
+	dust_motion.initial_velocity_min = lerpf(6.0, 13.0, dust_strength)
+	dust_motion.initial_velocity_max = lerpf(10.0, 22.0, dust_strength)
+	var dust_quad := _dust.draw_pass_1 as QuadMesh
+	dust_quad.size = Vector2(lerpf(0.78, 1.62, dust_strength),
+		lerpf(0.44, 1.08, dust_strength))
+	var dust_material := dust_quad.material as StandardMaterial3D
+	dust_material.albedo_color = Color(0.73, 0.58, 0.35,
+		0.11 + dust_strength * 0.28)
 	_dust.seed = world_seed + 71
-	_dust.amount_ratio = _event_severity * quality_factor \
-		if _event_dust and _event_life > 0.0 else 0.0
-	_dust.amount_ratio *= precipitation_lod
-	_dust.emitting = _enabled and _dust.amount_ratio >= 0.08
+	_dust.amount_ratio = clampf(
+		dust_strength * quality_factor * precipitation_lod, 0.0, 1.0)
+	_dust.emitting = _enabled and _dust.amount_ratio >= 0.025
 	_dust.visible = _dust.emitting
 
 

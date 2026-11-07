@@ -8,6 +8,10 @@ on:
       - "godot/scripts/climate.gd"
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/wind_field_11_3_smoke.gd"
+      - "godot/tests/wind_disaster_art_11_3_smoke.gd"
+      - "godot/tests/wind_disaster_art_11_3_capture.gd"
+      - "godot/shaders/tornado_funnel.gdshader"
+      - "godot/shaders/wind_dust_haze.gdshader"
       - "godot/scripts/weather_lighting_state.gd"
       - "godot/shaders/natural_ground.gdshader"
       - "godot/tests/world_weather_l4_smoke.gd"
@@ -32,6 +36,10 @@ on:
       - "godot/scripts/climate.gd"
       - "godot/scripts/natural_disasters.gd"
       - "godot/tests/wind_field_11_3_smoke.gd"
+      - "godot/tests/wind_disaster_art_11_3_smoke.gd"
+      - "godot/tests/wind_disaster_art_11_3_capture.gd"
+      - "godot/shaders/tornado_funnel.gdshader"
+      - "godot/shaders/wind_dust_haze.gdshader"
       - "godot/scripts/weather_lighting_state.gd"
       - "godot/shaders/natural_ground.gdshader"
       - "godot/tests/world_weather_l4_smoke.gd"
@@ -193,6 +201,63 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/weather-physics-test.log; then
             exit 1
           fi
+      - name: "11.3 — физический эпицентр, вращающаяся воронка и баланс аэрозоля"
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/wind_disaster_art_11_3_smoke.gd \
+            2>&1 | tee /tmp/weather-wind-art-11-3.log
+          grep -q "Этап 11.3/ART:.*успешно" /tmp/weather-wind-art-11-3.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-wind-art-11-3.log; then
+            exit 1
+          fi
+
+      - name: "11.3 — настоящие PNG ветровых бедствий через программный GL"
+        timeout-minutes: 9
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/wind-art-11-3
+          timeout 480s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/wind_disaster_art_11_3_capture.gd \
+            -- --out=/tmp/wind-art-11-3 \
+            2>&1 | tee /tmp/weather-wind-art-11-3-gl.log
+          grep -q "Этап 11.3/GL:.*успешно" /tmp/weather-wind-art-11-3-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-wind-art-11-3-gl.log; then
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base = Path("/tmp/wind-art-11-3")
+          manifest = json.loads((base / "manifest.json").read_text())
+          assert manifest["stage"] == "11.3"
+          assert manifest["checks_passed"] is True
+          assert manifest["visual_reference_events_only"] is True
+          assert manifest["artistic_approval"] is False
+          assert manifest["android_pc_gpu_verified"] is False
+          assert len(manifest["scenes"]) == 6
+          for scene in manifest["scenes"]:
+              assert (base / scene["file"]).stat().st_size > 18000
+              if scene["weather"] in ["смерч", "пыльная буря"]:
+                  assert scene["changed_sample_pixels"] > 22
+          print("Этап 11.3: шесть настоящих контрольных изображений — успешно")
+          PY
+
+      - name: "11.3 — опубликовать сравнительные игровые кадры"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wind-disasters-11-3-artistic-scenes
+          path: |
+            /tmp/wind-art-11-3/
+            /tmp/weather-wind-art-11-3-gl.log
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: "11.1 — сравнимые PNG осадков в оконном OpenGL"
         timeout-minutes: 5
         run: |
@@ -246,6 +311,8 @@ jobs:
             /tmp/weather-precipitation-11-1.log
             /tmp/weather-lightning-11-4.log
             /tmp/weather-wind-v2.log
+            /tmp/weather-wind-art-11-3.log
+            /tmp/weather-wind-art-11-3-gl.log
             /tmp/weather-physics-test.log
             /tmp/weather-l4.log
           if-no-files-found: ignore
