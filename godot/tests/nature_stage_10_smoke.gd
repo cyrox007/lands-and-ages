@@ -522,6 +522,22 @@ func _run() -> void:
     _check(snapshot.has("nature"), "Растительность включена в сохранение")
     var json_snapshot: Dictionary = JSON.parse_string(JSON.stringify(snapshot))
     var json_restored: Dictionary = Save.restore(json_snapshot)
+    if json_restored.is_empty():
+        # При несовместимости нового снимка указываем физическую
+        # подсистему, которая отвергла полный JSON, вместо догадок.
+        var debug_world: RefCounted = Map.from_data(json_snapshot["world"])
+        if debug_world != null:
+            var debug_hydro := Hydro.new(debug_world)
+            var hydro_ok := debug_hydro.load_snapshot(json_snapshot["hydrology"])
+            var debug_climate := Climate.new(debug_world, debug_hydro)
+            debug_climate.rebuild()
+            var climate_ok := debug_climate.load_data(json_snapshot["climate"])
+            var debug_surface := Surface.new(debug_world, debug_hydro)
+            debug_surface.rebuild()
+            var surface_ok := debug_surface.load_snapshot(json_snapshot["surface"])
+            print("Диагностика JSON: hydrology=", hydro_ok,
+                " climate=", climate_ok, " surface=", surface_ok,
+                " версия грунта=", json_snapshot["surface"].get("version"))
     _check(not json_restored.is_empty(),
         "Мир с растительностью восстанавливается после записи и чтения JSON")
     if not json_restored.is_empty():
