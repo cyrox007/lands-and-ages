@@ -999,6 +999,13 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
         if soil_scar > 0.0 and item["state"] == "целое":
             var sensitivity := 13.0 if int(item["age_days"]) < 7 * 96 else 6.0
             stress += roundi(soil_scar * sensitivity)
+        # Разрушенный склон временно хуже держит корни и замедляет
+        # рост молодых растений. Восстановление берём из Surface,
+        # а не из видимости дерева или прошедшей анимации обвала.
+        var geological_scar: float = surface.geological_scar_at_index(index)
+        if geological_scar > 0.0 and item["state"] == "целое":
+            stress += roundi(geological_scar * (
+                12.0 if int(item["age_days"]) < 7 * 96 else 5.0))
         var competition := 0.0
         if item["kind"] == "дерево" and item["state"] == "целое":
             competition = canopy_pressure_at(cell, int(id))
@@ -1019,7 +1026,7 @@ func advance_day(day: int, hazards: Array[Dictionary] = [],
                     annual_increment = maxi(0, annual_increment - 2)
                 # Утрата плодородия сокращает годовой прирост древесины,
                 # но не отбирает уже существующие брёвна из запаса.
-                if soil_scar > 0.40:
+                if soil_scar > 0.40 or geological_scar > 0.40:
                     annual_increment = maxi(0, annual_increment - 1)
                 item["wood_units"] = int(item["wood_units"]) + annual_increment
             elif item["state"] == "сухостой":
