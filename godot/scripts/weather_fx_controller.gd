@@ -5,6 +5,7 @@ extends Node3D
 const VisualState = preload("res://scripts/weather_visual_state.gd")
 const PrecipitationShader = preload("res://shaders/local_precipitation.gdshader")
 const TornadoShader = preload("res://shaders/tornado_funnel.gdshader")
+const DustHazeShader = preload("res://shaders/wind_dust_haze.gdshader")
 const RAIN_PARTICLES := 640
 const MASK_SIZE := 17
 const MASK_STEP := 6.0
@@ -26,6 +27,7 @@ var _snowdrift: GPUParticles3D
 var _gusts: GPUParticles3D
 var _dust: GPUParticles3D
 var _tornado_funnel: MeshInstance3D
+var _dust_haze: MeshInstance3D
 var _tornado_phase := 0.0
 var _event_origin := Vector3.ZERO
 var _event_has_origin := false
@@ -147,6 +149,19 @@ func _ready() -> void:
 	_tornado_funnel.material_override = funnel_material
 	_tornado_funnel.visible = false
 	add_child(_tornado_funnel)
+	# Один мягкий шлейф над реальным сухим участком. GPU-частиц
+	# больше не выделяется, а грунт не пересчитывается в рендере.
+	_dust_haze = MeshInstance3D.new()
+	_dust_haze.name = "Приземная аэрозольная завеса"
+	var sheet := PlaneMesh.new()
+	sheet.size = Vector2(58.0, 28.0)
+	_dust_haze.mesh = sheet
+	var haze_material := ShaderMaterial.new()
+	haze_material.shader = DustHazeShader
+	_dust_haze.material_override = haze_material
+	_dust_haze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_dust_haze.visible = false
+	add_child(_dust_haze)
 
 
 func _process(delta: float) -> void:
@@ -161,13 +176,19 @@ func _process(delta: float) -> void:
 	_event_life = maxf(0.0, _event_life - delta)
 	# Только материал вращается, коллизии и физический след
 	# не меняются. Пауза уже обработана выше.
-	if _event_tornado and _tornado_funnel != null:
+	if (_event_tornado or _event_dust) and _tornado_funnel != null:
 		_tornado_phase += delta
-		(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
-			"animation_phase", _tornado_phase)
+		if _event_tornado:
+			(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
+				"animation_phase", _tornado_phase)
+		if _event_dust and _dust_haze != null:
+			(_dust_haze.material_override as ShaderMaterial).set_shader_parameter(
+				"animation_phase", _tornado_phase)
 	if _event_life == 0.0 and _gusts != null:
 		if _tornado_funnel != null:
 			_tornado_funnel.visible = false
+		if _dust_haze != null:
+			_dust_haze.visible = false
 		_gusts.emitting = false
 		_event_squall = false
 		_event_hurricane = false
@@ -192,6 +213,8 @@ func show_storm_event(severity: float, direction: Vector2,
 	_event_aerosol = 1.0
 	if _tornado_funnel != null:
 		_tornado_funnel.visible = false
+	if _dust_haze != null:
+		_dust_haze.visible = false
 	_event_severity = clampf(severity, 0.0, 1.0)
 	_event_direction = direction.normalized() if direction.length_squared() > 0.0 		else Vector2.RIGHT
 
@@ -241,6 +264,14 @@ func show_dust_storm_event(severity: float, direction: Vector2,
 	_event_has_origin = located
 	_event_aerosol = 1.0 if sediment_volume < 0.0 else (
 		clampf(sediment_volume / 0.042, 0.0, 1.0))
+	_tornado_phase = 0.0
+	if _dust_haze != null:
+		_dust_haze.position = origin + Vector3.UP * 3.0
+		_dust_haze.rotation.y = -atan2(_event_direction.y,
+			_event_direction.x)
+		_dust_haze.visible = _enabled and _event_aerosol > 0.025
+		(_dust_haze.material_override as ShaderMaterial).set_shader_parameter(
+			"transported_mass", _event_aerosol * _event_severity)
 
 
 
@@ -342,6 +373,8 @@ func set_effects_enabled(enabled: bool) -> void:
 		_event_has_origin = false
 		if _tornado_funnel != null:
 			_tornado_funnel.visible = false
+		if _dust_haze != null:
+			_dust_haze.visible = false
 
 
 func clear_visuals() -> void:
@@ -357,6 +390,8 @@ func clear_visuals() -> void:
 	_mask_special_peak = Vector2.ZERO
 	_mask_origin = Vector2.ZERO
 	_event_aerosol = 1.0
+	if _dust_haze != null:
+		_dust_haze.visible = false
 	_tornado_phase = 0.0
 	# Оставляем настройку качества: это пользовательское предпочтение.
 	# Новую физику и сохранения этот сброс не затрагивает.
@@ -437,6 +472,10 @@ func apply_snapshot(state: Dictionary, center: Vector2,
 			_tornado_funnel.position = Vector3(center.x, altitude, center.y)
 		_tornado_funnel.rotation.y = -atan2(
 			_event_direction.y, _event_direction.x)
+	if _dust_haze != null:
+		_dust_haze.visible = event_visible and _event_dust and _event_aerosol > 0.025
+		if _event_dust and not _event_has_origin:
+			_dust_haze.position = Vector3(center.x, altitude + 3.0, center.y)
 	var quality_factor: float = [0.36, 0.72, 1.0][_quality]
 	var precipitation_lod := 1.0 - smoothstep(72.0, 105.0, zoom)
 	# Ветровой снос наследует нормализованное направление пяти
