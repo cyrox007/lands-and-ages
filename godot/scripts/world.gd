@@ -34,6 +34,7 @@ const WorldAftermath = preload("res://scripts/world_aftermath.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
+const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
 const NatureFelling = preload("res://scripts/nature_felling_visual.gd")
 const NatureCollision = preload("res://scripts/nature_collision.gd")
@@ -66,6 +67,7 @@ var _surface: RefCounted
 var _climate: RefCounted
 var _nature: RefCounted
 var _fire: RefCounted
+var _fire_presentation: Node3D
 var _nature_dirty: Dictionary = {}
 # Природную физику синхронизируем только при смене области или чанков.
 # Флаг не относится к сохранению: препятствия можно восстановить из природы.
@@ -260,6 +262,11 @@ func _ready() -> void:
 	add_child(_atmosphere)
 	_weather_fx = _atmosphere.precipitation
 	_lightning_fx = _atmosphere.lightning
+	# Один аудиоплеер и один свет на всю карту создаём только
+	# после завершения физической генерации и настройки камеры.
+	_fire_presentation = FirePresentation.new()
+	_fire_presentation.name = "Визуальные и звуковые эффекты пожара"
+	add_child(_fire_presentation)
 	_apply_visual_budget()
 	_atmosphere.sync_world(_climate, _world_model, _center, _camera.size)
 	_sync_water_weather()
@@ -617,6 +624,18 @@ func _process(delta: float) -> void:
 				_sync_water_weather()
 				_weather_fx_cooldown = VisualBudget.weather_sync_interval(
 					_render_zoom(), _mesh_budget_p95)
+	# Пространственный треск и отблеск видны только по
+	# завершённому физическому дню. Считывание FireRegistry
+	# никогда не пересекается с WorkerThreadPool.
+	if _fire_presentation != null:
+		if _day_task_id < 0 and _days_pending == 0:
+			var fire_center := _display_center if _display_camera != null \
+				else _center
+			_fire_presentation.sync_view(delta, _fire, _nature,
+				_world_model, fire_center, _render_zoom(),
+				_view_mode == 0 and not _benchmark_running)
+		else:
+			_fire_presentation.set_effects_enabled(false)
 	# Обновление мешей откладывается до конца перемотки,
 	# поэтому очередь GPU не тормозит каждый из 24 физических дней.
 	if _days_pending == 0 and _day_task_id < 0:
@@ -857,6 +876,8 @@ func _apply_visual_budget() -> void:
 		_atmosphere_quality, _camera.size, _mesh_budget_p95)
 	if _atmosphere != null and _applied_visual_quality != level:
 		_atmosphere.set_quality(level)
+		if _fire_presentation != null:
+			_fire_presentation.set_quality(level)
 		_applied_visual_quality = level
 		_weather_fx_cooldown = 0.0
 	# При смене профиля давления корректируем дальность теней
@@ -1771,6 +1792,10 @@ func _install_loaded_world(models: Dictionary) -> void:
 			_nature.tree_struck.disconnect(_on_tree_struck)
 	_nature = models["nature"]
 	_fire = models["fire"]
+	# Сохранённый реестр — единственный источник будущего звука.
+	# Не продолжаем старый треск и свет из прежней сцены.
+	if _fire_presentation != null:
+		_fire_presentation.clear_visuals()
 	_bind_nature_events()
 	_nature_dirty.clear()
 	_landscape_events = models["landscape"]
@@ -2176,6 +2201,11 @@ func _update_hud() -> void:
 		_mesh_build_budget_us, _skipped_stale_jobs]
 	_status.text += "Коллизии: обходов %d · пропусков %d · создано чанков %d\n" % [
 		_collider_sweeps, _collider_idle_skips, _collider_chunks_created]
+	if _fire_presentation != null:
+		var fire_fx: Dictionary = _fire_presentation.debug_budget()
+		_status.text += "Огонь FX: свет %d · звук %d · очаг %d · опросов %d\n" % [
+			int(fire_fx["lights"]), int(fire_fx["audio_players"]),
+			int(fire_fx["source_id"]), int(fire_fx["scans"])]
 	if _atmosphere != null:
 		var gpu: Dictionary = _atmosphere.debug_budget()
 		_status.text += "Графика: автор %d · действующий %d · эмиттеры %d/%d · частицы %d/%d\n" % [
