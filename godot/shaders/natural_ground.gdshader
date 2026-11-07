@@ -10,6 +10,9 @@ uniform float macro_strength : hint_range(0.0, 1.0) = 1.0;
 uniform float texture_density : hint_range(0.05, 2.0) = 0.35;
 // Контраст формы действует даже издалека; выключение не меняет физические высоты.
 uniform float relief_contrast : hint_range(0.0, 1.0) = 0.92;
+// R4a: художественная проработка только настоящих скальных обнажений.
+// Ноль показывает исходное покрытие для сравнения в том же кадре.
+uniform float rock_face_detail : hint_range(0.0, 1.0) = 1.0;
 // L3: направление существующего солнца, без дополнительных карт теней.
 // Крупные формы берутся из физической нормали и признаков WorldMap.
 uniform vec3 far_light_direction = vec3(0.0, 1.0, 0.0);
@@ -214,6 +217,36 @@ void fragment() {
 		float band = sin(phase) * 0.68 + sin(phase * 0.43 + 1.9) * 0.32;
 		strata = band * (1.0 - smoothstep(0.55, 1.65, fwidth(phase)));
 	}
+	// R4a: тонкая слоистость и трещины следуют абсолютной высоте
+	// и мировым координатам скалы. Силуэт, грунт, снег и вода
+	// остаются физическими, а не пересчитываются в фрагменте.
+	float rock_face = (rock / sum) *
+		smoothstep(0.19, 0.51, ground_steepness);
+	float face_quality = rock_face_detail *
+		smoothstep(0.08, 0.36, detail_strength);
+	float face_bedding = 0.0;
+	float face_joint = 0.0;
+	if (rock_face > 0.035 && face_quality > 0.015) {
+		// Низкочастотный изгиб слоёв един для соседних чанков.
+		// Высотные полосы не повторяются по экранным UV.
+		float bend = terrain_noise(ground_position.xz * 0.075 +
+			vec2(17.1, 9.2)) - 0.5;
+		float phase = ground_position.y * 1.46 +
+			dot(ground_position.xz, vec2(0.075, -0.12)) + bend * 1.85;
+		float layers = sin(phase) * 0.58 +
+			sin(phase * 2.39 + 0.68) * 0.42;
+		float antialias = 1.0 - smoothstep(0.9, 2.2, fwidth(phase));
+		face_bedding = layers * antialias;
+		// Трещины нерегулярны и узки; не заменяют геометрию
+		// откоса и не делают грязными пологие лесные участки.
+		float joint_phase = ground_position.x * 0.33 +
+			ground_position.z * 0.29 + ground_position.y * 0.13 +
+			terrain_noise(ground_position.xy * 0.19 +
+				vec2(6.4, 13.6)) * 1.7;
+		float joint_width = abs(sin(joint_phase));
+		face_joint = (1.0 - smoothstep(0.06, 0.23, joint_width)) *
+			(1.0 - smoothstep(0.7, 2.0, fwidth(joint_phase)));
+	}
 	vec3 tint = clamp(COLOR.rgb / vec3(0.55), vec3(0.74), vec3(1.19));
 	float macro_tint = 1.0 + (macro - 0.5) * 0.12 *
 		macro_strength * detail_strength;
@@ -232,6 +265,15 @@ void fragment() {
 	float wet_material = wet * (0.35 + 0.65 * absorbency);
 	vec3 base_albedo = albedo_sum * mix(vec3(1.0), tint, 0.17) *
 		(1.0 + strata * cliff * 0.095 * detail_strength) * macro_tint;
+	// Каменные слои усиливают различимость обрывов, но применяются
+	// только поверх существующего веса ROCK и крутизны WorldMap.
+	// У слабого LOD сложные полосы и дополнительные шумы исчезают.
+	float face_weight = rock_face * face_quality;
+	float stone_light = clamp(1.0 + face_bedding * 0.22 -
+		face_joint * 0.19, 0.67, 1.24);
+	vec3 stone_tint = vec3(1.045, 1.015, 0.965);
+	base_albedo *= mix(vec3(1.0),
+		stone_tint * stone_light, face_weight);
 	// Подсветка реального гребня и затемнение настоящей впадины
 	// основаны только на высотах WorldMap: никакой новой поверхности.
 	float ridge = smoothstep(0.05, 0.90, ground_shape.r);
@@ -281,7 +323,8 @@ void fragment() {
 	ROUGHNESS = clamp(mix(roughness_sum, 0.34, wet_material * 0.72),
 		0.25, 1.0);
 	// Вогнутость реального рельефа ослабляет рассеянный свет в выемках.
-	AO = clamp(1.0 - ravine * 0.28 - cliff * max(0.0, -strata) * 0.09,
+	AO = clamp(1.0 - ravine * 0.28 - cliff * max(0.0, -strata) * 0.09
+		- face_weight * face_joint * 0.10,
 		0.62, 1.0);
 	METALLIC = 0.0;
 
