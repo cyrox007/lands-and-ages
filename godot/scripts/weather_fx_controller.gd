@@ -159,14 +159,24 @@ func _process(delta: float) -> void:
 		# уже завершённого физического шторма.
 		return
 	_event_life = maxf(0.0, _event_life - delta)
+	# Только материал вращается, коллизии и физический след
+	# не меняются. Пауза уже обработана выше.
+	if _event_tornado and _tornado_funnel != null:
+		_tornado_phase += delta
+		(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
+			"animation_phase", _tornado_phase)
 	if _event_life == 0.0 and _gusts != null:
+		if _tornado_funnel != null:
+			_tornado_funnel.visible = false
 		_gusts.emitting = false
 		_event_squall = false
 		_event_hurricane = false
 		_event_tornado = false
 		_event_dust = false
+		_event_has_origin = false
 		if _dust != null:
 			_dust.emitting = false
+			_dust.visible = false
 
 
 func show_storm_event(severity: float, direction: Vector2,
@@ -178,6 +188,10 @@ func show_storm_event(severity: float, direction: Vector2,
 	_event_hurricane = false
 	_event_tornado = false
 	_event_dust = false
+	_event_has_origin = false
+	_event_aerosol = 1.0
+	if _tornado_funnel != null:
+		_tornado_funnel.visible = false
 	_event_severity = clampf(severity, 0.0, 1.0)
 	_event_direction = direction.normalized() if direction.length_squared() > 0.0 		else Vector2.RIGHT
 
@@ -199,19 +213,34 @@ func show_hurricane_event(severity: float, direction: Vector2,
 
 
 func show_tornado_event(severity: float, direction: Vector2,
-		duration: float = 4.8) -> void:
-	# Видимый узкий след назначается только после расчёта
-	# физического смерча. Отрисовка не создаёт деревьям ущерб.
+		duration: float = 4.8, origin: Vector3 = Vector3.ZERO,
+		located: bool = false) -> void:
+	# Положение получаем от фактического события, а не от камеры;
+	# старые smoke без координат сохраняют камерный fallback.
 	show_storm_event(severity, direction, duration)
 	_event_tornado = true
+	_event_origin = origin
+	_event_has_origin = located
+	_tornado_phase = 0.0
+	if _tornado_funnel != null:
+		_tornado_funnel.visible = _enabled and _event_life > 0.0
+		_tornado_funnel.position = origin
+		(_tornado_funnel.material_override as ShaderMaterial).set_shader_parameter(
+			"severity", _event_severity)
 
 
 func show_dust_storm_event(severity: float, direction: Vector2,
-		duration: float = 5.0) -> void:
-	# Цветное облако показываем только для уже перенесённого грунта.
-	# Эффект не меняет климат и не создаёт дополнительный осадок.
+		duration: float = 5.0, sediment_volume: float = -1.0,
+		origin: Vector3 = Vector3.ZERO, located: bool = false) -> void:
+	# Интенсивность завесы следует за объёмом грунта, который
+	# реально перенёс NaturalDisasters. Старый API тестов без
+	# массы использует прежнюю интенсивность и остаётся совместим.
 	show_storm_event(severity, direction, duration)
 	_event_dust = true
+	_event_origin = origin
+	_event_has_origin = located
+	_event_aerosol = 1.0 if sediment_volume < 0.0 else (
+		clampf(sediment_volume / 0.042, 0.0, 1.0))
 
 
 
@@ -310,6 +339,9 @@ func set_effects_enabled(enabled: bool) -> void:
 		_event_hurricane = false
 		_event_tornado = false
 		_event_dust = false
+		_event_has_origin = false
+		if _tornado_funnel != null:
+			_tornado_funnel.visible = false
 
 
 func clear_visuals() -> void:
@@ -324,6 +356,8 @@ func clear_visuals() -> void:
 	_mask_peak = Vector2.ZERO
 	_mask_special_peak = Vector2.ZERO
 	_mask_origin = Vector2.ZERO
+	_event_aerosol = 1.0
+	_tornado_phase = 0.0
 	# Оставляем настройку качества: это пользовательское предпочтение.
 	# Новую физику и сохранения этот сброс не затрагивает.
 	_enabled = was_enabled
