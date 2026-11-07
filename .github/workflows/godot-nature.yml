@@ -51,6 +51,7 @@ on:
       - "godot/tests/aftermath_combined_11_8_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
+      - "godot/tests/nature_lod_11_9_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
       - "godot/tests/world_capacity_report_10.gd"
@@ -107,6 +108,7 @@ on:
       - "godot/tests/aftermath_combined_11_8_smoke.gd"
       - "godot/tests/shrub_weather_11_3_smoke.gd"
       - "godot/tests/nature_collision_smoke.gd"
+      - "godot/tests/nature_lod_11_9_smoke.gd"
       - "godot/tests/nature_integration_10_7.gd"
       - "godot/tests/nature_seed_audit.gd"
       - "godot/tests/world_capacity_report_10.gd"
@@ -452,6 +454,19 @@ jobs:
           grep -q "11.8/P2:.*успешно" /tmp/nature-aftermath-combined-11-8.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
               /tmp/nature-aftermath-combined-11-8.log; then
+            exit 1
+          fi
+      - name: "11.9/P1 — LOD природных коллизий, пропуск кадров и кеш"
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 210s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/nature_lod_11_9_smoke.gd 2>&1 \
+            | tee /tmp/nature-lod-11-9.log
+          grep -q "11.9/P1:.*успешно" /tmp/nature-lod-11-9.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/nature-lod-11-9.log; then
             exit 1
           fi
       - name: Проверить природные коллизии этапа 10.6
