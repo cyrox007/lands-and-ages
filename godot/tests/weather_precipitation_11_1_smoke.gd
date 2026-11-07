@@ -106,8 +106,8 @@ func _test_emitters(states: Dictionary, world: RefCounted,
             gpu_emitters += 1
     # Смерч добавляет один MeshInstance, а не новый GPU-эмиттер.
     # Сравниваем старый бюджет частиц и постоянство всех узлов.
-    _check(fixed_nodes == 9 and gpu_emitters == 8,
-        "Восемь GPU-эмиттеров и одна неизменная сетка смерча")
+    _check(fixed_nodes == 10 and gpu_emitters == 8,
+        "Восемь GPU-эмиттеров и две ограниченные процедурные сетки")
 
     fx.set_quality(1)
     fx.apply_snapshot(states["drizzle"], Vector2(14, 12), 0.0, 44.0, 1729)
