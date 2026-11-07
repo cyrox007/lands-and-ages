@@ -194,7 +194,11 @@ func run_landscape(view: Node3D) -> Dictionary:
 			"frame_interval_p99_ms": Metrics.percentile(frames, 0.99),
 			"frames_observed": frames.size(),
 			"peak_pending_chunks": peak_pending,
-			"queue_timeout": timed_out
+			"queue_timeout": timed_out,
+			"remaining_pending": view._pending.size(),
+			"remaining_jobs": view._chunk_jobs.size(),
+			"remaining_rebuilds": view._rebuild_pending.size(),
+			"remaining_nature": view._nature_dirty.size()
 		})
 	# Результат содержит только измерения реального запущенного
 	# Godot. Не выдаём интервалы CPU за время GPU или VRAM.
