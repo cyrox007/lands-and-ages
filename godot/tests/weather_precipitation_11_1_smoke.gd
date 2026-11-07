@@ -100,7 +100,14 @@ func _test_emitters(states: Dictionary, world: RefCounted,
     var fx := Effects.new()
     root.add_child(fx)
     var fixed_nodes := fx.get_child_count()
-    _check(fixed_nodes == 8, "Число GPU-эмиттеров постоянно и ограничено")
+    var gpu_emitters := 0
+    for child in fx.get_children():
+        if child is GPUParticles3D:
+            gpu_emitters += 1
+    # Смерч добавляет один MeshInstance, а не новый GPU-эмиттер.
+    # Сравниваем старый бюджет частиц и постоянство всех узлов.
+    _check(fixed_nodes == 9 and gpu_emitters == 8,
+        "Восемь GPU-эмиттеров и одна неизменная сетка смерча")
 
     fx.set_quality(1)
     fx.apply_snapshot(states["drizzle"], Vector2(14, 12), 0.0, 44.0, 1729)
