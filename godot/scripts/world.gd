@@ -1774,6 +1774,13 @@ func _apply_landscape_event(kind: String) -> void:
 	_last_event = "%s: %d вершин" % [kind, result["vertices"]] \
 		if not result.is_empty() else "%s: нет подходящего участка" % kind
 	_flush_world_changes()
+	if not result.is_empty() and kind in [
+			"оползень", "обвал", "кратер", "поднятие", "просадка"]:
+		# След остаётся в физическом Surface после перестройки земли
+		# и переживает уход камеры. Цвет почвы перечитываем из новой
+		# ревизии, не меняя геометрию повторно.
+		if _surface.register_geological_scar(kind, _center, 18.0, 1.0):
+			_refresh_visible(true)
 	_update_hud()
 
 

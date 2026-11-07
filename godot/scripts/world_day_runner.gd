@@ -87,6 +87,31 @@ static func nature_hazards(hazards: Array[Dictionary],
 	return result
 
 
+static func register_geological_aftermath(ground: RefCounted,
+		events: Array[Dictionary]) -> int:
+	# Подтверждённые деформации оставляют след в физическом Surface.
+	# Списки NaturalDisasters и NaturalProcesses не подменяем:
+	# они по-прежнему независимо отвечают за само событие.
+	var count := 0
+	for event in events:
+		var kind := str(event.get("kind", ""))
+		if kind not in ["обвал", "оползень", "землетрясение"]:
+			continue
+		if int(event.get("vertices", 0)) <= 0 \
+				or not (event.get("cell") is Vector2i):
+			continue
+		var intensity := float(event.get("severity", 0.0))
+		if not is_finite(intensity) or intensity <= 0.0 or intensity > 1.0:
+			continue
+		var radius := 7.0 if kind == "землетрясение" else (
+			6.0 if kind == "оползень" else 5.0)
+		if ground.register_geological_scar(kind,
+				Vector2(event["cell"]) + Vector2(0.5, 0.5),
+				radius, intensity):
+			count += 1
+	return count
+
+
 func run_day() -> void:
 	# Метод исполняется WorkerThreadPool, пока GPU читает лишь старые
 	# готовые меши. Сцену и её узлы здесь не трогаем.
@@ -179,6 +204,10 @@ func run_day() -> void:
 	var disasters_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
 	var changed := synchronize_world()
+	# Суточный климат сначала лечит старые повреждения, а новые
+	# оползни/обвалы повреждают уже согласованный с рельефом грунт.
+	var nature_events: Array[Dictionary] = nature_hazards(hazards, erosion)
+	var scars_registered := register_geological_aftermath(surface, nature_events)
 	var vegetation_us := 0
 	if nature != null and nature.generated:
 		var plants_started := Time.get_ticks_usec()
@@ -187,8 +216,7 @@ func run_day() -> void:
 		# Учитываем также медленные оползни NaturalProcesses.
 		# Сами hazards остаются реестром NaturalDisasters, а лес
 		# получает оба физически подтверждённых источника деформаций.
-		nature.advance_day(climate.day,
-			nature_hazards(hazards, erosion), strikes, fire)
+		nature.advance_day(climate.day, nature_events, strikes, fire)
 		vegetation_us = Time.get_ticks_usec() - plants_started
 	# После природного шага огонь изменяет те же физические объекты.
 	# В старых тестовых сценариях без FireRegistry поле остаётся null.
@@ -225,5 +253,6 @@ func run_day() -> void:
 		"fires_active": fire.burning_count() if fire != null else 0,
 		"windfalls": nature.last_windfalls.duplicate(true)
 			if nature != null and nature.generated else [],
-		"terrain_changed": changed
+		"terrain_changed": changed,
+		"geological_scars_registered": scars_registered
 	}
