@@ -9,6 +9,7 @@ const Hydrology = preload("res://scripts/hydrology.gd")
 const Climate = preload("res://scripts/climate.gd")
 const Visual = preload("res://scripts/weather_visual_state.gd")
 const Effects = preload("res://scripts/weather_fx_controller.gd")
+const VisualBudget = preload("res://scripts/world_visual_budget.gd")
 
 class Front extends RefCounted:
     var revision := 1
@@ -144,10 +145,14 @@ func _test_emitters(states: Dictionary, world: RefCounted,
         "Для града используется собственная геометрическая маска")
     _check(fixed_nodes == fx.get_child_count(),
         "Новые кадры не создают новые узлы и частицы сверх лимита")
-    _check(hail.amount == Effects.HAIL_PARTICLES
-        and splashes.amount == Effects.SPLASH_PARTICLES
-        and drift.amount == Effects.DRIFT_PARTICLES,
-        "Бюджет осадков независим от площади карты")
+    # В P2 GPU-пул теперь действительно уменьшается вместе с
+    # качеством. Проверяем реальные слоты стандартного профиля,
+    # не старые фиксированные размеры высококачественного режима.
+    var slots: Array[int] = VisualBudget.particle_amounts(1)
+    _check(hail.amount == slots[3]
+        and splashes.amount == slots[4]
+        and drift.amount == slots[5],
+        "Бюджет осадков ограничен качеством и не зависит от площади карты")
 
     # Дальний LOD и отключение визуализации обязаны выключать
     # все четыре новых режима, оставляя симуляцию неизменной.
