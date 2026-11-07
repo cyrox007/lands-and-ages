@@ -155,17 +155,14 @@ func _real_fire(controller: Node3D) -> void:
 
 	paused = true
 	controller._process(0.3)
-	print("F6/PAUSE: tree=", paused, " paused_audio=",
-		controller._audio.stream_paused, " light_energy=",
-		controller._light.light_energy, " visible=", controller._light.visible)
-	_check(controller._audio.stream_paused
+	_check(not controller._audio.is_playing()
 		and controller._light.light_energy == 0.0,
-		"Пауза останавливает звук и пульсацию света")
+		"Пауза гарантированно останавливает звук и пульсацию света")
 	paused = false
 	controller._process(0.3)
-	_check(not controller._audio.stream_paused
+	_check(controller._audio.is_playing()
 		and controller._light.light_energy > 0.0,
-		"После паузы свет и звук продолжаются без новой физики")
+		"После паузы звук и свет восстанавливаются без новой физики")
 
 	controller.sync_view(0.4, fire, nature, world, point, 102.0)
 	_check(controller.debug_budget()["source_id"] == -1
