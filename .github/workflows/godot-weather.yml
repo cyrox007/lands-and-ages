@@ -19,6 +19,8 @@ on:
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
       - "godot/tests/weather_atmosphere_11_0_smoke.gd"
+      - "godot/scripts/world_visual_budget.gd"
+      - "godot/tests/visual_budget_11_9_smoke.gd"
       - "godot/scripts/weather_atmosphere_controller.gd"
       - "godot/scripts/weather_effect_catalog.gd"
       - "godot/tests/weather_precipitation_11_1_smoke.gd"
@@ -47,6 +49,8 @@ on:
       - "godot/scripts/world.gd"
       - "godot/tests/weather_visual_11_0_smoke.gd"
       - "godot/tests/weather_atmosphere_11_0_smoke.gd"
+      - "godot/scripts/world_visual_budget.gd"
+      - "godot/tests/visual_budget_11_9_smoke.gd"
       - "godot/scripts/weather_atmosphere_controller.gd"
       - "godot/scripts/weather_effect_catalog.gd"
       - "godot/tests/weather_precipitation_11_1_smoke.gd"
@@ -98,6 +102,19 @@ jobs:
             2>&1 | tee /tmp/weather-atmosphere-11-0.log
           grep -q "Этап 11.0:.*успешно" /tmp/weather-atmosphere-11-0.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/weather-atmosphere-11-0.log; then
+            exit 1
+          fi
+      - name: "11.9/P2 — GPU-слоты, сезонный LOD и полный WorldSave"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          timeout 265s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/visual_budget_11_9_smoke.gd 2>&1 \
+            | tee /tmp/visual-budget-11-9.log
+          grep -q "11.9/P2:.*успешно" /tmp/visual-budget-11-9.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/visual-budget-11-9.log; then
             exit 1
           fi
       - name: Проверить визуальные снимки погоды
