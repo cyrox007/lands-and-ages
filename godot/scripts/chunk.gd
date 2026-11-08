@@ -92,8 +92,11 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 				# Одна четвёрка соседних физических клеток идёт и в
 				# цвет, и в шесть материалов — без повторного чтения
 				# moisture/snow/rock/depth/hydro.has_water.
-				var cells: Array[Dictionary] = PhysicalCells.vertex_cells(
-					bounds, vertex, physical_grid) if not physical_grid.is_empty() else []
+				# В GDScript нетипизированный [] нельзя смешивать
+				# с Array[Dictionary] в тернарном выражении.
+				var cells: Array[Dictionary] = []
+				if not physical_grid.is_empty():
+					cells = PhysicalCells.vertex_cells(bounds, vertex, physical_grid)
 				var color := Appearance.color_at(vertex, h, normal,
 					world, surface, hydro, nearby, cells)
 				var sample: Dictionary = MaterialMix.sample_at(
