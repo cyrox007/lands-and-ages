@@ -69,11 +69,25 @@ static func water_context(world: RefCounted, hydro: RefCounted,
 
 static func subdivision_count(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> int:
-	# У реального разлива граница задаётся нелинейной изолинией.
-	# В пределах локального окружения поймы грунт и вода должны
-	# иметь одинаковый шаг; сухие дальние клетки не меняем.
+	# Контур воды детализирован в WaterMesh. Грунт уплотняем
+	# только там, где уровень реальной поймы пересекает склон:
+	# полностью мокрое дно не требует лишних наземных полигонов.
 	if near_flood(hydro, cell):
-		return FLOOD_SUBDIVISIONS
+		var ha: float = world.vertex_at(cell)
+		var hb: float = world.vertex_at(cell + Vector2i.RIGHT)
+		var hc: float = world.vertex_at(cell + Vector2i.DOWN)
+		var hd: float = world.vertex_at(cell + Vector2i(1, 1))
+		var lowest: float = minf(minf(ha, hb), minf(hc, hd))
+		var highest: float = maxf(maxf(ha, hb), maxf(hc, hd))
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var index: int = hydro.cell_index(cell + Vector2i(dx, dy))
+				if not hydro.flooded_at(index) or not hydro.has_water(index):
+					continue
+				var level: float = hydro.level_at(index)
+				if lowest <= level and highest > level:
+					return FLOOD_SUBDIVISIONS
+		return SUBDIVISIONS
 	# Для морей и озёр уточняем только пересечение уровня с сушей.
 	var context: Dictionary = water_context(world, hydro, cell)
 	if context.is_empty():
