@@ -189,7 +189,7 @@ func _seasonal() -> void:
 			surface._frost[i] = 1.0
 			surface._snow[i] = 1.0
 			surface._waterlogged[i] = 0.8
-	var coord := world.config.chunk_of(point)
+	var coord: Vector2i = world.config.chunk_of(point)
 	var old: Array = Chunk.prepare_arrays(coord.x, coord.y, 1,
 		world, surface, 0, null, hydro, true, Callable(), false)
 	var current: Array = Chunk.prepare_arrays(coord.x, coord.y, 1,
