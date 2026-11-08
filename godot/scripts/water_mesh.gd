@@ -497,23 +497,42 @@ static func _flood_edge_intersection(a: Vector4, b: Vector4,
 		return edge
 	var profile: Vector2 = _flood_profile(hydro, Vector2(edge.x, edge.y))
 	if absf(profile.x - FLOOD_COVERAGE_THRESHOLD) > 0.0005:
-		# Корень ищем на исходном ребре треугольника. Это не
-		# перемещает водный край через границу соседнего чанка:
-		# у двух построений одни и те же мировые пробы.
-		var low := 0.0
-		var high := 1.0
-		var start_wet: bool = a.w >= FLOOD_COVERAGE_THRESHOLD
-		for _step in range(10):
-			var middle := (low + high) * 0.5
-			var point: Vector4 = a.lerp(b, middle)
-			var sample: Vector2 = _flood_profile(
-				hydro, Vector2(point.x, point.y))
-			if (sample.x >= FLOOD_COVERAGE_THRESHOLD) == start_wet:
-				low = middle
-			else:
-				high = middle
-		edge = a.lerp(b, (low + high) * 0.5)
+		# Сетка 4×4 попадает на границы интерполяционных центров
+		# Hydrology (полуклетки). Внутри каждого малого ребра
+		# покрытие меняется квадратично; находим корень по одной
+		# дополнительной пробе вместо десяти шагов двоичного поиска.
+		var middle: Vector4 = a.lerp(b, 0.5)
+		var middle_profile: Vector2 = _flood_profile(
+			hydro, Vector2(middle.x, middle.y))
+		var curvature := 4.0 * (middle_profile.x - (a.w + b.w) * 0.5)
+		var t := fraction
+		for _step in range(3):
+			var value := lerpf(a.w, b.w, t) + curvature * t * (1.0 - t)
+			var slope := b.w - a.w + curvature * (1.0 - 2.0 * t)
+			if absf(slope) < 0.000001:
+				break
+			t = clampf(t - (value - FLOOD_COVERAGE_THRESHOLD) / slope,
+				0.0, 1.0)
+		edge = a.lerp(b, t)
 		profile = _flood_profile(hydro, Vector2(edge.x, edge.y))
+		if absf(profile.x - FLOOD_COVERAGE_THRESHOLD) > 0.0005:
+			# У сложной границы полей допускается редкая
+			# подстраховка: работаем только внутри исходного
+			# физически пересечённого ребра, без новой воды.
+			var low := 0.0
+			var high := 1.0
+			var start_wet: bool = a.w >= FLOOD_COVERAGE_THRESHOLD
+			for _step in range(9):
+				var center := (low + high) * 0.5
+				var point: Vector4 = a.lerp(b, center)
+				var sample: Vector2 = _flood_profile(
+					hydro, Vector2(point.x, point.y))
+				if (sample.x >= FLOOD_COVERAGE_THRESHOLD) == start_wet:
+					low = center
+				else:
+					high = center
+			edge = a.lerp(b, (low + high) * 0.5)
+			profile = _flood_profile(hydro, Vector2(edge.x, edge.y))
 	# Уточнённая вершина получает физический интерполированный
 	# уровень воды, а не старую линейную смесь уровней ребра.
 	edge.z = profile.y
