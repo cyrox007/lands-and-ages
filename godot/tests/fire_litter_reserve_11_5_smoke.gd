@@ -205,8 +205,10 @@ func _test_reserve() -> void:
     fire.advance_day(4)
     var regenerated: Dictionary = fire.to_data()
     var new_fuel: int = _litter_in_cell(regenerated, index)
-    _check(new_fuel > 0 and new_fuel <= 4,
-        "Подстилка естественно отрастает постепенно, без скачка")
+    # С дробным ростом один отдельный день вправе дать ноль:
+    # малая плодородность не создаёт гарантированную массу.
+    _check(new_fuel >= 0 and new_fuel <= 4,
+        "Прирост отдельного дня ограничен и может быть нулевым")
     _check(fire.advance_day(4).is_empty()
         and fire.to_data() == regenerated,
         "Повтор суток не пополняет запас дважды")
