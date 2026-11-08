@@ -8,6 +8,7 @@ const SHORE_FADE_DEPTH := 0.7
 # Только пересекающие сушу клетки получают более точную кромку.
 const SHORE_SUBDIVISIONS := ShoreVisual.SUBDIVISIONS
 const COAST_SUBDIVISIONS := ShoreVisual.COAST_SUBDIVISIONS
+const FLOOD_SUBDIVISIONS := ShoreVisual.FLOOD_SUBDIVISIONS
 # Метки стоячей воды в UV2 не пересекаются с речным вектором длиной <= 1.
 # Шейдер выбирает разные волны для озёр и моря без дополнительных мешей.
 const STANDING_LAKE := Vector2(0.0, 2.0)
@@ -484,9 +485,66 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 	return Vector2(0.0, nearest_level)
 
 
-static func _clip_flood_coverage(triangle: PackedVector4Array) -> PackedVector4Array:
+static func _flood_edge_intersection(a: Vector4, b: Vector4,
+		hydro: RefCounted = null) -> Vector4:
+	# У края реальной поймы вес покрытия между узлами поля не
+	# обязан меняться линейно. Сначала берём дешёвую оценку,
+	# затем уточняем её только там, где ошибка значима.
+	var fraction := clampf((FLOOD_COVERAGE_THRESHOLD - a.w) /
+		(b.w - a.w), 0.0, 1.0)
+	var edge: Vector4 = a.lerp(b, fraction)
+	if hydro == null:
+		return edge
+	var profile: Vector2 = _flood_profile(hydro, Vector2(edge.x, edge.y))
+	if absf(profile.x - FLOOD_COVERAGE_THRESHOLD) > 0.0005:
+		# Сетка 4×4 попадает на границы интерполяционных центров
+		# Hydrology (полуклетки). Внутри каждого малого ребра
+		# покрытие меняется квадратично; находим корень по одной
+		# дополнительной пробе вместо десяти шагов двоичного поиска.
+		var middle: Vector4 = a.lerp(b, 0.5)
+		var middle_profile: Vector2 = _flood_profile(
+			hydro, Vector2(middle.x, middle.y))
+		var curvature := 4.0 * (middle_profile.x - (a.w + b.w) * 0.5)
+		var t := fraction
+		for _step in range(3):
+			var value := lerpf(a.w, b.w, t) + curvature * t * (1.0 - t)
+			var slope := b.w - a.w + curvature * (1.0 - 2.0 * t)
+			if absf(slope) < 0.000001:
+				break
+			t = clampf(t - (value - FLOOD_COVERAGE_THRESHOLD) / slope,
+				0.0, 1.0)
+		edge = a.lerp(b, t)
+		profile = _flood_profile(hydro, Vector2(edge.x, edge.y))
+		if absf(profile.x - FLOOD_COVERAGE_THRESHOLD) > 0.0005:
+			# У сложной границы полей допускается редкая
+			# подстраховка: работаем только внутри исходного
+			# физически пересечённого ребра, без новой воды.
+			var low := 0.0
+			var high := 1.0
+			var start_wet: bool = a.w >= FLOOD_COVERAGE_THRESHOLD
+			for _step in range(9):
+				var center := (low + high) * 0.5
+				var point: Vector4 = a.lerp(b, center)
+				var sample: Vector2 = _flood_profile(
+					hydro, Vector2(point.x, point.y))
+				if (sample.x >= FLOOD_COVERAGE_THRESHOLD) == start_wet:
+					low = center
+				else:
+					high = center
+			edge = a.lerp(b, (low + high) * 0.5)
+			profile = _flood_profile(hydro, Vector2(edge.x, edge.y))
+	# Уточнённая вершина получает физический интерполированный
+	# уровень воды, а не старую линейную смесь уровней ребра.
+	edge.z = profile.y
+	edge.w = FLOOD_COVERAGE_THRESHOLD
+	return edge
+
+
+static func _clip_flood_coverage(triangle: PackedVector4Array,
+		hydro: RefCounted = null) -> PackedVector4Array:
 	# Вектор: X/Y — мировые координаты, Z — уровень, W — покрытие.
 	# Обрезка по общей изолинии исключает плитки и квадратные отверстия.
+	# При реальной гидрологии пересечения дополнительно уточняются.
 	var polygon := PackedVector4Array()
 	var previous := triangle.size() - 1
 	for current in range(triangle.size()):
@@ -495,9 +553,7 @@ static func _clip_flood_coverage(triangle: PackedVector4Array) -> PackedVector4A
 		var was_wet := a.w >= FLOOD_COVERAGE_THRESHOLD
 		var is_wet := b.w >= FLOOD_COVERAGE_THRESHOLD
 		if was_wet != is_wet:
-			var t := clampf((FLOOD_COVERAGE_THRESHOLD - a.w) /
-				(b.w - a.w), 0.0, 1.0)
-			polygon.append(a.lerp(b, t))
+			polygon.append(_flood_edge_intersection(a, b, hydro))
 		if is_wet:
 			polygon.append(b)
 		previous = current
@@ -645,14 +701,17 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 		world.vertex_at(cell + Vector2i(1, 1))
 	])
 	var grid := PackedVector4Array()
-	for sy in range(SHORE_SUBDIVISIONS + 1):
-		for sx in range(SHORE_SUBDIVISIONS + 1):
+	# Изолиния разлива строится на 4×4 вместо исходных 3×3:
+	# сложные границы и седловины получают промежуточные
+	# физические пробы, без создания новых мокрых клеток.
+	for sy in range(FLOOD_SUBDIVISIONS + 1):
+		for sx in range(FLOOD_SUBDIVISIONS + 1):
 			var point := Vector2(cell) + Vector2(
-				float(sx) / float(SHORE_SUBDIVISIONS),
-				float(sy) / float(SHORE_SUBDIVISIONS))
+				float(sx) / float(FLOOD_SUBDIVISIONS),
+				float(sy) / float(FLOOD_SUBDIVISIONS))
 			# Ключ в глобальной сетке одинаков для соседних клеток.
-			var key := Vector2i(cell.x * SHORE_SUBDIVISIONS + sx,
-				cell.y * SHORE_SUBDIVISIONS + sy)
+			var key := Vector2i(cell.x * FLOOD_SUBDIVISIONS + sx,
+				cell.y * FLOOD_SUBDIVISIONS + sy)
 			var profile: Vector2
 			if samples.has(key):
 				profile = samples[key]
@@ -662,17 +721,17 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 			grid.append(Vector4(point.x, point.y, profile.y, profile.x))
 
 	var added := 0
-	for sy in range(SHORE_SUBDIVISIONS):
-		for sx in range(SHORE_SUBDIVISIONS):
-			var a := sy * (SHORE_SUBDIVISIONS + 1) + sx
+	for sy in range(FLOOD_SUBDIVISIONS):
+		for sx in range(FLOOD_SUBDIVISIONS):
+			var a := sy * (FLOOD_SUBDIVISIONS + 1) + sx
 			var b := a + 1
-			var c := a + SHORE_SUBDIVISIONS + 1
+			var c := a + FLOOD_SUBDIVISIONS + 1
 			var d := c + 1
 			for triangle in [
 				PackedVector4Array([grid[a], grid[c], grid[b]]),
 				PackedVector4Array([grid[d], grid[b], grid[c]])
 			]:
-				var polygon := _clip_flood_coverage(triangle)
+				var polygon := _clip_flood_coverage(triangle, hydro)
 				added += _add_flood_polygon(
 					tool, world, cell, polygon, heights, tint, ice, hydro)
 	return added

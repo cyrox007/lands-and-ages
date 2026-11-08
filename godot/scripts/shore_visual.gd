@@ -3,8 +3,12 @@ extends RefCounted
 ## WorldMap.height_at, физические вершины и гидрология не меняются.
 
 const SUBDIVISIONS := 3
-# Морской и озёрный контур уточняем вдвое; паводковая сетка остаётся 3×3.
+# Берега стоячей воды и контуры настоящей поймы используют
+# одинаковую с грунтом сетку; остальной рельеф остаётся на 3×3.
 const COAST_SUBDIVISIONS := 6
+# Более редкий шаг 4×4 для паводков: сам физический контур
+# дополнительно уточняется поиском корня, а не числом треугольников.
+const FLOOD_SUBDIVISIONS := 4
 
 
 static func height(ha: float, hb: float, hc: float, hd: float,
@@ -67,9 +71,26 @@ static func water_context(world: RefCounted, hydro: RefCounted,
 
 static func subdivision_count(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> int:
-	# Усиливаем только действительно пересечённую берегом клетку.
-	# Это согласует плотность суши и воды, не увеличивая всю
-	# сетку паводков, рек или полностью затопленных площадей.
+	# Контур воды детализирован в WaterMesh. Грунт уплотняем
+	# только там, где уровень реальной поймы пересекает склон:
+	# полностью мокрое дно не требует лишних наземных полигонов.
+	if near_flood(hydro, cell):
+		var ha: float = world.vertex_at(cell)
+		var hb: float = world.vertex_at(cell + Vector2i.RIGHT)
+		var hc: float = world.vertex_at(cell + Vector2i.DOWN)
+		var hd: float = world.vertex_at(cell + Vector2i(1, 1))
+		var lowest: float = minf(minf(ha, hb), minf(hc, hd))
+		var highest: float = maxf(maxf(ha, hb), maxf(hc, hd))
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var index: int = hydro.cell_index(cell + Vector2i(dx, dy))
+				if not hydro.flooded_at(index) or not hydro.has_water(index):
+					continue
+				var level: float = hydro.level_at(index)
+				if lowest <= level and highest > level:
+					return FLOOD_SUBDIVISIONS
+		return SUBDIVISIONS
+	# Для морей и озёр уточняем только пересечение уровня с сушей.
 	var context: Dictionary = water_context(world, hydro, cell)
 	if context.is_empty():
 		return SUBDIVISIONS
@@ -96,8 +117,8 @@ static func near_flood(hydro: RefCounted, cell: Vector2i) -> bool:
 
 static func is_coastal_cell(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> bool:
-	# Пойма тоже использует визуальную сетку 3×3, иначе вода
-	# пересекала бы крупные треугольники соседней сухой клетки.
+	# Пойма тоже использует уточнённую визуальную сетку, иначе
+	# вода пересекала бы крупные треугольники соседнего грунта.
 	if near_flood(hydro, cell):
 		return true
 	var context: Dictionary = water_context(world, hydro, cell)

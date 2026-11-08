@@ -352,6 +352,151 @@ func _test_continuous_flood() -> void:
 
 
 
+
+func _flood_sample(hydro: RefCounted, point: Vector2) -> Vector4:
+	# Каждая вершина контрольного треугольника получает
+	# настоящий интерполированный уровень и долю покрытия.
+	var profile: Vector2 = Water._flood_profile(hydro, point)
+	return Vector4(point.x, point.y, profile.y, profile.x)
+
+
+func _flood_contour_error(hydro: RefCounted,
+		cell: Vector2i, subdivisions: int) -> float:
+	# Измеряем максимальную ошибку СЕРЕДИНЫ видимой кромки
+	# относительно действительного поля Hydrology. Простое
+	# увеличение числа треугольников не считается улучшением.
+	var error := 0.0
+	for sy in range(subdivisions):
+		for sx in range(subdivisions):
+			var a := Vector2(cell) + Vector2(
+				float(sx) / float(subdivisions),
+				float(sy) / float(subdivisions))
+			var b := a + Vector2(1.0 / subdivisions, 0.0)
+			var c := a + Vector2(0.0, 1.0 / subdivisions)
+			var d := a + Vector2(1.0 / subdivisions, 1.0 / subdivisions)
+			for triangle in [
+				PackedVector4Array([_flood_sample(hydro, a),
+					_flood_sample(hydro, c), _flood_sample(hydro, b)]),
+				PackedVector4Array([_flood_sample(hydro, d),
+					_flood_sample(hydro, b), _flood_sample(hydro, c)])
+			]:
+				var polygon: PackedVector4Array = Water._clip_flood_coverage(triangle)
+				if polygon.size() < 3:
+					continue
+				for i in range(polygon.size()):
+					var start: Vector4 = polygon[i]
+					var finish: Vector4 = polygon[(i + 1) % polygon.size()]
+					if absf(start.w - Water.FLOOD_COVERAGE_THRESHOLD) > 0.0001 							or absf(finish.w - Water.FLOOD_COVERAGE_THRESHOLD) > 0.0001:
+						continue
+					var midpoint := Vector2(
+						(start.x + finish.x) * 0.5,
+						(start.y + finish.y) * 0.5)
+					var real: Vector2 = Water._flood_profile(hydro, midpoint)
+					error = maxf(error, absf(
+						real.x - Water.FLOOD_COVERAGE_THRESHOLD))
+	return error
+
+
+func _flood_seam_points(arrays: Array) -> Dictionary:
+	# Соседние чанки строятся независимо; сравниваем именно
+	# координаты паводковой поверхности у мировой линии x=16,
+	# а не количества всех треугольников в каждом чанке.
+	var found := {}
+	if arrays.is_empty():
+		return found
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var markers: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	for i in range(vertices.size()):
+		var vertex: Vector3 = vertices[i]
+		if absf(vertex.x - 16.0) > 0.00008 or 				absf(markers[i].x - Water.FLOOD_MARKER_X) > 0.00001:
+			continue
+		found[Vector2i(roundi(vertex.z * 10000.0),
+			roundi(vertex.y * 10000.0))] = true
+	return found
+
+
+func _test_broad_flood_contour() -> void:
+	# Диагональные физические источники образуют седловину:
+	# старое отсечение 3×3 выпрямляло гиперболическую
+	# кромку и давало лишние многоугольные выступы.
+	var hydro := FloodHydrology.new()
+	hydro.floods.clear()
+	hydro.rivers.clear()
+	hydro.lakes.clear()
+	hydro.floods[hydro.cell_index(Vector2i(15, 11))] = 0.35
+	hydro.floods[hydro.cell_index(Vector2i(16, 12))] = 0.35
+	var world := WorldMap.new(Config.new(32, 32, 1729, 16, 16))
+	var original: Dictionary = world.to_data()
+	# В настоящем мокром пересечении грунт должен повторять
+	# уточнённую сетку воды; вне берегового склона — остаться 3×3.
+	var shore_heights := {}
+	for y in range(10, 15):
+		for x in range(14, 19):
+			shore_heights[Vector2i(x, y)] = 4.3 + (float(x) - 15.5) * 1.5
+	_check(world.apply_vertex_changes(shore_heights),
+		"Создан физический склон через уровень контролируемого паводка")
+	var old_error := _flood_contour_error(hydro, Vector2i(15, 11),
+		ShoreVisual.SUBDIVISIONS)
+	var new_error := _flood_contour_error(hydro, Vector2i(15, 11),
+		Water.FLOOD_SUBDIVISIONS)
+	_check(old_error > 0.01 and new_error * 4.0 < old_error,
+		"Уточнение широкого разлива уменьшает реальную ошибку изолинии")
+	_check(ShoreVisual.subdivision_count(
+		world, hydro, Vector2i(15, 11)) == Water.FLOOD_SUBDIVISIONS,
+		"Пойма и грунт используют одинаковый шаг в исходной клетке")
+	_check(ShoreVisual.subdivision_count(
+		world, hydro, Vector2i(25, 25)) == ShoreVisual.SUBDIVISIONS,
+		"Удалённая суша не получает дополнительных треугольников")
+
+	# Корень на ребре пересчитывается по настоящему нелинейному
+	# покрытию, а не по линейной маске базового треугольника.
+	var triangle := PackedVector4Array([
+		_flood_sample(hydro, Vector2(15.5, 11.6)),
+		_flood_sample(hydro, Vector2(16.1, 11.6)),
+		_flood_sample(hydro, Vector2(15.7, 12.2))
+	])
+	var linear: PackedVector4Array = Water._clip_flood_coverage(triangle)
+	var refined: PackedVector4Array = Water._clip_flood_coverage(triangle, hydro)
+	var linear_error := 0.0
+	var refined_error := 0.0
+	for point in linear:
+		if absf(point.w - Water.FLOOD_COVERAGE_THRESHOLD) < 0.0001:
+			linear_error = maxf(linear_error,
+				absf(Water._flood_profile(hydro,
+					Vector2(point.x, point.y)).x - Water.FLOOD_COVERAGE_THRESHOLD))
+	for point in refined:
+		if absf(point.w - Water.FLOOD_COVERAGE_THRESHOLD) < 0.0001:
+			refined_error = maxf(refined_error,
+				absf(Water._flood_profile(hydro,
+					Vector2(point.x, point.y)).x - Water.FLOOD_COVERAGE_THRESHOLD))
+	_check(linear_error > 0.01 and refined_error < 0.002,
+		"Корни реальной кромки точнее прежней линейной интерполяции")
+
+	# Создаём единое физическое плоское дно, чтобы не перепутать
+	# щель в водном контуре с сухим холмом из процедурной карты.
+	var flat := {}
+	for y in range(33):
+		for x in range(33):
+			flat[Vector2i(x, y)] = -1.0
+	_check(world.apply_vertex_changes(flat),
+		"Контрольная седловина расположена над физическим мокрым дном")
+	_check(ShoreVisual.subdivision_count(
+		world, hydro, Vector2i(15, 11)) == ShoreVisual.SUBDIVISIONS,
+		"Полностью погружённый грунт не строит лишнюю мелкую сетку")
+	var before: Dictionary = world.to_data()
+	var left: Array = Water.prepare_arrays(world, hydro, Vector2i.ZERO)
+	var right: Array = Water.prepare_arrays(world, hydro, Vector2i(1, 0))
+	var seam_left: Dictionary = _flood_seam_points(left)
+	var seam_right: Dictionary = _flood_seam_points(right)
+	_check(not seam_left.is_empty() and seam_left == seam_right,
+		"Уточнённый контур не разрывает общую линию чанков x=16")
+	_check(world.to_data() == before and original != before,
+		"Визуализация не изменила рельеф; отдельная тестовая правка учтена")
+	print("#96/BROAD-FLOOD: ошибка покрытия 3×3=", old_error,
+		", ", Water.FLOOD_SUBDIVISIONS, "×", Water.FLOOD_SUBDIVISIONS,
+		"=", new_error, ", корень=", refined_error)
+
+
 func _test_river_curves() -> void:
 	_check(Water.RIVER_SEGMENTS >= 3,
 		"Речные ленты состоят из последовательных гладких секций")
@@ -436,6 +581,7 @@ func _initialize() -> void:
 	_test_coast()
 	_test_shared_coastal_mesh()
 	_test_continuous_flood()
+	_test_broad_flood_contour()
 	_test_river_curves()
 	_test_wetness()
 	_test_waves()
