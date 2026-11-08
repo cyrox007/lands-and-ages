@@ -59,8 +59,8 @@ static func _add_polygon(tool: SurfaceTool, world: RefCounted,
 	var added := 0
 	tool.set_color(tint)
 	tool.set_normal(Vector3.UP)
-	for i in range(1, submerged.size() - 1):
-		var a := Vector2(submerged[0].x, submerged[0].y)
+	for i in range(1, polygon.size() - 1):
+		var a := Vector2(polygon[0].x, polygon[0].y)
 		var b := Vector2(polygon[i].x, polygon[i].y)
 		var c := Vector2(polygon[i + 1].x, polygon[i + 1].y)
 		if absf((b - a).cross(c - a)) < 0.000001:
@@ -478,8 +478,8 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 		return 0
 	var added := 0
 	tool.set_normal(Vector3.UP)
-	for i in range(1, polygon.size() - 1):
-		var a := Vector2(polygon[0].x, polygon[0].y)
+	for i in range(1, submerged.size() - 1):
+		var a := Vector2(submerged[0].x, submerged[0].y)
 		var b := Vector2(submerged[i].x, submerged[i].y)
 		var c := Vector2(submerged[i + 1].x, submerged[i + 1].y)
 		if absf((b - a).cross(c - a)) < 0.000001:
