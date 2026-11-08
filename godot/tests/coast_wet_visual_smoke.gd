@@ -427,6 +427,14 @@ func _test_broad_flood_contour() -> void:
 	hydro.floods[hydro.cell_index(Vector2i(16, 12))] = 0.35
 	var world := WorldMap.new(Config.new(32, 32, 1729, 16, 16))
 	var original: Dictionary = world.to_data()
+	# В настоящем мокром пересечении грунт должен повторять
+	# уточнённую сетку воды; вне берегового склона — остаться 3×3.
+	var shore_heights := {}
+	for y in range(10, 15):
+		for x in range(14, 19):
+			shore_heights[Vector2i(x, y)] = 4.3 + (float(x) - 15.5) * 1.5
+	_check(world.apply_vertex_changes(shore_heights),
+		"Создан физический склон через уровень контролируемого паводка")
 	var old_error := _flood_contour_error(hydro, Vector2i(15, 11),
 		ShoreVisual.SUBDIVISIONS)
 	var new_error := _flood_contour_error(hydro, Vector2i(15, 11),
@@ -472,6 +480,9 @@ func _test_broad_flood_contour() -> void:
 			flat[Vector2i(x, y)] = -1.0
 	_check(world.apply_vertex_changes(flat),
 		"Контрольная седловина расположена над физическим мокрым дном")
+	_check(ShoreVisual.subdivision_count(
+		world, hydro, Vector2i(15, 11)) == ShoreVisual.SUBDIVISIONS,
+		"Полностью погружённый грунт не строит лишнюю мелкую сетку")
 	var before: Dictionary = world.to_data()
 	var left: Array = Water.prepare_arrays(world, hydro, Vector2i.ZERO)
 	var right: Array = Water.prepare_arrays(world, hydro, Vector2i(1, 0))
