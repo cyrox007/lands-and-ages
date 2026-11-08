@@ -181,6 +181,9 @@ var _status: Label
 var _summary: Label
 var _debug_details: VBoxContainer
 var _details_toggle: Button
+var _main_panel: PanelContainer
+var _showcase_overlay: PanelContainer
+var _showcase_overlay_text: Label
 var _showcase_text: Label
 var _showcase_views: Array[Dictionary] = []
 var _showcase_index := -1
@@ -430,6 +433,7 @@ func _setup_interface() -> void:
 	var canvas_layer := CanvasLayer.new()
 	add_child(canvas_layer)
 	var panel := PanelContainer.new()
+	_main_panel = panel
 	canvas_layer.add_child(panel)
 	panel.offset_left = 14.0
 	panel.offset_top = 14.0
@@ -479,6 +483,33 @@ func _setup_interface() -> void:
 	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_showcase_text.text = "Лес · река · горы · побережье"
 	column.add_child(_showcase_text)
+	# В режиме прогулки вместо большой панели останется только
+	# маленькое управление. Так почти весь экран занимает сам мир.
+	_showcase_overlay = PanelContainer.new()
+	_showcase_overlay.name = "Режим прогулки"
+	_showcase_overlay.anchor_left = 1.0
+	_showcase_overlay.anchor_right = 1.0
+	_showcase_overlay.offset_left = -320.0
+	_showcase_overlay.offset_right = -14.0
+	_showcase_overlay.offset_top = 14.0
+	_showcase_overlay.offset_bottom = 124.0
+	_showcase_overlay.visible = false
+	canvas_layer.add_child(_showcase_overlay)
+	var scenic_column := VBoxContainer.new()
+	_showcase_overlay.add_child(scenic_column)
+	_showcase_overlay_text = Label.new()
+	_showcase_overlay_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	scenic_column.add_child(_showcase_overlay_text)
+	var scenic_controls := HBoxContainer.new()
+	scenic_column.add_child(scenic_controls)
+	var scenic_next := Button.new()
+	scenic_next.text = "Следующее место"
+	scenic_next.pressed.connect(_next_showcase_view)
+	scenic_controls.add_child(scenic_next)
+	var scenic_exit := Button.new()
+	scenic_exit.text = "Вернуться"
+	scenic_exit.pressed.connect(_exit_showcase)
+	scenic_controls.add_child(scenic_exit)
 	_details_toggle = Button.new()
 	_details_toggle.text = "Показать диагностику"
 	_details_toggle.pressed.connect(_toggle_debug)
@@ -618,6 +649,20 @@ func _next_showcase_view() -> void:
 	_showcase_text.text = "%d/%d · %s\n%s" % [
 		_showcase_index + 1, _showcase_views.size(), spot["name"],
 		spot["meaning"]]
+	_showcase_overlay_text.text = _showcase_text.text
+	_main_panel.visible = false
+	_showcase_overlay.visible = true
+	_update_hud()
+
+
+func _exit_showcase() -> void:
+	# Возврат раскрывает основные игровые действия, но не
+	# телепортирует камеру назад и не изменяет физическую карту.
+	# Игрок может продолжить осмотр интересного места вручную.
+	_showcase_index = -1
+	_main_panel.visible = true
+	_showcase_overlay.visible = false
+	_showcase_text.text = "Лес · река · горы · побережье"
 	_update_hud()
 
 
@@ -1876,6 +1921,10 @@ func _install_loaded_world(models: Dictionary) -> void:
 	# пересчитываем маршрут только при следующем выборе игрока.
 	_showcase_views.clear()
 	_showcase_index = -1
+	if _main_panel != null:
+		_main_panel.visible = true
+	if _showcase_overlay != null:
+		_showcase_overlay.visible = false
 	if _showcase_text != null:
 		_showcase_text.text = "Лес · река · горы · побережье"
 	# Сохранённый реестр — единственный источник будущего звука.
