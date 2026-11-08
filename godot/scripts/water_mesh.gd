@@ -381,6 +381,28 @@ static func _add_river_section(tool: SurfaceTool, start: PackedVector3Array,
 const FLOOD_COVERAGE_THRESHOLD := 0.45
 
 
+static func _flood_source_coverage(hydro: RefCounted, index: int) -> float:
+	# Затопленная пойма и озеро занимают полную физическую клетку
+	# исходного интерполяционного поля. Обычное русло уже:
+	# его поперечник определяется настоящим расходом воды.
+	if not hydro.has_water(index):
+		return 0.0
+	if hydro.flooded_at(index) or hydro.lake_at(index):
+		return 1.0
+	if not hydro.river_at(index):
+		return 0.0
+	# Старые тестовые модели не обязаны содержать расход:
+	# для них сохраняем прежний исходный профиль.
+	if not hydro.has_method("discharge_at_index"):
+		return 1.0
+	var width := _river_width(hydro.discharge_at_index(index))
+	# Билинейный профиль от центра реки убывает как (1 - расстояние).
+	# Изолиния 0,45 должна проходить на расстоянии width:
+	# вклад = порог / (1 - width). Это убирает внезапное
+	# расширение тонкой ленты при переходе к залитой пойме.
+	return clampf(FLOOD_COVERAGE_THRESHOLD / (1.0 - width), 0.0, 1.0)
+
+
 static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 	# Единое поле для соседних клеток, включая границы чанков.
 	# X — визуальная доля покрытой водой территории, Y — уровень.
@@ -394,15 +416,17 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 	for dy in range(2):
 		for dx in range(2):
 			var index: int = hydro.cell_index(cell + Vector2i(dx, dy))
-			if not hydro.has_water(index):
-				continue
-			# Реки соединяют соседние разливы; озёра/море рисуются отдельно.
-			if not hydro.flooded_at(index) and \
-					not hydro.river_at(index) and not hydro.lake_at(index):
+			# Обычные реки задают узкий вход в пойму, а реально
+			# затопленные клетки остаются полными. Одинаковое поле
+			# мировой сетки используется на стыках всех чанков.
+			var source := _flood_source_coverage(hydro, index)
+			if source <= 0.0:
 				continue
 			var weight: float = (u if dx == 1 else 1.0 - u) * \
-				(v if dy == 1 else 1.0 - v)
+				(v if dy == 1 else 1.0 - v) * source
 			coverage += weight
+			# Уровень усредняем теми же весами, иначе при разных
+			# уровнях реки и паводка получится ложный высокий клин.
 			level_sum += hydro.level_at(index) * weight
 			level_weight += weight
 
@@ -417,10 +441,7 @@ static func _flood_profile(hydro: RefCounted, point: Vector2) -> Vector2:
 		for dx in range(-1, 3):
 			var candidate := cell + Vector2i(dx, dy)
 			var index: int = hydro.cell_index(candidate)
-			if not hydro.has_water(index):
-				continue
-			if not hydro.flooded_at(index) and \
-					not hydro.river_at(index) and not hydro.lake_at(index):
+			if _flood_source_coverage(hydro, index) <= 0.0:
 				continue
 			var distance: float = (point - Vector2(candidate) -
 				Vector2(0.5, 0.5)).length_squared()
