@@ -134,23 +134,64 @@ static func _cell_color(cell: Vector2i, normal: Vector3,
 	return color
 
 
+static func _cell_color_sample(sample: Dictionary,
+		normal: Vector3, height: float) -> Color:
+	# Повторяем порядок операций эталонного _cell_color,
+	# но берём девять свойств из единого снимка, а не из моделей.
+	# Это важно для точного сравнения оттенков и береговых швов.
+	var color := LOAM
+	if sample["rock"]:
+		color = ROCK
+	elif sample["exposed"]:
+		color = SAND if sample["substrate"] == SurfaceType.SAND else GRAVEL
+	elif sample["substrate"] == SurfaceType.CLAY:
+		color = CLAY
+
+	var depth: float = sample["depth"]
+	var slope := 1.0 - clampf(normal.y, 0.0, 1.0)
+	var exposed := smoothstep(0.12, 0.49, slope)
+	exposed = maxf(exposed, (1.0 - clampf(depth / 1.2, 0.0, 1.0)) * 0.44)
+	color = color.lerp(ROCK, exposed * 0.85)
+	color = color.lerp(GRAVEL, smoothstep(3.7, 8.3, height) * 0.22)
+	if sample["water"]:
+		color = color.lerp(SEA_FLOOR, 0.65)
+	var moisture: float = sample["moisture"]
+	color = color.lerp(Color(0.21, 0.26, 0.22), moisture * 0.23)
+	var snow: float = sample["snow"]
+	if not sample["water"]:
+		color = color.lerp(SNOW, smoothstep(0.04, 0.90, snow))
+	return color
+
+
 static func color_at(vertex: Vector2i, height: float, normal: Vector3,
 		world: RefCounted, surface: RefCounted, hydro: RefCounted,
-		nearby := Vector3(-1.0, -1.0, -INF)) -> Color:
+		nearby := Vector3(-1.0, -1.0, -INF),
+		cells: Array[Dictionary] = []) -> Color:
 	# Четыре соседние клетки образуют один цвет общей вершины.
 	# Поэтому соседние GPU-чанки не получают цветовых швов.
 	var total := Color(0.0, 0.0, 0.0, 0.0)
 	var count := 0
 	var dry_cells := 0
-	for dy in [-1, 0]:
-		for dx in [-1, 0]:
-			var cell := vertex + Vector2i(dx, dy)
-			if not world.config.contains_cell(cell):
-				continue
-			total += _cell_color(cell, normal, height, world, surface, hydro)
+	if not cells.is_empty():
+		# Новый чанк передаёт те же соседние клетки из общего
+		# снимка; отдельные вызовы color_at остаются совместимыми.
+		for sample in cells:
+			total += _cell_color_sample(sample, normal, height)
 			count += 1
-			if not hydro.has_water(hydro.cell_index(cell)):
+			if not sample["water"]:
 				dry_cells += 1
+	else:
+		# Эталонный путь нужен для независимого A/B-теста
+		# и старых внешних вызовов Appearance.color_at.
+		for dy in [-1, 0]:
+			for dx in [-1, 0]:
+				var cell := vertex + Vector2i(dx, dy)
+				if not world.config.contains_cell(cell):
+					continue
+				total += _cell_color(cell, normal, height, world, surface, hydro)
+				count += 1
+				if not hydro.has_water(hydro.cell_index(cell)):
+					dry_cells += 1
 	var color := total / float(maxi(count, 1))
 	# Береговое влияние достаточно вычислить раз на вершину,
 	# а не четыре раза на каждую соседнюю клетку.
