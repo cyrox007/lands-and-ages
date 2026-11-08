@@ -49,6 +49,35 @@ static func _cell_weights(cell: Vector2i, height: float, normal: Vector3,
 	return weights
 
 
+static func _cell_weights_sample(sample: Dictionary,
+		height: float, normal: Vector3) -> PackedFloat32Array:
+	# Те же шесть покрытий и та же последовательность смешивания,
+	# что в эталонном _cell_weights, но без повторных запросов
+	# к Surface/Hydrology для соседних PBR-вершин.
+	var weights := PackedFloat32Array([0.75, 0.25, 0.0, 0.0, 0.0, 0.0])
+	if sample["rock"]:
+		_blend(weights, ROCK, 1.0)
+	elif sample["exposed"]:
+		var substrate: int = sample["substrate"]
+		_blend(weights, SAND if substrate == SurfaceType.SAND else GRAVEL, 0.92)
+	elif sample["substrate"] == SurfaceType.CLAY:
+		_blend(weights, SOIL, 0.9)
+	elif sample["substrate"] == SurfaceType.SAND:
+		_blend(weights, SAND, 0.82)
+
+	var slope := 1.0 - clampf(normal.y, 0.0, 1.0)
+	_blend(weights, ROCK, smoothstep(0.15, 0.52, slope) * 0.88)
+	var depth: float = sample["depth"]
+	_blend(weights, GRAVEL, (1.0 - clampf(depth / 1.2, 0.0, 1.0)) * 0.34)
+	_blend(weights, GRAVEL, smoothstep(3.7, 8.3, height) * 0.17)
+	if sample["water"]:
+		_blend(weights, SAND, 0.50)
+	else:
+		var snow: float = sample["snow"]
+		_blend(weights, SNOW, smoothstep(0.04, 0.9, snow))
+	return weights
+
+
 static func at(vertex: Vector2i, height: float, normal: Vector3,
 		world: RefCounted, surface: RefCounted,
 		hydro: RefCounted) -> PackedFloat32Array:
@@ -57,7 +86,8 @@ static func at(vertex: Vector2i, height: float, normal: Vector3,
 
 static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
 		world: RefCounted, surface: RefCounted,
-		hydro: RefCounted, nearby := Vector3(-1.0, -1.0, -INF)) -> Dictionary:
+		hydro: RefCounted, nearby := Vector3(-1.0, -1.0, -INF),
+		physical_cells: Array[Dictionary] = []) -> Dictionary:
 	# Веса и влажность берутся из одного физического снимка вершины.
 	# У каждого чанка на общей вершине будет одинаковый набор данных.
 	# Поэтому на границах GPU-чанков коэффициенты одинаковы.
@@ -66,25 +96,44 @@ static func sample_at(vertex: Vector2i, height: float, normal: Vector3,
 	var dry_cells := 0
 	var wetness := 0.0
 	var frost := 0.0
-	for dy in [-1, 0]:
-		for dx in [-1, 0]:
-			var cell := vertex + Vector2i(dx, dy)
-			if not world.config.contains_cell(cell):
-				continue
-			var weights := _cell_weights(cell, height, normal, surface, hydro)
+	if not physical_cells.is_empty():
+		# Полученные один раз на чанк данные используются здесь
+		# и в Appearance.color_at в одинаковом порядке четырёх клеток.
+		for sample in physical_cells:
+			var weights := _cell_weights_sample(sample, height, normal)
 			for index in range(MATERIALS):
 				result[index] += weights[index]
 			cells += 1
-			var index: int = hydro.cell_index(cell)
-			var is_water: bool = hydro.has_water(index)
-			var moisture: float = surface.moisture_at_index(index)
-			var waterlogging: float = surface.waterlogging_at_index(index)
-			# Влажная почва не равна затопленной. Обычная почвенная
-			# влага даёт лишь слабый блеск, застой воды — сильный.
+			var moisture: float = sample["moisture"]
+			var waterlogging: float = sample["waterlogging"]
+			# Грунтовая влажность и подтопление по-прежнему разные:
+			# блеск усиливается только по реальному waterlogging.
 			wetness += maxf(moisture * 0.55, waterlogging)
-			frost += surface.frost_at_index(index)
-			if not is_water:
+			frost += sample["frost"]
+			if not sample["water"]:
 				dry_cells += 1
+	else:
+		# Старый независимый расчёт остаётся эталоном A/B
+		# и поддерживает вызовы MaterialMix вне подготовки чанка.
+		for dy in [-1, 0]:
+			for dx in [-1, 0]:
+				var cell := vertex + Vector2i(dx, dy)
+				if not world.config.contains_cell(cell):
+					continue
+				var weights := _cell_weights(cell, height, normal, surface, hydro)
+				for index in range(MATERIALS):
+					result[index] += weights[index]
+				cells += 1
+				var index: int = hydro.cell_index(cell)
+				var is_water: bool = hydro.has_water(index)
+				var moisture: float = surface.moisture_at_index(index)
+				var waterlogging: float = surface.waterlogging_at_index(index)
+				# Влажная почва не равна затопленной. Обычная почвенная
+				# влага даёт лишь слабый блеск, застой воды — сильный.
+				wetness += maxf(moisture * 0.55, waterlogging)
+				frost += surface.frost_at_index(index)
+				if not is_water:
+					dry_cells += 1
 
 	if cells == 0:
 		result[GRASS] = 1.0

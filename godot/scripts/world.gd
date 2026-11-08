@@ -136,6 +136,8 @@ var _terrain_holder: Node3D
 var _ground_material: ShaderMaterial
 # A/B-диагностика CPU-чанков; в обычной игре кеш всегда включён.
 var _pbr_shore_cache_enabled := true
+# A/B-переключатель физических проб цвета и материала.
+var _pbr_physical_cells_enabled := true
 var _debug_ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
@@ -1224,7 +1226,7 @@ func _start_chunk_jobs() -> void:
 			continue
 		var worker := ChunkBuildWorker.new(coord, _view_mode, _world_model,
 			_surface, _climate, _hydro, _fire,
-			_pbr_shore_cache_enabled)
+			_pbr_shore_cache_enabled, _pbr_physical_cells_enabled)
 		var task: int = WorkerThreadPool.add_task(worker.run, false,
 			"Подготовка поверхности чанка")
 		_chunk_jobs[coord] = {
@@ -1292,7 +1294,7 @@ func _create_chunk(coord: Vector2i) -> void:
 	var started := Time.get_ticks_usec()
 	var arrays: Array = Chunk.prepare_arrays(coord.x, coord.y, 1,
 		_world_model, _surface, _view_mode, _climate, _hydro,
-		_pbr_shore_cache_enabled)
+		_pbr_shore_cache_enabled, Callable(), _pbr_physical_cells_enabled)
 	var prepared_us := Time.get_ticks_usec() - started
 	started = Time.get_ticks_usec()
 	var mesh := Chunk.mesh_from_arrays(arrays)
