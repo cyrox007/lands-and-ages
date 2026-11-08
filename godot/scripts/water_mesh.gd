@@ -651,7 +651,9 @@ static func _flood_motion_at(hydro: RefCounted, point: Vector2) -> float:
 
 static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, polygon: PackedVector4Array, heights: PackedFloat32Array,
-		tint: Color, ice: float, hydro: RefCounted = null) -> int:
+		tint: Color, ice: float, hydro: RefCounted = null,
+		surface: RefCounted = null, fire: RefCounted = null,
+		appearance_samples: Dictionary = {}) -> int:
 	# Сначала отсекаем сухой склон; прозрачность и небольшой
 	# вертикальный WATER_OFFSET не могут изображать там воду.
 	var submerged: PackedVector4Array = _clip_flood_to_ground(
@@ -676,13 +678,34 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 			var visible_level := maxf(vertex.z, terrain) + WATER_OFFSET
 			var depth := maxf(0.0, vertex.z - terrain)
 			var alpha := smoothstep(FLOOD_COVERAGE_THRESHOLD, 0.80, vertex.w)
-			tool.set_color(Color(tint.r, tint.g, tint.b, tint.a * alpha))
+			var local_tint := tint
+			var local_ice := ice
+			if surface != null or fire != null:
+				# Каждая вершина читает общий мировой цвет, а не
+				# цвет клетки, породившей треугольник. Соседние
+				# чанки используют те же пробы и не рисуют плитки.
+				var point := Vector2(vertex.x, vertex.y)
+				var appearance: Vector2
+				if appearance_samples.has(point):
+					appearance = appearance_samples[point]
+				else:
+					appearance = _flood_appearance_at(
+						hydro, surface, fire, point)
+					appearance_samples[point] = appearance
+				local_ice = appearance.x
+				local_tint = _flood_tint(local_ice)
+				var ash_amount := appearance.y * (1.0 - local_ice) * 0.72
+				local_tint = local_tint.lerp(
+					Color(0.42, 0.34, 0.23, local_tint.a), ash_amount)
+			tool.set_color(Color(local_tint.r, local_tint.g,
+				local_tint.b, local_tint.a * alpha))
 			# W5: отрицательная метка отмечает пойму, а Y хранит
 			# интенсивность только реального затопления по глубине/расходу.
 			# Нулевой Y у сухой кромки не создаёт фиктивный паводок.
 			var motion := _flood_motion_at(hydro, Vector2(vertex.x, vertex.y))
 			tool.set_uv2(Vector2(FLOOD_MARKER_X, motion))
-			tool.set_uv(Vector2(clampf(depth / SHORE_FADE_DEPTH, 0.0, 1.0), ice))
+			tool.set_uv(Vector2(clampf(depth / SHORE_FADE_DEPTH, 0.0, 1.0),
+				local_ice))
 			tool.add_vertex(world.config.to_scene(
 				Vector2(vertex.x, vertex.y), visible_level))
 		added += 1
@@ -691,7 +714,8 @@ static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 
 static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 		hydro: RefCounted, cell: Vector2i, tint: Color, ice: float,
-		samples: Dictionary) -> int:
+		samples: Dictionary, surface: RefCounted = null,
+		fire: RefCounted = null, appearance_samples: Dictionary = {}) -> int:
 	# У каждой клетки нет своего контура. Вершины берутся из одного
 	# глобального поля, поэтому между чанками нет прямоугольных швов.
 	var heights := PackedFloat32Array([
@@ -733,8 +757,40 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 			]:
 				var polygon := _clip_flood_coverage(triangle, hydro)
 				added += _add_flood_polygon(
-					tool, world, cell, polygon, heights, tint, ice, hydro)
+					tool, world, cell, polygon, heights, tint, ice,
+					hydro, surface, fire, appearance_samples)
 	return added
+
+
+static func _flood_appearance_at(hydro: RefCounted,
+		surface: RefCounted, fire: RefCounted,
+		point: Vector2) -> Vector2:
+	# Физические данные хранятся в центрах клеток. Цвет поймы
+	# вычисляем билинейно по тем же мировым центрам, что и
+	# гидрологический контур; на стыке чанков поле совпадает.
+	# X — доля льда, Y — концентрация настоящей водной золы.
+	var centered := point - Vector2(0.5, 0.5)
+	var base := Vector2i(floori(centered.x), floori(centered.y))
+	var u := centered.x - floorf(centered.x)
+	var v := centered.y - floorf(centered.y)
+	var ice := 0.0
+	var ash := 0.0
+	for dy in range(2):
+		for dx in range(2):
+			var cell := base + Vector2i(dx, dy)
+			var index: int = hydro.cell_index(cell)
+			# Сухой участок не окрашивает воду придуманной золой.
+			# Вблизи сухого берега вклад цвета плавно убывает.
+			if index < 0 or not hydro.has_water(index):
+				continue
+			var weight: float = (u if dx == 1 else 1.0 - u) * \
+				(v if dy == 1 else 1.0 - v)
+			if surface != null:
+				var frost: float = surface.frost_at_index(index)
+				ice += smoothstep(0.20, 0.90, frost) * weight
+			if fire != null:
+				ash += clampf(fire.ash_turbidity_at(cell), 0.0, 1.0) * weight
+	return Vector2(clampf(ice, 0.0, 1.0), clampf(ash, 0.0, 1.0))
 
 
 static func _flood_tint(ice: float) -> Color:
@@ -782,6 +838,9 @@ static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var added := 0
 	var flood_samples := {}
+	# Общий кеш цветов нужен на всей площади CPU-чанка:
+	# повторные вершины и соседние клетки получают один оттенок.
+	var flood_appearance_samples := {}
 	for y in range(bounds.position.y, bounds.end.y):
 		# Долгие проходы по речным и паводковым клеткам прерываются
 		# между строками при уходе камеры или смене поколения.
@@ -817,11 +876,12 @@ static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i
 			var pristine_tint := color
 			color = _ash_tint(color, cell, fire, ice)
 			if flood_near and not ocean:
-				# Для затопленной поймы сохраняем физический контур,
-				# окрашивая его только при действительном запасе золы.
+				# Пойма получает единый интерполированный лёд и
+				# взвесь по мировым координатам. Дискретный цвет
+				# каждой клетки создавал квадратные полосы.
 				added += _flood_cell(tool, world, hydro, cell,
-					_ash_tint(_flood_tint(ice), cell, fire, ice),
-					ice, flood_samples)
+					_flood_tint(0.0), 0.0, flood_samples,
+					surface, fire, flood_appearance_samples)
 				continue
 			if ocean or lake:
 				added += _water_cell(tool, world, cell, level, color, ice,
