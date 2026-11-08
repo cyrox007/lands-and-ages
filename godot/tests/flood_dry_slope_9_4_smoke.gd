@@ -229,14 +229,24 @@ func _test_real_hydrology() -> void:
 	var surface := Surface.new(world, hydro)
 	surface.rebuild()
 	var world_before: Dictionary = world.to_data()
-	var hydro_before: Dictionary = hydro.to_snapshot()
 	var surface_before: Dictionary = surface.to_snapshot()
+	# Малый контрольный водосбор не обязан иметь все упакованные
+	# слои полного WorldSave. Сверяем публичное состояние каждой
+	# реальной гидрологической клетки без пустых base64-массивов.
+	var hydro_before: Array[Dictionary] = []
+	for y in range(12):
+		for x in range(12):
+			hydro_before.append(hydro.water_at(Vector2i(x, y)))
 	var arrays: Array = Water.prepare_arrays(world, hydro,
 		Vector2i(0, 0), surface)
 	_check(not arrays.is_empty(),
 		"После отсечения сухого грунта настоящая пойма сохранилась")
+	var hydro_after: Array[Dictionary] = []
+	for y in range(12):
+		for x in range(12):
+			hydro_after.append(hydro.water_at(Vector2i(x, y)))
 	_check(world.to_data() == world_before
-		and hydro.to_snapshot() == hydro_before
+		and hydro_after == hydro_before
 		and surface.to_snapshot() == surface_before,
 		"Водная визуализация не изменяет WorldMap, Hydrology и Surface")
 
