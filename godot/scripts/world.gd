@@ -507,6 +507,7 @@ func _setup_interface() -> void:
 	scenic_next.pressed.connect(_next_showcase_view)
 	scenic_controls.add_child(scenic_next)
 	var scenic_exit := Button.new()
+	scenic_exit.name = "Выход из прогулки"
 	scenic_exit.text = "Вернуться"
 	scenic_exit.pressed.connect(_exit_showcase)
 	scenic_controls.add_child(scenic_exit)
