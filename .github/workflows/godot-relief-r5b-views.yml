@@ -1,0 +1,102 @@
+name: "Рельеф R5b — реальные овраги, плато, берега и LOD"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/tests/relief_r5b_views_capture.gd"
+      - ".github/workflows/godot-relief-r5b-views.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/tests/relief_r5b_views_capture.gd"
+      - ".github/workflows/godot-relief-r5b-views.yml"
+  workflow_dispatch:
+
+jobs:
+  physical-views:
+    name: "R5b — восемь кадров и физические инварианты"
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Подготовить Godot 4.7.2 и программный OpenGL"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r5b.zip
+          unzip -q /tmp/godot-r5b.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать проект и проверить скрипты"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/r5b-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/r5b-import.log; then
+            exit 1
+          fi
+      - name: "Снять ракурсы из настоящего World"
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/relief-r5b-gl
+          timeout 780s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/relief_r5b_views_capture.gd \
+            -- --out=/tmp/relief-r5b-gl 2>&1 | tee /tmp/r5b-gl.log
+          grep -q "R5b: 8 реальных кадров, 4 физических ориентира, LOD и сохранность мира — успешно." /tmp/r5b-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/r5b-gl.log; then
+            exit 1
+          fi
+      - name: "Проверить полноту и физическую привязку PNG"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Принимаем только снимки настоящего World с физическими
+          # координатами. Авторский художественный допуск не подменяем.
+          folder = Path("/tmp/relief-r5b-gl")
+          report = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+          assert report["passed"] and report["real_game_world"]
+          assert report["software_opengl"] is True
+          assert report["hardware_fps_verified"] is False
+          assert report["artistic_approval"] is False
+          assert report["reference_approved"] is False
+          assert report["seed"] == 1729 and report["terrain_version"] == 3
+          expected = {"овраг", "бровка", "плато", "берег"}
+          assert set(report["anchors"]) == expected
+          assert len(report["comparisons"]) == 4
+          assert len(report["captures"]) == 8
+          assert len(set(report["captures"])) == 8
+          for name, anchor in report["anchors"].items():
+              assert anchor["mesh_vertex_found"], name
+              assert 0 <= anchor["x"] < 256 and 0 <= anchor["y"] < 192
+          for comparison in report["comparisons"]:
+              assert comparison["name"] in expected
+              near, far = comparison["levels"]
+              assert near["zoom"] == 40.0 and far["zoom"] == 94.0
+              assert near["detail_strength"] > far["detail_strength"]
+              assert near["visible_chunks"] and far["visible_chunks"]
+          for filename in report["captures"]:
+              assert (folder / filename).stat().st_size > 18000
+          print("R5b: четыре места, два масштаба, восемь реальных кадров — успешно.")
+          PY
+      - name: "Опубликовать PNG, JSON и журналы"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r5b-physical-views-and-lod
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/relief-r5b-gl/
+            /tmp/r5b-gl.log
+            /tmp/r5b-import.log
