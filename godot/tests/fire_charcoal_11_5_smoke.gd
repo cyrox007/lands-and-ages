@@ -135,7 +135,7 @@ func _test_tree_charcoal_and_save() -> void:
     # Плохая сериализация не должна разрушить существующий пожар:
     # проверяем количество, дубли и значение вне допустимого индекса.
     var before: Dictionary = fire.to_data()
-    _check(int(before["version"]) == 7 and before["charcoal"].size() > 0,
+    _check(int(before["version"]) == 8 and before["charcoal"].size() > 0,
         "Шестая версия сохраняет прежний физический уголь")
     var wrong: Dictionary = before.duplicate(true)
     wrong["charcoal"].append(wrong["charcoal"][0].duplicate())
