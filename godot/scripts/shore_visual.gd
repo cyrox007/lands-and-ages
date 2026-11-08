@@ -6,7 +6,9 @@ const SUBDIVISIONS := 3
 # Берега стоячей воды и контуры настоящей поймы используют
 # одинаковую с грунтом сетку; остальной рельеф остаётся на 3×3.
 const COAST_SUBDIVISIONS := 6
-const FLOOD_SUBDIVISIONS := 6
+# Более редкий шаг 4×4 для паводков: сам физический контур
+# дополнительно уточняется поиском корня, а не числом треугольников.
+const FLOOD_SUBDIVISIONS := 4
 
 
 static func height(ha: float, hb: float, hc: float, hd: float,
