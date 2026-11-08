@@ -1,0 +1,167 @@
+name: "Рельеф R6 — CPU-профили и игровая GL-диагностика"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_benchmark_runner.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/relief_r6_*.gd"
+      - ".github/workflows/godot-relief-r6-profile.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_benchmark_runner.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/relief_r6_*.gd"
+      - ".github/workflows/godot-relief-r6-profile.yml"
+  workflow_dispatch:
+
+jobs:
+  cpu-world-sizes:
+    name: "R6 — физические меши 128/256/512"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Скачать Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r6-cpu.zip
+          unzip -q /tmp/godot-r6-cpu.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать проект и проверить GDScript"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/r6-cpu-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/r6-cpu-import.log; then
+            exit 1
+          fi
+      - name: "Построить PBR-чанки и записать CPU-профили"
+        timeout-minutes: 14
+        run: |
+          set -o pipefail
+          timeout 780s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/relief_r6_cpu_profile.gd \
+            -- --report=/tmp/relief-r6-cpu.json 2>&1 | tee /tmp/r6-cpu.log
+          grep -q "R6/CPU: три размера, физические меши, p50/p95/p99 — успешно." /tmp/r6-cpu.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/r6-cpu.log; then
+            exit 1
+          fi
+      - name: "Проверить машинный отчёт CPU"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Это не аппаратные FPS: проверяем реальную геометрию,
+          # корректные CPU-метрики и неизменность физической карты.
+          report = json.loads(Path("/tmp/relief-r6-cpu.json").read_text(encoding="utf-8"))
+          assert report["passed"] and report["headless"]
+          assert report["hardware_approval"] is False
+          assert report["gpu_frame_ms"] is None and report["vram_bytes"] is None
+          profiles = report["profiles"]
+          assert [(p["width"], p["height"]) for p in profiles] == [
+              (128, 96), (256, 192), (512, 384)
+          ]
+          for item in profiles:
+              assert item["seed"] == 1729
+              assert item["sampled_chunks"] >= 10
+              assert item["vertices_total"] > 0 and item["triangles_total"] > 0
+              assert item["physics_unchanged"]
+              ms = item["mesh_prepare_ms"]
+              assert 0 <= ms["p50"] <= ms["p95"] <= ms["p99"] <= ms["max"]
+              assert item["estimated_cpu_array_bytes"] > 0
+          print("R6/CPU: три размера, физические меши и профиль — успешно.")
+          PY
+      - name: "Опубликовать отчёт по размерам карты"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r6-cpu-world-sizes
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/relief-r6-cpu.json
+            /tmp/r6-cpu.log
+            /tmp/r6-cpu-import.log
+
+  gameplay-gl:
+    name: "R6 — два игровых материала, 740 GL-кадров"
+    runs-on: ubuntu-latest
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Godot и программный OpenGL"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-r6-gl.zip
+          unzip -q /tmp/godot-r6-gl.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать PBR-текстуры и скрипты"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/r6-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/r6-gl-import.log; then
+            exit 1
+          fi
+      - name: "Сравнить 740 кадров в игровой сцене"
+        timeout-minutes: 22
+        run: |
+          set -o pipefail
+          timeout 1250s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/relief_r6_gl_profile.gd \
+            -- --report=/tmp/relief-r6-gl.json 2>&1 | tee /tmp/r6-gl.log
+          grep -q "R6/GL: два игровых маршрута, 740 кадров, p50/p95/p99 — успешно." /tmp/r6-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/r6-gl.log; then
+            exit 1
+          fi
+      - name: "Проверить сравнительные метрики и инварианты"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Интервалы GL — не время GPU и не FPS реального ПК.
+          # Оба прохода используют одинаковую карту и 370 точек.
+          report = json.loads(Path("/tmp/relief-r6-gl.json").read_text(encoding="utf-8"))
+          assert report["passed"] and report["physics_unchanged"]
+          assert report["material_restored"]
+          assert report["hardware_approval"] is False
+          assert report["gpu_frame_ms"] is None and report["vram_bytes"] is None
+          assert len(report["passes"]) == 2
+          assert [v["route_frames"] for v in report["passes"]] == [370, 370]
+          for item in report["passes"]:
+              assert len(item["phases"]) == 9
+              p = item["summary"]
+              assert p["physics_unchanged"] and p["chunks_built"] > 0
+              assert p["interval_ms_p50"] > 0
+              assert p["interval_ms_p50"] <= p["interval_ms_p95"]
+              assert p["interval_ms_p95"] <= p["interval_ms_p99"]
+              assert p["ground_mesh_cpu_ms_total"] > 0
+              assert p["peak_godot_static_bytes"] > 0
+          print("R6/GL: два реальных маршрута по 370 кадров — успешно.")
+          PY
+      - name: "Опубликовать журналы и JSON"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relief-r6-gl-material-comparison
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/relief-r6-gl.json
+            /tmp/r6-gl.log
+            /tmp/r6-gl-import.log
