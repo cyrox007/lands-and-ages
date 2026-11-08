@@ -7,6 +7,7 @@ on:
       - "godot/scripts/water_mesh.gd"
       - "godot/shaders/natural_water.gdshader"
       - "godot/tests/water_flow_w2_smoke.gd"
+      - "godot/tests/river_curve_bank_9_4_smoke.gd"
       - "godot/tests/water_wind_w3_smoke.gd"
       - "godot/tests/water_shore_w4_smoke.gd"
       - "godot/tests/water_flood_w5_smoke.gd"
@@ -23,6 +24,7 @@ on:
       - "godot/scripts/water_mesh.gd"
       - "godot/shaders/natural_water.gdshader"
       - "godot/tests/water_flow_w2_smoke.gd"
+      - "godot/tests/river_curve_bank_9_4_smoke.gd"
       - "godot/tests/water_wind_w3_smoke.gd"
       - "godot/tests/water_shore_w4_smoke.gd"
       - "godot/tests/water_flood_w5_smoke.gd"
@@ -68,6 +70,19 @@ jobs:
             2>&1 | tee /tmp/river-w2.log
           grep -q "Этап 11.6/W2: речное течение по физическому стоку — успешно" /tmp/river-w2.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/river-w2.log; then
+            exit 1
+          fi
+      - name: "9.4/#96 — речные изгибы, расход, берег и общий шов чанков"
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/river_curve_bank_9_4_smoke.gd \
+            2>&1 | tee /tmp/river-curve-bank-9-4.log
+          grep -q "9.4/#96: адаптивное русло, сухой берег и шов чанков — успешно" \
+            /tmp/river-curve-bank-9-4.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/river-curve-bank-9-4.log; then
             exit 1
           fi
       - name: "W3: озёра, море, ветер и физические снимки"
