@@ -230,3 +230,82 @@ func run_landscape(view: Node3D) -> Dictionary:
 		},
 		"events": results
 	}
+
+
+func run_relief(view: Node3D) -> Dictionary:
+	# R6 использует существующий игровой маршрут 8.8, а не
+	# собственную искусственную сцену. Оба прохода имеют один seed,
+	# одинаковые 370 точек камеры и реальные чанки World.
+	var material: ShaderMaterial = view._ground_material
+	var original_rock: float = float(material.get_shader_parameter("rock_face_detail"))
+	var original_palette: float = float(material.get_shader_parameter(
+		"terrain_palette_strength"))
+	var original_world: Dictionary = view._world_model.to_data()
+	var original_surface: Dictionary = view._surface.to_snapshot()
+	var original_hydro: Dictionary = view._hydro.to_snapshot()
+	var passes: Array[Dictionary] = []
+
+	for profile in [
+		{"name": "исходный_материал", "rock": 0.0, "palette": 0.0},
+		{"name": "материал_R4b", "rock": 1.0, "palette": 1.0}
+	]:
+		# Меняем только параметры исходного ShaderMaterial.
+		# Внутренний run() сам сбрасывает очередь графических чанков
+		# и повторяет тот же маршрут без изменения модели физики.
+		material.set_shader_parameter("rock_face_detail", profile["rock"])
+		material.set_shader_parameter(
+			"terrain_palette_strength", profile["palette"])
+		var measured: Dictionary = await run(view)
+		passes.append({
+			"name": profile["name"],
+			"rock_face_detail": profile["rock"],
+			"terrain_palette_strength": profile["palette"],
+			"summary": measured["summary"],
+			"phases": measured["phases"],
+			"route_frames": measured["route_frames"]
+		})
+
+	# По окончании возвращаем пользовательские параметры материала.
+	# Состояние мира проверяем отдельно от временных интервалов:
+	# изменение красивости не должно менять грунты, воду или высоты.
+	material.set_shader_parameter("rock_face_detail", original_rock)
+	material.set_shader_parameter("terrain_palette_strength", original_palette)
+	view._update_material_detail()
+	var physics_unchanged: bool = (
+		original_world == view._world_model.to_data()
+		and original_surface == view._surface.to_snapshot()
+		and original_hydro == view._hydro.to_snapshot()
+	)
+	var viewport_size: Vector2 = view.get_viewport().get_visible_rect().size
+	return {
+		"schema_version": 1,
+		"stage": "relief/R6",
+		"route": "camera-8.8-two-materials",
+		"seed": view._world_model.config.world_seed,
+		"map": view._world_model.config.to_data(),
+		"platform": OS.get_name(),
+		"engine": Engine.get_version_info().get("string", "unknown"),
+		"display_server": DisplayServer.get_name(),
+		"viewport": {"width": int(viewport_size.x),
+			"height": int(viewport_size.y)},
+		"physics_unchanged": physics_unchanged,
+		"material_restored": (
+			is_equal_approx(float(material.get_shader_parameter(
+				"rock_face_detail")), original_rock)
+			and is_equal_approx(float(material.get_shader_parameter(
+				"terrain_palette_strength")), original_palette)
+		),
+		"passes": passes,
+		"units": {
+			"interval_ms": "настенный интервал кадров игрового цикла, не время GPU",
+			"ground_prepare_worker_ms_total": "CPU подготовка сеток в потоках",
+			"ground_upload_main_ms_total": "CPU создание ArrayMesh на главном потоке",
+			"peak_godot_static_bytes": "статическая память Godot, не VRAM",
+			"gpu_frame_ms": "не измеряется этим инструментом",
+			"vram_bytes": "не измеряется этим инструментом"
+		},
+		"gpu_frame_ms": null,
+		"vram_bytes": null,
+		"artistic_approval": false,
+		"hardware_approval": false
+	}
