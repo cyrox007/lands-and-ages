@@ -341,7 +341,7 @@ func run_pbr_cache(view: Node3D) -> Dictionary:
 	# Исходная настройка восстанавливается даже для тестового
 	# запуска без кеша. Физические снимки сравниваем целиком.
 	view._pbr_shore_cache_enabled = original_setting
-	var physics_unchanged := snapshot_world == view._world_model.to_data() \
+	var physics_unchanged: bool = snapshot_world == view._world_model.to_data() \
 		and snapshot_hydro == view._hydro.to_snapshot() \
 		and snapshot_surface == view._surface.to_snapshot()
 	var viewport: Vector2 = view.get_viewport().get_visible_rect().size
