@@ -190,6 +190,15 @@ func _run() -> void:
 			"zoom": spot["zoom"], "quality": quality,
 			"chunks": view._active.size()
 		})
+	# Проверяем полноценный возврат к игровому управлению:
+	# обзор не должен оставлять игрока без кнопок сохранения.
+	var exit_button: Button = view.find_child("Выход из прогулки", true, false)
+	_check(exit_button != null, "Кнопка возврата доступна")
+	if exit_button != null:
+		exit_button.pressed.emit()
+		_check(view._main_panel.visible and not view._showcase_overlay.visible
+			and view._showcase_index == -1,
+			"Возврат раскрывает игровую панель без сброса мира")
 	# Режим обзора не изменяет ни одного физического состояния,
 	# не телепортирует ресурсы и не сдвигает календарь.
 	_check(Save.capture(view._storage_models()) == before,
