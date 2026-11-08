@@ -31,6 +31,7 @@ const WeatherLighting = preload("res://scripts/weather_lighting_state.gd")
 const ShadowLOD = preload("res://scripts/world_shadow_lod.gd")
 const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldAftermath = preload("res://scripts/world_aftermath.gd")
+const WorldShowcase = preload("res://scripts/world_showcase.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
@@ -180,6 +181,12 @@ var _status: Label
 var _summary: Label
 var _debug_details: VBoxContainer
 var _details_toggle: Button
+var _main_panel: PanelContainer
+var _showcase_overlay: PanelContainer
+var _showcase_overlay_text: Label
+var _showcase_text: Label
+var _showcase_views: Array[Dictionary] = []
+var _showcase_index := -1
 var _hud_timer := 0.0
 var _benchmark_running := false
 var _benchmark_status := ""
@@ -426,6 +433,7 @@ func _setup_interface() -> void:
 	var canvas_layer := CanvasLayer.new()
 	add_child(canvas_layer)
 	var panel := PanelContainer.new()
+	_main_panel = panel
 	canvas_layer.add_child(panel)
 	panel.offset_left = 14.0
 	panel.offset_top = 14.0
@@ -464,6 +472,45 @@ func _setup_interface() -> void:
 	view_button.text = "Переключить слой карты"
 	view_button.pressed.connect(_cycle_view)
 	column.add_child(view_button)
+	# Маршрут доступен без открытия технической диагностики:
+	# игрок сразу видит живые места, которые существуют на карте.
+	var showcase_button := Button.new()
+	showcase_button.name = "Прогулка по миру"
+	showcase_button.text = "Показать следующее красивое место"
+	showcase_button.pressed.connect(_next_showcase_view)
+	column.add_child(showcase_button)
+	_showcase_text = Label.new()
+	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_showcase_text.text = "Лес · река · горы · побережье"
+	column.add_child(_showcase_text)
+	# В режиме прогулки вместо большой панели останется только
+	# маленькое управление. Так почти весь экран занимает сам мир.
+	_showcase_overlay = PanelContainer.new()
+	_showcase_overlay.name = "Режим прогулки"
+	_showcase_overlay.anchor_left = 1.0
+	_showcase_overlay.anchor_right = 1.0
+	_showcase_overlay.offset_left = -320.0
+	_showcase_overlay.offset_right = -14.0
+	_showcase_overlay.offset_top = 14.0
+	_showcase_overlay.offset_bottom = 124.0
+	_showcase_overlay.visible = false
+	canvas_layer.add_child(_showcase_overlay)
+	var scenic_column := VBoxContainer.new()
+	_showcase_overlay.add_child(scenic_column)
+	_showcase_overlay_text = Label.new()
+	_showcase_overlay_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	scenic_column.add_child(_showcase_overlay_text)
+	var scenic_controls := HBoxContainer.new()
+	scenic_column.add_child(scenic_controls)
+	var scenic_next := Button.new()
+	scenic_next.text = "Следующее место"
+	scenic_next.pressed.connect(_next_showcase_view)
+	scenic_controls.add_child(scenic_next)
+	var scenic_exit := Button.new()
+	scenic_exit.name = "Выход из прогулки"
+	scenic_exit.text = "Вернуться"
+	scenic_exit.pressed.connect(_exit_showcase)
+	scenic_controls.add_child(scenic_exit)
 	_details_toggle = Button.new()
 	_details_toggle.text = "Показать диагностику"
 	_details_toggle.pressed.connect(_toggle_debug)
@@ -554,6 +601,69 @@ func _toggle_debug() -> void:
 	_debug_details.visible = not _debug_details.visible
 	_details_toggle.text = "Скрыть диагностику" if _debug_details.visible \
 		else "Показать диагностику"
+	_update_hud()
+
+
+func _next_showcase_view() -> void:
+	# Прогулка не запускает физические события и не изменяет мир.
+	# Во время расчёта суток или фонового теста остаёмся в
+	# последней готовой позиции, избегая гонки с RefCounted-моделями.
+	if _benchmark_running or _day_task_id >= 0 or _days_pending > 0 \
+			or not _storage_request.is_empty():
+		if _showcase_text != null:
+			_showcase_text.text = "Сначала завершите расчёт мира"
+		return
+	if _showcase_views.is_empty():
+		_showcase_views = WorldShowcase.select_views(
+			_world_model, _hydro, _surface, _nature)
+	if _showcase_views.is_empty():
+		_showcase_text.text = "Подходящих природных мест не найдено"
+		return
+
+	# Переходим к следующей настоящей географической точке.
+	# В отличие от обычного перемещения это дальний переход:
+	# ограничение скорости движения камеры к нему не применяется.
+	_showcase_index = (_showcase_index + 1) % _showcase_views.size()
+	var spot: Dictionary = _showcase_views[_showcase_index]
+	var cell: Vector2i = spot["cell"]
+	var old_sparse := _detail_for_zoom(_camera.size) \
+		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	_camera.size = clampf(float(spot["zoom"]), MIN_ZOOM, MAX_ZOOM)
+	var next_sparse := _detail_for_zoom(_camera.size) \
+		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	_center = _world_model.config.clamp_point(
+		Vector2(cell) + Vector2(0.5, 0.5))
+	_pan_delta = Vector2.ZERO
+	_pan_pending = false
+	_view_mode = 0
+	_weather_fx_cooldown = 0.0
+	_update_camera()
+	_apply_visual_budget()
+	_update_material_detail()
+
+	# При удалённом переходе не показываем незагруженную землю:
+	# прежний кадр закрыт, пока нужные чанки не подготовлены.
+	if _loading_layer != null:
+		_loading_label.text = "Открываем: " + str(spot["name"])
+		_loading_layer.show()
+	_refresh_visible(old_sparse != next_sparse)
+	_showcase_text.text = "%d/%d · %s\n%s" % [
+		_showcase_index + 1, _showcase_views.size(), spot["name"],
+		spot["meaning"]]
+	_showcase_overlay_text.text = _showcase_text.text
+	_main_panel.visible = false
+	_showcase_overlay.visible = true
+	_update_hud()
+
+
+func _exit_showcase() -> void:
+	# Возврат раскрывает основные игровые действия, но не
+	# телепортирует камеру назад и не изменяет физическую карту.
+	# Игрок может продолжить осмотр интересного места вручную.
+	_showcase_index = -1
+	_main_panel.visible = true
+	_showcase_overlay.visible = false
+	_showcase_text.text = "Лес · река · горы · побережье"
 	_update_hud()
 
 
@@ -1808,6 +1918,16 @@ func _install_loaded_world(models: Dictionary) -> void:
 			_nature.tree_struck.disconnect(_on_tree_struck)
 	_nature = models["nature"]
 	_fire = models["fire"]
+	# В новом сохранении или seed видовые точки могут сместиться:
+	# пересчитываем маршрут только при следующем выборе игрока.
+	_showcase_views.clear()
+	_showcase_index = -1
+	if _main_panel != null:
+		_main_panel.visible = true
+	if _showcase_overlay != null:
+		_showcase_overlay.visible = false
+	if _showcase_text != null:
+		_showcase_text.text = "Лес · река · горы · побережье"
 	# Сохранённый реестр — единственный источник будущего звука.
 	# Не продолжаем старый треск и свет из прежней сцены.
 	if _fire_presentation != null:
