@@ -85,7 +85,7 @@ func _profile(size: Vector2i) -> Dictionary:
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 		var bounds: Rect2i = world.config.chunk_rect(coord)
-		var expected := world.config.to_scene(
+		var expected: Vector3 = world.config.to_scene(
 			Vector2(bounds.position), world.vertex_at(bounds.position))
 		_check(not vertices.is_empty() and not indices.is_empty(),
 			"R6 %s: реальный PBR-меш не пуст" % str(size))
