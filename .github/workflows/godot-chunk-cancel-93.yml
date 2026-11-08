@@ -1,0 +1,55 @@
+name: "#93 — отмена выполняющихся CPU-чанков"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/chunk.gd"
+      - "godot/scripts/chunk_build_worker.gd"
+      - "godot/scripts/landscape_appearance.gd"
+      - "godot/scripts/water_mesh.gd"
+      - "godot/tests/chunk_inflight_cancel_93_smoke.gd"
+      - ".github/workflows/godot-chunk-cancel-93.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/chunk.gd"
+      - "godot/scripts/chunk_build_worker.gd"
+      - "godot/scripts/landscape_appearance.gd"
+      - "godot/scripts/water_mesh.gd"
+      - "godot/tests/chunk_inflight_cancel_93_smoke.gd"
+      - ".github/workflows/godot-chunk-cancel-93.yml"
+  workflow_dispatch:
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать Godot 4.7.2
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать GDScript
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/cancel-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/cancel-import.log; then
+            exit 1
+          fi
+      - name: Проверить отмену в середине PBR и воды
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/chunk_inflight_cancel_93_smoke.gd \
+            2>&1 | tee /tmp/cancel-93.log
+          grep -q "#93/CANCEL: отмена внутри CPU-проходов, точная геометрия и физика — успешно" /tmp/cancel-93.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/cancel-93.log; then
+            exit 1
+          fi

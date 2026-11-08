@@ -22,10 +22,14 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 static func prepare_arrays(cx: int, cy: int, _day: int,
 		world: RefCounted, surface: RefCounted = null,
 		mode: int = 0, climate: RefCounted = null,
-		hydro: RefCounted = null, cached_near_water: bool = true) -> Array:
+		hydro: RefCounted = null, cached_near_water: bool = true,
+		cancel_check: Callable = Callable()) -> Array:
 	# Этот метод только читает физическую модель и собирает локальные
 	# PackedArray. В воркере запрещены изменение модели и вызовы сцены.
 
+	# Отменённое задание не должно начинать тяжёлые пробы рельефа.
+	if cancel_check.is_valid() and cancel_check.call():
+		return []
 	var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
 	assert(bounds.has_area(), "Чанк вне границ мира")
 	var x0 := bounds.position.x
@@ -45,8 +49,14 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 	# прежний поштучный вызов, без отдельного рендера или физики.
 	var shore_grid: Array[Vector3] = []
 	if cached_near_water and mode == 0 and surface != null and hydro != null:
-		shore_grid = Appearance.near_water_grid(bounds, world, hydro)
+		shore_grid = Appearance.near_water_grid(bounds, world, hydro, cancel_check)
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
 	for j in range(height + 1):
+		# Останавливаем уже выполняющуюся CPU-задачу на границе
+		# строки, не создавая частично пригодный для GPU меш.
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
 		for i in range(width + 1):
 			var x := x0 + i
 			var y := y0 + j
@@ -106,6 +116,10 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 
 	var stride := width + 1
 	for j in range(height):
+		# Субделение береговых клеток может быть дороже вершин;
+		# проверяем отмену и во второй фазе построения.
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
 		for i in range(width):
 			var a := j * stride + i
 			var b := a + 1

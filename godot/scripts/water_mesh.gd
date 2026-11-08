@@ -653,8 +653,12 @@ static func _ash_tint(color: Color, cell: Vector2i,
 
 
 static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
-		surface: RefCounted = null, fire: RefCounted = null) -> Array:
-	# Models must already be ready; this isolated SurfaceTool only builds CPU arrays.
+		surface: RefCounted = null, fire: RefCounted = null,
+		cancel_check: Callable = Callable()) -> Array:
+	# Физические модели уже рассчитаны; строим только CPU-массивы.
+	# Отмена не меняет воду, а возвращает пустой результат воркеру.
+	if cancel_check.is_valid() and cancel_check.call():
+		return []
 	var bounds: Rect2i = world.config.chunk_rect(chunk)
 	if not bounds.has_area():
 		return []
@@ -663,6 +667,10 @@ static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i
 	var added := 0
 	var flood_samples := {}
 	for y in range(bounds.position.y, bounds.end.y):
+		# Долгие проходы по речным и паводковым клеткам прерываются
+		# между строками при уходе камеры или смене поколения.
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
 		for x in range(bounds.position.x, bounds.end.x):
 			var cell := Vector2i(x, y)
 			var index: int = hydro.cell_index(cell)

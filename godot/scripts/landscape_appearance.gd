@@ -39,7 +39,7 @@ static func near_water(cell: Vector2i, world: RefCounted,
 
 
 static func near_water_grid(bounds: Rect2i, world: RefCounted,
-		hydro: RefCounted) -> Array[Vector3]:
+		hydro: RefCounted, cancel_check: Callable = Callable()) -> Array[Vector3]:
 	# Один PBR-чанк содержит общие вершины соседних клеток.
 	# Вместо девяти повторных обращений к Hydrology для каждой
 	# вершины читаем флаги и уровень каждой соседней клетки
@@ -54,6 +54,10 @@ static func near_water_grid(bounds: Rect2i, world: RefCounted,
 	water_grid.resize(sample_width * sample_height)
 
 	for y in range(sample_height):
+		# При панорамировании устаревшая подготовка прекращает
+		# сканирование гидрологии до начала вершин нового чанка.
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
 		for x in range(sample_width):
 			var cell := bounds.position + Vector2i(x - 1, y - 1)
 			if not world.config.contains_cell(cell):
@@ -73,6 +77,9 @@ static func near_water_grid(bounds: Rect2i, world: RefCounted,
 	var result: Array[Vector3] = []
 	result.resize(vertices_width * vertices_height)
 	for y in range(vertices_height):
+		# Не возвращаем неполную сетку береговых проб в GPU.
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
 		for x in range(vertices_width):
 			var level := -INF
 			var sea := 0.0
