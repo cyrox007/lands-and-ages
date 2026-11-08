@@ -17,6 +17,7 @@ class RiverRoute:
 	var route: Array[Vector2i] = []
 	var downstream: Dictionary = {}
 	var discharges: Dictionary = {}
+	var floods: Dictionary = {}
 
 	func _init() -> void:
 		# Один непрерывный граф без декоративной воды. Расход
@@ -64,9 +65,15 @@ class RiverRoute:
 		# Морского уровня в контролируемой модели нет.
 		return false
 
-	func flooded_at(_index: int) -> bool:
-		# Геометрия проверяется без отдельной поймы.
-		return false
+	func flooded_at(index: int) -> bool:
+		# В отдельных тестах включаем реальный источник разлива.
+		# Маршрут и расход самой реки при этом не изменяются.
+		return floods.has(index)
+
+	func flood_depth_at(index: int) -> float:
+		# Отдаём глубину лишь там, где есть затопление;
+		# этого требует штатная визуальная оценка турбулентности.
+		return 0.4 if flooded_at(index) else 0.0
 
 	func level_at(index: int) -> float:
 		# Все стыки намеренно получают один физический уровень.
@@ -183,6 +190,67 @@ func _test_route_and_seam() -> void:
 		"Построение кривой не изменяет рельеф и физический сток")
 
 
+func _test_river_to_flood() -> void:
+	# В прежнем алгоритме любая речная клетка имела полный
+	# вес 1, поэтому при переключении на общий паводковый меш
+	# узкая лента мгновенно расширялась до ширины клетки.
+	var world: RefCounted = _flat_world()
+	var hydro := RiverRoute.new()
+	var physical_before: Dictionary = world.to_data()
+	var river_before: Dictionary = hydro.downstream.duplicate(true)
+	var discharge_before: Dictionary = hydro.discharges.duplicate(true)
+	var point := Vector2(14.5, 7.5)
+	var index: int = hydro.cell_index(Vector2i(14, 7))
+	var width: float = Water._river_width(hydro.discharge_at_index(index))
+	var weight: float = Water._flood_source_coverage(hydro, index)
+	var expected := Water.FLOOD_COVERAGE_THRESHOLD / (1.0 - width)
+	_check(absf(weight - expected) < 0.0001 and weight < 1.0,
+		"Вклад настоящей реки в общую пойму следует физическому расходу")
+	# Изолиния 0,45 должна совпасть с половиной ширины речной
+	# ленты. Проверяем обе стороны, не используя экранные пиксели.
+	for signum in [-1.0, 1.0]:
+		var inside := Water._flood_profile(hydro,
+			point + Vector2(0.0, signum * (width - 0.02))).x
+		var outside := Water._flood_profile(hydro,
+			point + Vector2(0.0, signum * (width + 0.08))).x
+		_check(inside >= Water.FLOOD_COVERAGE_THRESHOLD and
+			outside < Water.FLOOD_COVERAGE_THRESHOLD,
+			"Переходная береговая изолиния находится у физической ширины реки")
+
+	# Настоящее затопление в клетке на стыке чанков оставляет
+	# максимальный вес, а соседняя река плавно сужается к нему.
+	hydro.floods[hydro.cell_index(Vector2i(16, 7))] = true
+	var narrow: float = Water._flood_profile(hydro, Vector2(15.5, 7.5)).x
+	var middle: float = Water._flood_profile(hydro, Vector2(16.0, 7.5)).x
+	var broad: float = Water._flood_profile(hydro, Vector2(16.5, 7.5)).x
+	_check(narrow < middle and middle < broad and broad >= 0.999,
+		"Контур реки расширяется к настоящему разливу без скачка покрытия")
+	_check(Water._flood_source_coverage(hydro,
+		hydro.cell_index(Vector2i(16, 7))) == 1.0,
+		"Реальный паводок не теряет площади из-за сужения речной ленты")
+
+	# Гидрологический и грунтовый снимки неизменны. Меши
+	# строятся независимо: на общей линии x=16 нет щели.
+	var left: Array = Water.prepare_arrays(world, hydro, Vector2i.ZERO)
+	var right: Array = Water.prepare_arrays(world, hydro, Vector2i(1, 0))
+	_check(not left.is_empty() and not right.is_empty(),
+		"Оба чанка построили общий переход реки в разлив")
+	if not left.is_empty() and not right.is_empty():
+		var seam_count := 0
+		var vertices: PackedVector3Array = left[Mesh.ARRAY_VERTEX]
+		for vertex in vertices:
+			if absf(vertex.x - 16.0) < 0.00005:
+				seam_count += 1
+				_check(_contains_vertex(right, vertex),
+					"Соседние паводковые чанки совпадают на общей геометрии")
+		_check(seam_count > 0, "Переход через x=16 содержит общие береговые вершины")
+	_check(world.to_data() == physical_before and
+		hydro.downstream == river_before and hydro.discharges == discharge_before,
+		"Сужение визуальной воды не изменяет физический сток и рельеф")
+	print("#96/RIVER-FLOOD: ширина=", width, ", речной вклад=", weight,
+		", соединение с поймой=", middle, " — успешно")
+
+
 func _test_dry_bank() -> void:
 	# Высокий грунт справа пересекает ширину реки. Раньше
 	# поперечник всегда рисовался целиком поверх сухого склона.
@@ -268,6 +336,7 @@ func _initialize() -> void:
 	# Это техническая проверка CPU-мешей, а не оценка FPS
 	# видеокарты или художественное утверждение речной графики.
 	_test_route_and_seam()
+	_test_river_to_flood()
 	_test_dry_bank()
 	_test_real_hydrology()
 	if not failures.is_empty():
