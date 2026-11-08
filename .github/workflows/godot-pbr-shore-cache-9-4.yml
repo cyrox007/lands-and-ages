@@ -1,0 +1,165 @@
+name: "9.4.2 — PBR-кеш берега, точные меши и 740 кадров"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/landscape_appearance.gd"
+      - "godot/scripts/chunk.gd"
+      - "godot/scripts/chunk_build_worker.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_benchmark_runner.gd"
+      - "godot/tests/pbr_near_water*_9_4_smoke.gd"
+      - ".github/workflows/godot-pbr-shore-cache-9-4.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/landscape_appearance.gd"
+      - "godot/scripts/chunk.gd"
+      - "godot/scripts/chunk_build_worker.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_benchmark_runner.gd"
+      - "godot/tests/pbr_near_water*_9_4_smoke.gd"
+      - ".github/workflows/godot-pbr-shore-cache-9-4.yml"
+  workflow_dispatch:
+
+jobs:
+  exact-pbr-arrays:
+    name: "9.4.2/CPU — два seed, каналы PBR и время подготовки"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-pbr-cpu.zip
+          unzip -q /tmp/godot-pbr-cpu.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать проект и GDScript"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/pbr-cpu-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/pbr-cpu-import.log; then
+            exit 1
+          fi
+      - name: "Сравнить физические меши двух реализаций и CPU"
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          timeout 780s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/pbr_near_water_cache_9_4_smoke.gd \
+            -- --report=/tmp/pbr-cache-cpu.json 2>&1 | tee /tmp/pbr-cache-cpu.log
+          grep -q "9.4.2/PBR: оба размера, все PBR-каналы и физика — успешно." /tmp/pbr-cache-cpu.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/pbr-cache-cpu.log; then
+            exit 1
+          fi
+      - name: "Проверить JSON и вывести результат A/B"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("/tmp/pbr-cache-cpu.json").read_text())
+          assert report["passed"] and report["hardware_approval"] is False
+          assert report["gpu_frame_ms"] is None and report["vram_bytes"] is None
+          assert [(p["width"], p["height"], p["seed"]) for p in report["profiles"]] == [
+              (128, 96, 1729), (192, 160, 4471)
+          ]
+          for profile in report["profiles"]:
+              assert profile["chunks_compared"] >= 5
+              assert profile["coastal_chunks"] >= 1
+              assert profile["arrays_identical"] and profile["physics_unchanged"]
+              for name in ("previous_prepare_cpu_ms", "cached_prepare_cpu_ms"):
+                  ms = profile[name]
+                  assert 0 < ms["p50"] <= ms["p95"]
+              print("CPU A/B:", profile["width"], profile["height"],
+                    "прежний p50", profile["previous_prepare_cpu_ms"]["p50"],
+                    "кеш p50", profile["cached_prepare_cpu_ms"]["p50"],
+                    "ускорение", profile["p50_speedup"])
+          PY
+      - name: "Артефакт CPU-профиля"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbr-shore-cache-exact-arrays-cpu
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/pbr-cache-cpu.json
+            /tmp/pbr-cache-cpu.log
+            /tmp/pbr-cpu-import.log
+
+  gameplay-gl:
+    name: "9.4.2/GL — старый и новый PBR, 740 кадров"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Godot и программный GL"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-pbr-gl.zip
+          unzip -q /tmp/godot-pbr-gl.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импортировать PBR-текстуры"
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/pbr-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/pbr-gl-import.log; then
+            exit 1
+          fi
+      - name: "Выполнить два игровых маршрута 370 кадров"
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          timeout 1100s xvfb-run -a -s "-screen 0 960x540x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/pbr_near_water_gl_9_4_smoke.gd \
+            -- --report=/tmp/pbr-cache-gl.json 2>&1 | tee /tmp/pbr-cache-gl.log
+          grep -q "9.4.2/PBR-GL: 740 кадров и физические инварианты — успешно." /tmp/pbr-cache-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/pbr-cache-gl.log; then
+            exit 1
+          fi
+      - name: "Проверить GL-метрики и число игровых чанков"
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("/tmp/pbr-cache-gl.json").read_text())
+          assert report["passed"] and report["physics_unchanged"]
+          assert report["setting_restored"] and not report["hardware_approval"]
+          assert len(report["passes"]) == 2
+          assert [p["route_frames"] for p in report["passes"]] == [370, 370]
+          for p in report["passes"]:
+              assert p["summary"]["chunks_built"] > 0
+              assert p["summary"]["ground_prepare_worker_ms_total"] > 0
+              assert 0 < p["summary"]["interval_ms_p50"] <= p["summary"]["interval_ms_p95"]
+          print("PBR-кеш GL A/B:", report["passes"][0]["summary"],
+                report["passes"][1]["summary"])
+          PY
+      - name: "Артефакт двух игровых маршрутов"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbr-shore-cache-370-frames-before-after
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/pbr-cache-gl.json
+            /tmp/pbr-cache-gl.log
+            /tmp/pbr-gl-import.log
