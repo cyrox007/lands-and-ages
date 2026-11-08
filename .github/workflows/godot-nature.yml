@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Скачать Godot 4.7.2
         run: |
-          curl --fail --location --retry 3 \
+          curl --fail --location --retry 16 --retry-delay 9 --retry-max-time 180 \
             "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
             --output /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp
@@ -385,6 +385,18 @@ jobs:
             | tee /tmp/nature-fire-litter-regrowth.log
           grep -q "11.5/F5b2c:.*успешно" /tmp/nature-fire-litter-regrowth.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-fire-litter-regrowth.log; then
+            exit 1
+          fi
+      - name: "11.5/LITTER-RESERVE — конечное топливо после дождя и строгий JSON v8"
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/fire_litter_reserve_11_5_smoke.gd 2>&1 \
+            | tee /tmp/nature-fire-litter-reserve.log
+          grep -q "11.5/LITTER-RESERVE:.*успешно" /tmp/nature-fire-litter-reserve.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/nature-fire-litter-reserve.log; then
             exit 1
           fi
       - name: "11.5/F5b2d1 — физический древесный уголь и строгий JSON"
