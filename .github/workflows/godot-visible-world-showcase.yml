@@ -1,0 +1,97 @@
+name: Демо живого мира — лес, река, горы и берег
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_showcase.gd"
+      - "godot/tests/world_showcase_visual_smoke.gd"
+      - ".github/workflows/godot-visible-world-showcase.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_showcase.gd"
+      - "godot/tests/world_showcase_visual_smoke.gd"
+      - ".github/workflows/godot-visible-world-showcase.yml"
+
+jobs:
+  showcase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подготовить Godot 4.7.2 и программный OpenGL
+        timeout-minutes: 6
+        run: |
+          # Одна и та же версия движка нужна для сравнимых кадров.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 16 --retry-delay 9 --retry-max-time 180 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импортировать GDScript, текстуры и сцену
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/showcase-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load" /tmp/showcase-import.log; then
+            exit 1
+          fi
+      - name: Открыть сцену, пройти маршрут и получить четыре настоящих кадра
+        timeout-minutes: 8
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/visible-world-showcase
+          timeout 420s xvfb-run -a -s "-screen 0 1280x720x24" \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy --path godot --rendering-method gl_compatibility \
+            --script res://tests/world_showcase_visual_smoke.gd \
+            -- --out=/tmp/visible-world-showcase 2>&1 | tee /tmp/showcase.log
+          grep -q "SHOWCASE:.*успешно" /tmp/showcase.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/showcase.log; then
+            exit 1
+          fi
+      - name: Проверить экранные кадры и манифест
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Техническая приёмка требует настоящие PNG и детерминизм
+          # физического WorldSave. Художественное качество оценивается отдельно.
+          root = Path("/tmp/visible-world-showcase")
+          data = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          assert data["schema_version"] == 1
+          assert data["checks_passed"] and data["physical_world_unchanged"]
+          assert data["art_accepted"] is False
+          assert data["hardware_accepted"] is False
+          assert data["renderer"] != "headless"
+          assert len(data["views"]) == 4
+          assert [view["name"] for view in data["views"]] == [
+              "Лесная долина", "Изгиб реки",
+              "Горный хребет", "Морской берег"
+          ]
+          for view in data["views"]:
+              assert (root / view["file"]).stat().st_size > 20000, view
+              assert view["quality"]["distinct_color_buckets"] >= 14, view
+              assert view["chunks"] > 0, view
+          print("Демо: четыре природных кадра и WorldSave — успешно")
+          PY
+      - name: Сохранить четыре изображения для художественной оценки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lands-and-ages-visible-world-four-views
+          path: |
+            /tmp/visible-world-showcase/
+            /tmp/showcase.log
+          if-no-files-found: warn
+          retention-days: 30
