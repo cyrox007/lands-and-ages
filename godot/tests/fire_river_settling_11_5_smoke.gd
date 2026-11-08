@@ -211,7 +211,7 @@ func _test() -> void:
 	saved = current.duplicate(true)
 	saved["suspended_ash"] = [[hydro.cell_index(dry), 60]]
 	_check(fire.load_data(saved), "Тестовая взвесь бывшего русла загружена")
-	var prior_deposit := fire.deposited_ash_total()
+	var prior_deposit: int = fire.deposited_ash_total()
 	_advance(models, 3)
 	_check(fire.suspended_ash_at(dry) == 0
 		and fire.deposited_ash_at(dry) == 60,
