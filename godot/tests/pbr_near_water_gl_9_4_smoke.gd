@@ -47,9 +47,9 @@ func _run() -> void:
 		_check(passes[0]["cache_enabled"] == false
 			and passes[1]["cache_enabled"] == true,
 			"Режим кеша действительно переключился")
-		for pass in passes:
-			var summary: Dictionary = pass["summary"]
-			_check(int(pass["route_frames"]) == Route.samples(
+		for measured in passes:
+			var summary: Dictionary = measured["summary"]
+			_check(int(measured["route_frames"]) == Route.samples(
 				scene._world_model.config.width,
 				scene._world_model.config.height).size(),
 				"Получены все 370 контрольных кадров")
@@ -65,7 +65,7 @@ func _run() -> void:
 				"Интервалы p50/p95/p99 корректно упорядочены")
 			_check(bool(summary["physics_unchanged"]),
 				"Физика осталась неизменной в каждом проходе")
-			_check(pass["phases"].size() == 9,
+			_check(measured["phases"].size() == 9,
 				"Измерены все девять фаз маршрута")
 		var before: Dictionary = passes[0]["summary"]
 		var after: Dictionary = passes[1]["summary"]
