@@ -19,7 +19,7 @@ static func select_views(world: RefCounted, hydro: RefCounted,
 	var highest := -INF
 	var best_turn := -1.0
 	var coast_distance := INF
-	var margin := mini(12, mini(size.x, size.y) / 5)
+	var margin := mini(12, floori(float(mini(size.x, size.y)) / 5.0))
 	for y in range(margin, size.y - margin):
 		for x in range(margin, size.x - margin):
 			var cell := Vector2i(x, y)
