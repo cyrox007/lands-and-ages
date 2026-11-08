@@ -107,7 +107,7 @@ func _test_fertility() -> void:
     var ash: float = fire.scorched_at(cell)
     _check(damage > 0.0 and ash > 0.0,
         "Горение создаёт и золу, и отдельный ожог почвы")
-    _check(int(fire.to_data()["version"]) == 7,
+    _check(int(fire.to_data()["version"]) == 8,
         "Почвенный ожог сохраняется в формате v6")
 
     # Плодородие сравниваем при одинаковой погоде и рельефе.

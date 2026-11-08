@@ -169,7 +169,7 @@ func _test_suspension() -> void:
     # Нельзя присвоить одну порцию двум участкам, переполнить
     # речную ячейку или подменить целые порции дробными.
     var valid: Dictionary = fire.to_data()
-    _check(int(valid["version"]) == 7
+    _check(int(valid["version"]) == 8
         and not valid["suspended_ash"].is_empty(),
         "Речной слой сохраняется в формате v7")
     var invalid: Dictionary = valid.duplicate(true)
