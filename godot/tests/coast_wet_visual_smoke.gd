@@ -61,6 +61,28 @@ class FloodHydrology:
 
 
 
+class SplitFrost:
+	extends RefCounted
+	## Проверяем резкую физическую границу заморозка:
+	## вода не должна повторять её квадратными мешами.
+	const WIDTH := 32
+
+	func frost_at_index(index: int) -> float:
+		# Левая сторона незамёрзшая, правая — полностью.
+		# На общем ребре x=16 визуальный лёд смешивается.
+		return 1.0 if index >= 0 and index % WIDTH >= 16 else 0.0
+
+
+class SplitAsh:
+	extends RefCounted
+	## Зола присутствует лишь в мокрых клетках правой стороны.
+
+	func ash_turbidity_at(cell: Vector2i) -> float:
+		# Задаём дискретное физическое загрязнение; только
+		# цветовой меш обеспечивает непрерывный переход.
+		return 1.0 if cell.x >= 16 else 0.0
+
+
 var errors: Array[String] = []
 
 
@@ -520,6 +542,93 @@ func _test_river_curves() -> void:
 	_check(from_direction.is_equal_approx(Vector2(0.0, 1.0)) and
 		to_direction.is_equal_approx(Vector2(1.0, 0.0)),
 		"Сегменты речной ленты согласуют касательные на концах")
+
+
+
+func _flood_seam_appearance(arrays: Array) -> Dictionary:
+	# Читаем уже созданные Godot-вершины, UV льда и цвет.
+	# Полигон может разделяться на треугольники, поэтому
+	# ключом служат координаты поверхности, а не индекс.
+	var result := {}
+	if arrays.is_empty():
+		return result
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var markers: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	for i in range(vertices.size()):
+		if absf(vertices[i].x - 16.0) > 0.0001 or \
+				absf(markers[i].x - Water.FLOOD_MARKER_X) > 0.0001:
+			continue
+		var key := Vector2i(roundi(vertices[i].z * 10000.0),
+			roundi(vertices[i].y * 10000.0))
+		result[key] = {"color": colors[i], "ice": uv[i].y}
+	return result
+
+
+func _test_flood_weather_seams() -> void:
+	# Раньше соседние реальные источники льда и золы
+	# красили два водных прямоугольника разными оттенками.
+	# Обе стороны x=16 строим как независимые чанки.
+	var hydro := FloodHydrology.new()
+	var surface := SplitFrost.new()
+	var fire := SplitAsh.new()
+	var world := WorldMap.new(Config.new(32, 32, 1729, 16, 16))
+	var changes := {}
+	for y in range(33):
+		for x in range(33):
+			changes[Vector2i(x, y)] = -2.0
+	_check(world.apply_vertex_changes(changes),
+		"Контрольная пойма расположена над реальным мокрым дном")
+	var world_before: Dictionary = world.to_data()
+	var floods_before: Dictionary = hydro.floods.duplicate(true)
+	var rivers_before: Dictionary = hydro.rivers.duplicate(true)
+	var lakes_before: Dictionary = hydro.lakes.duplicate(true)
+
+	# В точке общей границы цвета должны смешаться 50/50,
+	# хотя соседние физические клетки имеют значения 0 и 1.
+	var center := Water._flood_appearance_at(hydro, surface, fire,
+		Vector2(16.0, 11.5))
+	_check(absf(center.x - 0.5) < 0.00001
+		and absf(center.y - 0.5) < 0.00001,
+		"Общий мировой профиль сглаживает реальный лёд и золу")
+	var dry := Water._flood_appearance_at(hydro, surface, fire,
+		Vector2(24.0, 24.0))
+	_check(dry.length() < 0.00001,
+		"Далёкая суша не производит декоративной ледяной или грязной воды")
+
+	var left: Array = Water.prepare_arrays(
+		world, hydro, Vector2i.ZERO, surface, fire)
+	var right: Array = Water.prepare_arrays(
+		world, hydro, Vector2i(1, 0), surface, fire)
+	_check(not left.is_empty() and not right.is_empty(),
+		"Независимые водные чанки построены с погодными данными")
+	var left_edge: Dictionary = _flood_seam_appearance(left)
+	var right_edge: Dictionary = _flood_seam_appearance(right)
+	var matched := 0
+	var mid_ice := -1.0
+	for key in left_edge:
+		if not right_edge.has(key):
+			continue
+		matched += 1
+		var a: Dictionary = left_edge[key]
+		var b: Dictionary = right_edge[key]
+		_check(absf(float(a["ice"]) - float(b["ice"])) < 0.00001,
+			"Лёд на одинаковых вершинах соседних чанков непрерывен")
+		_check(a["color"].is_equal_approx(b["color"]),
+			"Цвет и взвесь совпадают на обоих водных мешах")
+		if absf(float(key.x) / 10000.0 - 11.5) < 0.0001:
+			mid_ice = float(a["ice"])
+	_check(matched >= 3 and absf(mid_ice - 0.5) < 0.0001,
+		"Проверены реальные общие вершины и половинный лёд x=16")
+	_check(world.to_data() == world_before
+		and hydro.floods == floods_before
+		and hydro.rivers == rivers_before
+		and hydro.lakes == lakes_before,
+		"Графическое смешивание не изменило гидрологию и рельеф")
+	print("#96/FLOOD-COLOR: общие вершины=", matched,
+		", ледяной переход=", mid_ice,
+		", взвесь=", center.y, " — успешно")
 
 
 func _test_wetness() -> void:
