@@ -311,12 +311,14 @@ func run_relief(view: Node3D) -> Dictionary:
 	}
 
 
-func run_pbr_cache(view: Node3D) -> Dictionary:
+func run_pbr_cache(view: Node3D, cache_kind: String = "shore") -> Dictionary:
 	# Замер 9.4.2 выполняет штатный маршрут из 370 кадров дважды.
-	# A/B отличается лишь числом повторных чтений Hydrology:
-	# без кеша и с локальной таблицей береговых клеток.
-	# Мир, климат, вода, вид камеры и настройки шейдера совпадают.
-	var original_setting: bool = view._pbr_shore_cache_enabled
+	# A/B проверяет либо старую оптимизацию береговых чтений,
+	# либо общий снимок физических клеток для цвета и материала.
+	# Другой кеш всегда включён и не смешивает результаты двух тестов.
+	var physical: bool = cache_kind == "physical"
+	var original_setting: bool = view._pbr_physical_cells_enabled if physical \
+		else view._pbr_shore_cache_enabled
 	var snapshot_world: Dictionary = view._world_model.to_data()
 	var snapshot_hydro: Dictionary = view._hydro.to_snapshot()
 	var snapshot_surface: Dictionary = view._surface.to_snapshot()
@@ -328,7 +330,10 @@ func run_pbr_cache(view: Node3D) -> Dictionary:
 		# run() сбрасывает кеш рендер-чанков и просматривает
 		# идентичные точки камеры. Отдельные величины CPU и
 		# главного потока не выдаём за аппаратное время GPU.
-		view._pbr_shore_cache_enabled = candidate["enabled"]
+		if physical:
+			view._pbr_physical_cells_enabled = candidate["enabled"]
+		else:
+			view._pbr_shore_cache_enabled = candidate["enabled"]
 		var measured: Dictionary = await run(view)
 		passes.append({
 			"name": candidate["name"],
@@ -340,14 +345,17 @@ func run_pbr_cache(view: Node3D) -> Dictionary:
 
 	# Исходная настройка восстанавливается даже для тестового
 	# запуска без кеша. Физические снимки сравниваем целиком.
-	view._pbr_shore_cache_enabled = original_setting
+	if physical:
+		view._pbr_physical_cells_enabled = original_setting
+	else:
+		view._pbr_shore_cache_enabled = original_setting
 	var physics_unchanged: bool = snapshot_world == view._world_model.to_data() \
 		and snapshot_hydro == view._hydro.to_snapshot() \
 		and snapshot_surface == view._surface.to_snapshot()
 	var viewport: Vector2 = view.get_viewport().get_visible_rect().size
 	return {
 		"schema_version": 1,
-		"task": "9.4.2/PBR-shore-cache",
+		"task": "9.4.2/PBR-physical-cells" if physical else "9.4.2/PBR-shore-cache",
 		"route": "camera-8.8-370-frames-twice",
 		"map": view._world_model.config.to_data(),
 		"platform": OS.get_name(),
@@ -356,7 +364,8 @@ func run_pbr_cache(view: Node3D) -> Dictionary:
 		"viewport": {"width": int(viewport.x), "height": int(viewport.y)},
 		"passes": passes,
 		"physics_unchanged": physics_unchanged,
-		"setting_restored": view._pbr_shore_cache_enabled == original_setting,
+		"setting_restored": (view._pbr_physical_cells_enabled if physical
+			else view._pbr_shore_cache_enabled) == original_setting,
 		"gpu_frame_ms": null,
 		"vram_bytes": null,
 		"hardware_approval": false,
