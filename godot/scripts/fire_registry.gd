@@ -655,18 +655,38 @@ func _litter_capacity(cell: Vector2i, damage: float) -> int:
     return clampi(roundi(60.0 + cover * 285.0), 60, MAX_LITTER_FUEL)
 
 
+static func litter_daily_gain(growth: float, vegetation: float,
+        cell: Vector2i, day: int, seed: int) -> int:
+    # Суточная прибавка определяется реальным ростом почвы и
+    # существующим травяным/древесным покровом. Раньше даже
+    # почти нулевой рост гарантированно создавал 1 единицу в день.
+    # Целую часть прибавки начисляем сразу, дробную — по
+    # детерминированному хешу клетки и суток, без нового JSON-поля.
+    var expected := 4.0 * clampf(growth, 0.0, 1.0) \
+        * clampf(vegetation, 0.0, 1.0)
+    var amount := floori(expected)
+    var fraction := expected - float(amount)
+    if fraction > 0.0 and Terrain.hash2(cell.x + day * 17,
+            cell.y + day * 31, seed + 73) < fraction:
+        amount += 1
+    return amount
+
+
 func _recover_litter_remaining() -> void:
-    # Потушенная подстилка остаётся физическим ресурсом, а не
-    # исчезает вместе с эффектом тлеющих углей. Её естественный
-    # прирост идёт лишь по новым суткам и при реальном росте грунта.
+    # Потушенная подстилка остаётся физическим запасом после дождя.
+    # Новую биомассу создают только настоящие сутки с активным
+    # растительным покровом; камера и повторный вызов дня не влияют.
     var indices: Array[int] = []
     for key in _litter_remaining.keys():
         indices.append(int(key))
     indices.sort()
     for index in indices:
-        # Активное тление не может одновременно сжигать и
-        # восстанавливать одни и те же единицы биомассы.
+        # Горящая клетка не может одновременно наращивать топливо.
         if _embers.has(index):
+            continue
+        # Постоянная вода и паводок не пополняют сухопутную
+        # подстилку; после спада вода не восстанавливает запас разом.
+        if hydro.has_water(index) or hydro.flooded_at(index):
             continue
         var cell := Vector2i(index % world.config.width,
             index / world.config.width)
@@ -679,11 +699,18 @@ func _recover_litter_remaining() -> void:
         var capacity: int = _litter_capacity(cell, damage)
         if capacity <= 0:
             continue
+        # NatureRegistry рассчитывает реальную траву и живые кроны
+        # из почвы, климата и физического состояния деревьев.
+        # На выгоревшей голой земле прирост меньше, чем в лесу.
+        var vegetation: float = clampf(
+            nature.ground_cover_at(cell, self)
+            + nature.canopy_pressure_at(cell) * 0.20, 0.0, 1.0)
+        var daily: int = litter_daily_gain(growth, vegetation,
+            cell, last_day, world.config.world_seed)
         var previous: int = int(_litter_remaining[index])
-        var regenerated: int = mini(capacity, previous +
-            maxi(1, roundi(growth * 4.0)))
-        # Полное восстановление возвращает клетку обычной модели,
-        # чтобы не копить пожизненно все когда-либо горевшие участки.
+        var regenerated: int = mini(capacity, previous + daily)
+        # После достижения естественной ёмкости и заживления
+        # удаляем запись: полный здоровый участок не хранится вечно.
         if damage <= 0.0 and scorched_at(cell) <= 0.0 and regenerated >= capacity:
             _litter_remaining.erase(index)
         else:
