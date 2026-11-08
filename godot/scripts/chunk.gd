@@ -149,7 +149,8 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 			# исходные рёбра: нет зазора с обычным чанк-мешем.
 			if mode == 0 and ShoreVisual.is_coastal_cell(world, hydro,
 					Vector2i(x0 + i, y0 + j)):
-				var subdivisions: int = ShoreVisual.SUBDIVISIONS
+				var subdivisions: int = ShoreVisual.subdivision_count(
+					world, hydro, Vector2i(x0 + i, y0 + j))
 				var fine := PackedInt32Array()
 				for sy in range(subdivisions + 1):
 					var v := float(sy) / float(subdivisions)

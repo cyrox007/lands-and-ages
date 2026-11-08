@@ -69,6 +69,36 @@ func _check(value: bool, reason: String) -> void:
 		errors.append(reason)
 
 
+func _contour_error(subdivisions: int) -> float:
+	# На седловине исходный контур из 3×3 заметно отличается
+	# от настоящей билинейной изолинии. Сравниваем геометрию
+	# пересечений, а не только количество треугольников.
+	var worst := 0.0
+	for sy in range(subdivisions):
+		for sx in range(subdivisions):
+			var u0 := float(sx) / float(subdivisions)
+			var u1 := float(sx + 1) / float(subdivisions)
+			var v0 := float(sy) / float(subdivisions)
+			var v1 := float(sy + 1) / float(subdivisions)
+			for triangle in [
+				PackedVector2Array([Vector2(u0, v0), Vector2(u0, v1), Vector2(u1, v0)]),
+				PackedVector2Array([Vector2(u1, v1), Vector2(u1, v0), Vector2(u0, v1)])
+			]:
+				var heights := PackedFloat32Array()
+				for vertex in triangle:
+					heights.append(ShoreVisual.height(-3.0, 2.0, 1.0,
+						-4.0, vertex.x, vertex.y))
+				var polygon := Water._clip_submerged_triangle(triangle, heights, 0.0)
+				for vertex in polygon:
+					# Нулевая глубина помечает именно пересечение
+					# уровня, а не внутреннюю подводную вершину.
+					if vertex.z > 0.000001:
+						continue
+					var ground := ShoreVisual.height(-3.0, 2.0, 1.0,
+						-4.0, vertex.x, vertex.y)
+					worst = maxf(worst, absf(ground))
+	return worst
+
 func _test_coast() -> void:
 	_check(Water.SHORE_SUBDIVISIONS >= 2,
 		"Берег делится на несколько субклеточных треугольников")
@@ -104,6 +134,14 @@ func _test_coast() -> void:
 		-1.0, 1.0, -0.4, 0.9)
 	_check(triangles > 2,
 		"Прибрежная граница использует несколько полигонов")
+	_check(ShoreVisual.COAST_SUBDIVISIONS == ShoreVisual.SUBDIVISIONS * 2,
+		"Только берег моря и озера имеет удвоенную точность")
+	var old_error := _contour_error(ShoreVisual.SUBDIVISIONS)
+	var refined_error := _contour_error(ShoreVisual.COAST_SUBDIVISIONS)
+	_check(old_error > 0.10 and refined_error < old_error * 0.5,
+		"Уточнённая изолиния береговой седловины ближе к физической поверхности")
+	print("#96/COAST: максимальное отклонение изолинии ", old_error,
+		" → ", refined_error)
 
 
 
@@ -117,26 +155,33 @@ func _test_shared_coastal_mesh() -> void:
 	var before := world.to_data()
 	var water_before := hydro.to_snapshot()
 	var total_shores := 0
-	var subdivisions: int = ShoreVisual.SUBDIVISIONS
+	var refined_shores := 0
+	var subdivisions: int = ShoreVisual.COAST_SUBDIVISIONS
 	# Проверяем полное покрытие: уточняются только береговые клетки,
 	# массивы атрибутов остаются одинакового размера.
 	for cy in range(world.config.chunk_count().y):
 		for cx in range(world.config.chunk_count().x):
 			var bounds: Rect2i = world.config.chunk_rect(Vector2i(cx, cy))
-			var shores := 0
+			var extra_vertices := 0
+			var extra_indices := 0
 			for y in range(bounds.position.y, bounds.end.y):
 				for x in range(bounds.position.x, bounds.end.x):
-					if ShoreVisual.is_coastal_cell(world, hydro, Vector2i(x, y)):
-						shores += 1
-			total_shores += shores
+					var cell := Vector2i(x, y)
+					if not ShoreVisual.is_coastal_cell(world, hydro, cell):
+						continue
+					total_shores += 1
+					var density: int = ShoreVisual.subdivision_count(world, hydro, cell)
+					extra_vertices += (density + 1) * (density + 1)
+					extra_indices += density * density * 6 - 6
+					if density == subdivisions:
+						refined_shores += 1
 			var prepared := Chunk.prepare_arrays(cx, cy, 1, world, null, 0, null, hydro)
 			var points: PackedVector3Array = prepared[Mesh.ARRAY_VERTEX]
 			var triangles: PackedInt32Array = prepared[Mesh.ARRAY_INDEX]
 			var base := (bounds.size.x + 1) * (bounds.size.y + 1)
-			_check(points.size() == base + shores * (subdivisions + 1) * (subdivisions + 1),
+			_check(points.size() == base + extra_vertices,
 				"Уточнённые вершины есть только у пересечения суши с водой")
-			_check(triangles.size() == bounds.size.x * bounds.size.y * 6 +
-				shores * (subdivisions * subdivisions * 6 - 6),
+			_check(triangles.size() == bounds.size.x * bounds.size.y * 6 + extra_indices,
 				"Береговая сетка точно заменяет крупные треугольники")
 			_check(prepared[Mesh.ARRAY_NORMAL].size() == points.size() and
 				prepared[Mesh.ARRAY_COLOR].size() == points.size() and
@@ -147,7 +192,8 @@ func _test_shared_coastal_mesh() -> void:
 			for index in triangles:
 				_check(index >= 0 and index < points.size(),
 					"Индекс новой триангуляции попадает в массив вершин")
-	_check(total_shores > 0, "В контрольном мире есть пересекаемый морской берег")
+	_check(total_shores > 0 and refined_shores > 0,
+		"Реальные пересечения моря/озера уточнены, а остальные клетки не разрослись")
 	var dry_side_extensions := 0
 	for y in range(world.config.height):
 		for x in range(world.config.width):

@@ -3,6 +3,8 @@ extends RefCounted
 ## WorldMap.height_at, физические вершины и гидрология не меняются.
 
 const SUBDIVISIONS := 3
+# Морской и озёрный контур уточняем вдвое; паводковая сетка остаётся 3×3.
+const COAST_SUBDIVISIONS := 6
 
 
 static func height(ha: float, hb: float, hc: float, hd: float,
@@ -62,6 +64,22 @@ static func water_context(world: RefCounted, hydro: RefCounted,
 	}
 
 
+
+static func subdivision_count(world: RefCounted, hydro: RefCounted,
+		cell: Vector2i) -> int:
+	# Усиливаем только действительно пересечённую берегом клетку.
+	# Это согласует плотность суши и воды, не увеличивая всю
+	# сетку паводков, рек или полностью затопленных площадей.
+	var context: Dictionary = water_context(world, hydro, cell)
+	if context.is_empty():
+		return SUBDIVISIONS
+	var level: float = context["level"]
+	var ha: float = world.vertex_at(cell)
+	var hb: float = world.vertex_at(cell + Vector2i(1, 0))
+	var hc: float = world.vertex_at(cell + Vector2i(0, 1))
+	var hd: float = world.vertex_at(cell + Vector2i(1, 1))
+	return COAST_SUBDIVISIONS if minf(minf(ha, hb), minf(hc, hd)) <= level \
+		and maxf(maxf(ha, hb), maxf(hc, hd)) > level else SUBDIVISIONS
 
 static func near_flood(hydro: RefCounted, cell: Vector2i) -> bool:
 	# Граница разлива охватывает и прилегающие сухие клетки.

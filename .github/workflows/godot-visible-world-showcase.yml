@@ -7,6 +7,9 @@ on:
     paths:
       - "godot/scripts/world.gd"
       - "godot/scripts/world_showcase.gd"
+      - "godot/scripts/water_mesh.gd"
+      - "godot/scripts/shore_visual.gd"
+      - "godot/scripts/chunk.gd"
       - "godot/tests/world_showcase_visual_smoke.gd"
       - ".github/workflows/godot-visible-world-showcase.yml"
   push:
@@ -14,6 +17,9 @@ on:
     paths:
       - "godot/scripts/world.gd"
       - "godot/scripts/world_showcase.gd"
+      - "godot/scripts/water_mesh.gd"
+      - "godot/scripts/shore_visual.gd"
+      - "godot/scripts/chunk.gd"
       - "godot/tests/world_showcase_visual_smoke.gd"
       - ".github/workflows/godot-visible-world-showcase.yml"
 
