@@ -3,7 +3,7 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 6
+const FORMAT_VERSION := 7
 const MAX_FIRES := 1024
 const MAX_SCORCHED_CELLS := 4096
 const MAX_EMBERS := 512
@@ -15,6 +15,8 @@ const MAX_CHARCOAL_CELLS := 4096
 const MAX_CHARCOAL_UNITS := 1000
 const MAX_SUSPENDED_CELLS := 4096
 const MAX_SUSPENDED_UNITS := 1000
+const MAX_DEPOSITED_CELLS := 4096
+const MAX_DEPOSITED_UNITS := 1000
 const MAX_EVENTS_PER_DAY := 64
 
 var world: RefCounted
@@ -31,6 +33,7 @@ var _embers: Dictionary = {}
 var _soil_damage: Dictionary = {}
 var _charcoal: Dictionary = {}
 var _suspended_ash: Dictionary = {}
+var _deposited_ash: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
@@ -183,11 +186,43 @@ func suspended_ash_cell_count() -> int:
     return _suspended_ash.size()
 
 
+func deposited_ash_at(cell: Vector2i) -> int:
+    # Осевшая зола остаётся в физическом реестре даже после
+    # обмеления водоёма: это конечный запас, а не цвет шейдера.
+    if not world.config.contains_cell(cell):
+        return 0
+    return int(_deposited_ash.get(hydro.cell_index(cell), 0))
+
+
+func deposited_ash_total() -> int:
+    # Считаем осадок без выделения массива размером со всю карту.
+    # Количество не меняется при уходе камеры или загрузке JSON.
+    var total := 0
+    for amount in _deposited_ash.values():
+        total += int(amount)
+    return total
+
+
+func deposited_ash_cell_count() -> int:
+    return _deposited_ash.size()
+
+
+func ash_turbidity_at(cell: Vector2i) -> float:
+    # Для визуализации учитываем только ещё взвешенную часть.
+    # Осевшее вещество не окрашивает толщу воды повторно.
+    if not world.config.contains_cell(cell):
+        return 0.0
+    var index: int = hydro.cell_index(cell)
+    if not hydro.has_water(index):
+        return 0.0
+    return clampf(float(suspended_ash_at(cell)) / 160.0, 0.0, 1.0)
+
+
 func ash_mass_total() -> int:
     # Только баланс переносимой золы: естественная суточная
     # убыль на суше считается отдельно; уголь и почвенный ожог
     # не превращаются в золу при переносе.
-    var total := suspended_ash_total()
+    var total := suspended_ash_total() + deposited_ash_total()
     for record in _scorched.values():
         total += int(record["ash"])
     return total
@@ -204,10 +239,42 @@ func _advance_suspended_ash(changed: Dictionary) -> void:
         indices.append(int(key))
     indices.sort()
     for index in indices:
-        # Когда русло осохло, бывшая взвесь остаётся в запасе до
-        # возобновления воды: вещество не исчезает из реестра.
-        # Более подробное осаждение будет отдельной задачей.
-        if not hydro.has_water(index):
+        # Суточное осаждение берёт только вчерашнюю взвесь.
+        # Новая зола из сухопутного стока поступает после этого шага,
+        # поэтому не может ни осесть, ни проплыть две клетки за день.
+        var stock: int = int(_suspended_ash[index])
+        var has_water: bool = hydro.has_water(index)
+        var settling := 0
+        if not has_water:
+            # Осохшее русло отдаёт весь запас своему дну.
+            settling = stock
+        elif hydro.ocean_at(index) or hydro.lake_at(index):
+            # Стоячая вода теряет до четверти взвеси за сутки;
+            # остаток остаётся доступен для дальнейшего стока.
+            settling = clampi(roundi(float(stock) * 0.25), 1, 100)
+        elif hydro.flow_pressure_at(index) < 0.15:
+            # В слабом русле выпадает лишь малая доля, а быстрый
+            # поток переносит золу без искусственного осаждения.
+            settling = clampi(roundi(float(stock) * 0.08), 1, 24)
+        if settling > 0:
+            var deposited: int = int(_deposited_ash.get(index, 0))
+            var capacity := MAX_DEPOSITED_UNITS - deposited
+            if not _deposited_ash.has(index) \
+                    and _deposited_ash.size() >= MAX_DEPOSITED_CELLS:
+                capacity = 0
+            var moved := mini(settling, maxi(0, capacity))
+            if moved > 0:
+                _deposited_ash[index] = deposited + moved
+                stock -= moved
+                if stock == 0:
+                    _suspended_ash.erase(index)
+                else:
+                    _suspended_ash[index] = stock
+                changed[world.config.chunk_of(
+                    hydro.cell_from_index(index))] = true
+        # Переполненное дно не уничтожает излишек взвеси.
+        # Сухие клетки не передают массу фиктивному водотоку.
+        if not has_water or stock == 0:
             continue
         var destination: int = hydro.downstream_of(index)
         if destination < 0 or destination == index \
@@ -917,12 +984,20 @@ func to_data() -> Dictionary:
     water_indices.sort()
     for index in water_indices:
         suspended_entries.append([index, int(_suspended_ash[index])])
+    var settled_entries := []
+    var settled_indices: Array[int] = []
+    for key in _deposited_ash.keys():
+        settled_indices.append(int(key))
+    settled_indices.sort()
+    for index in settled_indices:
+        settled_entries.append([index, int(_deposited_ash[index])])
     return {
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
         "fires": entries, "scorched": ash_entries,
         "embers": ember_entries, "soil_damage": scar_entries,
-        "charcoal": charcoal_entries, "suspended_ash": suspended_entries
+        "charcoal": charcoal_entries, "suspended_ash": suspended_entries,
+        "deposited_ash": settled_entries
     }
 
 
@@ -936,10 +1011,10 @@ func load_data(data: Dictionary) -> bool:
             or not is_finite(float(raw_version)):
         return false
     var version := int(raw_version)
-    # JSON восстанавливает 1–6 как вещественные числа; проверяем
+    # JSON восстанавливает версии 1–7 как числа; проверяем
     # значение явно, иначе Array.has() сравнивает типы слишком строго.
     if float(version) != float(raw_version) \
-            or version not in [1, 2, 3, 4, 5, FORMAT_VERSION]:
+            or version not in [1, 2, 3, 4, 5, 6, FORMAT_VERSION]:
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -1102,12 +1177,38 @@ func load_data(data: Dictionary) -> bool:
                     or amount > MAX_SUSPENDED_UNITS:
                 return false
             parsed_suspended[index] = amount
+    # В v7 осевшая речная зола хранится отдельно от взвеси.
+    # Старые v1–v6 восстанавливаются с пустым донным слоем.
+    # Все ошибочные индексы, дубли и дробные числа отвергаем
+    # до замены какого-либо действующего физического реестра.
+    var parsed_deposited := {}
+    if version >= 7:
+        var raw_deposited: Variant = data.get("deposited_ash")
+        if not (raw_deposited is Array) \
+                or raw_deposited.size() > MAX_DEPOSITED_CELLS:
+            return false
+        for record in raw_deposited:
+            if not (record is Array) or record.size() != 2:
+                return false
+            for value in record:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)):
+                    return false
+            var index := int(record[0])
+            var amount := int(record[1])
+            if index < 0 or index >= world.config.width * world.config.height \
+                    or parsed_deposited.has(index) or amount <= 0 \
+                    or amount > MAX_DEPOSITED_UNITS:
+                return false
+            parsed_deposited[index] = amount
     _burning = parsed
     _scorched = parsed_scorched
     _embers = parsed_embers
     _soil_damage = parsed_soil
     _charcoal = parsed_charcoal
     _suspended_ash = parsed_suspended
+    _deposited_ash = parsed_deposited
     last_day = day
     total_ignitions = total
     last_events.clear()
