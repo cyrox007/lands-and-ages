@@ -537,11 +537,17 @@ func to_data() -> Dictionary:
 	var events := []
 	for event in last_events:
 		var cell: Vector2i = event["cell"]
+		# История — сохраняемый отчёт, не вход в физические формулы.
+		# Канонизируем доли до миллиардной единицы: JSON может
+		# вернуть иную последнюю цифру double при загрузке.
+		# Иначе два равных мира дают ложное расхождение 11.10.
 		events.append([
 			event["kind"], event["day"], cell.x, cell.y,
-			event["severity"], event["duration_days"],
-			event["vertices"], event["snow_volume"], event["sediment_volume"],
-			float(event.get("airborne_volume", 0.0))
+			snappedf(float(event["severity"]), 0.000000001),
+			event["duration_days"], event["vertices"],
+			snappedf(float(event["snow_volume"]), 0.000000001),
+			snappedf(float(event["sediment_volume"]), 0.000000001),
+			snappedf(float(event.get("airborne_volume", 0.0)), 0.000000001)
 		])
 	# Воздушная масса записывается отдельно от старой истории
 	# девятипольных событий и в целых микродолях: точная
