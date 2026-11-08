@@ -691,6 +691,7 @@ func _initialize() -> void:
 	_test_shared_coastal_mesh()
 	_test_continuous_flood()
 	_test_broad_flood_contour()
+	_test_flood_weather_seams()
 	_test_river_curves()
 	_test_wetness()
 	_test_waves()
