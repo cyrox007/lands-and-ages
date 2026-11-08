@@ -61,7 +61,7 @@ static func select_views(world: RefCounted, hydro: RefCounted,
 					coast_distance = distance
 					coast = cell
 				break
-	var forest := _find_forest(world, nature)
+	var forest := _find_forest(world, hydro, nature)
 	var scenes: Array[Dictionary] = []
 	if forest.x >= 0:
 		scenes.append({
@@ -75,7 +75,7 @@ static func select_views(world: RefCounted, hydro: RefCounted,
 		})
 	if mountain.x >= 0:
 		scenes.append({
-			"name": "Горный хребет", "cell": mountain, "zoom": 52.0,
+			"name": "Горный хребет", "cell": mountain, "zoom": 66.0,
 			"meaning": "Физические вершины, скалы и предгорья"
 		})
 	if coast.x >= 0:
@@ -86,13 +86,13 @@ static func select_views(world: RefCounted, hydro: RefCounted,
 	return scenes
 
 
-static func _find_forest(world: RefCounted,
+static func _find_forest(world: RefCounted, hydro: RefCounted,
 		nature: RefCounted) -> Vector2i:
 	# Считаем реальные живые деревья по чанкам и выбираем
 	# самый населённый лесом участок. Не храним второй лесной
 	# реестр и не заставляем каждый кадр обходить деревья.
 	var chunks: Vector2i = world.config.chunk_count()
-	var best_count := 0
+	var best_count := -1000000
 	var best_cell := Vector2i(-1, -1)
 	var middle := Vector2(world.config.width, world.config.height) * 0.5
 	var best_distance := INF
@@ -109,12 +109,27 @@ static func _find_forest(world: RefCounted,
 				continue
 			var center := sum / float(trees)
 			var distance := center.distance_squared_to(middle)
-			# При одинаковой плотности предпочитаем ближний лес:
-			# это удобнее для естественного продолжения маршрута.
-			if trees < best_count or (trees == best_count
+			var cell := Vector2i(roundi(center.x), roundi(center.y))
+			# Вид леса не должен наполовину состоять из моря.
+			# Учитываем океан в восьми направлениях от середины
+			# чанка, не подменяя реальное расположение деревьев.
+			var near_ocean := false
+			for offset in [
+					Vector2i(24, 0), Vector2i(-24, 0),
+					Vector2i(0, 24), Vector2i(0, -24),
+					Vector2i(17, 17), Vector2i(-17, 17),
+					Vector2i(17, -17), Vector2i(-17, -17)]:
+				if hydro.ocean_at(hydro.cell_index(cell + offset)):
+					near_ocean = true
+					break
+			# Внутренний лес приоритетнее прибрежного даже при
+			# меньшем числе деревьев; при отсутствии леса в глубине
+			# карта всё равно предложит существующий прибрежный.
+			var score := trees - (100000 if near_ocean else 0)
+			if score < best_count or (score == best_count
 					and distance >= best_distance):
 				continue
-			best_count = trees
+			best_count = score
 			best_distance = distance
-			best_cell = Vector2i(roundi(center.x), roundi(center.y))
+			best_cell = cell
 	return best_cell
