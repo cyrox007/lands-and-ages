@@ -5,6 +5,7 @@ const Relief = preload("res://scripts/relief.gd")
 const ReliefFeatures = preload("res://scripts/relief_visual_features.gd")
 const Appearance = preload("res://scripts/landscape_appearance.gd")
 const MaterialMix = preload("res://scripts/terrain_material_mix.gd")
+const PhysicalCells = preload("res://scripts/terrain_pbr_cells.gd")
 const ShoreVisual = preload("res://scripts/shore_visual.gd")
 
 static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
@@ -23,7 +24,8 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 		world: RefCounted, surface: RefCounted = null,
 		mode: int = 0, climate: RefCounted = null,
 		hydro: RefCounted = null, cached_near_water: bool = true,
-		cancel_check: Callable = Callable()) -> Array:
+		cancel_check: Callable = Callable(),
+		cached_physical_cells: bool = true) -> Array:
 	# Этот метод только читает физическую модель и собирает локальные
 	# PackedArray. В воркере запрещены изменение модели и вызовы сцены.
 
@@ -50,6 +52,14 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 	var shore_grid: Array[Vector3] = []
 	if cached_near_water and mode == 0 and surface != null and hydro != null:
 		shore_grid = Appearance.near_water_grid(bounds, world, hydro, cancel_check)
+		if cancel_check.is_valid() and cancel_check.call():
+			return []
+	# Общая физическая рамка принадлежит одному вызову prepare_arrays:
+	# новый день или другая ревизия никогда не используют старый снимок.
+	# Отключение оставлено только для измерения A/B и точности масок.
+	var physical_grid: Array[Dictionary] = []
+	if cached_physical_cells and mode == 0 and surface != null and hydro != null:
+		physical_grid = PhysicalCells.grid(bounds, world, surface, hydro, cancel_check)
 		if cancel_check.is_valid() and cancel_check.call():
 			return []
 	for j in range(height + 1):
@@ -79,10 +89,15 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 				var nearby: Vector3 = shore_grid[j * (width + 1) + i] \
 					if not shore_grid.is_empty() else Appearance.near_water(
 						vertex, world, hydro)
+				# Одна четвёрка соседних физических клеток идёт и в
+				# цвет, и в шесть материалов — без повторного чтения
+				# moisture/snow/rock/depth/hydro.has_water.
+				var cells: Array[Dictionary] = PhysicalCells.vertex_cells(
+					bounds, vertex, physical_grid) if not physical_grid.is_empty() else []
 				var color := Appearance.color_at(vertex, h, normal,
-					world, surface, hydro, nearby)
+					world, surface, hydro, nearby, cells)
 				var sample: Dictionary = MaterialMix.sample_at(
-					vertex, h, normal, world, surface, hydro, nearby)
+					vertex, h, normal, world, surface, hydro, nearby, cells)
 				var weights: PackedFloat32Array = sample["weights"]
 				var natural: Vector4 = sample["conditions"]
 				# Уплотнённые RGBA8: влага, морской берег, мороз, пресный берег.
