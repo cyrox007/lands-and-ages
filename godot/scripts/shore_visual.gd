@@ -5,6 +5,10 @@ extends RefCounted
 const SUBDIVISIONS := 3
 # Морской и озёрный контур уточняем вдвое; паводковая сетка остаётся 3×3.
 const COAST_SUBDIVISIONS := 6
+# Только сильно искривлённая береговая седловина получает 12×12.
+# Плоский берег и открытая вода не увеличивают число треугольников.
+const COMPLEX_COAST_SUBDIVISIONS := 12
+const COAST_CURVATURE_THRESHOLD := 0.65
 
 
 static func height(ha: float, hb: float, hc: float, hd: float,
@@ -65,6 +69,22 @@ static func water_context(world: RefCounted, hydro: RefCounted,
 
 
 
+static func coast_density(ha: float, hb: float, hc: float, hd: float,
+		level: float) -> int:
+	# Смешанная производная билинейной поверхности определяет,
+	# насколько сильно кромка воды изгибается внутри одной клетки.
+	# Нормируем её на перепад высот: правило не зависит от масштаба
+	# высот и одинаково применяется сушей и водным мешем.
+	var lowest := minf(minf(ha, hb), minf(hc, hd))
+	var highest := maxf(maxf(ha, hb), maxf(hc, hd))
+	if lowest > level or highest <= level:
+		return SUBDIVISIONS
+	var span := maxf(highest - lowest, 0.00001)
+	var curvature := absf(ha - hb - hc + hd) / span
+	return COMPLEX_COAST_SUBDIVISIONS if curvature >= COAST_CURVATURE_THRESHOLD \
+		else COAST_SUBDIVISIONS
+
+
 static func subdivision_count(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> int:
 	# Усиливаем только действительно пересечённую берегом клетку.
@@ -78,8 +98,7 @@ static func subdivision_count(world: RefCounted, hydro: RefCounted,
 	var hb: float = world.vertex_at(cell + Vector2i(1, 0))
 	var hc: float = world.vertex_at(cell + Vector2i(0, 1))
 	var hd: float = world.vertex_at(cell + Vector2i(1, 1))
-	return COAST_SUBDIVISIONS if minf(minf(ha, hb), minf(hc, hd)) <= level \
-		and maxf(maxf(ha, hb), maxf(hc, hd)) > level else SUBDIVISIONS
+	return coast_density(ha, hb, hc, hd, level)
 
 static func near_flood(hydro: RefCounted, cell: Vector2i) -> bool:
 	# Граница разлива охватывает и прилегающие сухие клетки.
