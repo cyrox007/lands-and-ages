@@ -53,10 +53,18 @@ func run() -> void:
 		return
 	var started := Time.get_ticks_usec()
 	arrays = Chunk.prepare_arrays(coord.x, coord.y, 1,
-		world, surface, mode, climate, hydro, cached_near_water)
+		world, surface, mode, climate, hydro, cached_near_water,
+		Callable(self, "is_cancelled"))
 	prepare_us = Time.get_ticks_usec() - started
 	if is_cancelled():
+		arrays = []
 		return
 	started = Time.get_ticks_usec()
-	water_arrays = Water.prepare_arrays(world, hydro, coord, surface, fire)
+	water_arrays = Water.prepare_arrays(world, hydro, coord, surface, fire,
+		Callable(self, "is_cancelled"))
+	# Отменённые массивы нельзя отдавать главному потоку, даже
+	# если отмена пришла непосредственно после последней строки.
+	if is_cancelled():
+		arrays = []
+		water_arrays = []
 	water_prepare_us = Time.get_ticks_usec() - started
