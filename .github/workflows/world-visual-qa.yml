@@ -27,7 +27,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
-          curl --fail --location --retry 3 \
+          # Release GitHub иногда отдаёт временный HTTP 504.
+          # Продолжительные повторы защищают визуальную приёмку,
+          # не объявляя сетевой сбой ошибкой Godot-геометрии.
+          curl --fail --location --retry 16 --retry-delay 9 \
+            --retry-max-time 180 \
             "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
             --output /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp
@@ -68,8 +72,8 @@ jobs:
           assert manifest["hardware_accepted"] is False
           assert manifest["renderer"] != "headless"
           assert manifest["checks_passed"]
-          assert len(manifest["captures"]) == 9
-          assert {shot["name"] for shot in manifest["captures"]} >= {"берег", "берег_вблизи", "берег_издалека", "влажная_земля_без_воды", "влажная_земля_без_PBR", "пойма_реки"}
+          assert len(manifest["captures"]) == 11
+          assert {shot["name"] for shot in manifest["captures"]} >= {"берег", "берег_вблизи", "берег_издалека", "влажная_земля_без_воды", "влажная_земля_без_PBR", "пойма_реки", "река_поворот_вблизи", "река_поворот_издалека"}
           for shot in manifest["captures"]:
               assert (root / shot["file"]).stat().st_size > 10000
               assert shot["quality"]["distinct_color_buckets"] >= (4 if shot.get("diagnostic", False) else 14)
@@ -78,7 +82,7 @@ jobs:
           assert benchmark["route_frames"] >= 300
           assert benchmark["summary"]["physics_unchanged"]
           assert len(benchmark["phases"]) == 9
-          print("Этап 9.4: девять кадров: пойма, три масштаба берега и две диагностики, измерения и неизменность физики — успешно.")
+          print("Этап 9.4: 11 кадров: пойма, речной поворот ×2, берег ×3 и две диагностики — успешно.")
           PY
       - name: Сохранить кадры и JSON для художественной проверки
         if: always()

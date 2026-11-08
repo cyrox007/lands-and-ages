@@ -4,6 +4,7 @@ extends SceneTree
 
 const View = preload("res://scripts/world.gd")
 const Runner = preload("res://scripts/world_benchmark_runner.gd")
+const Water = preload("res://scripts/water_mesh.gd")
 
 const CAPTURE_SIZE := Vector2i(1280, 720)
 const BUILD_TIMEOUT_MS := 15000
@@ -48,6 +49,8 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 	var most_wet := -1.0
 	var flooded := Vector2i(-1, -1)
 	var flood_score := -1.0
+	var river_bend := Vector2i(-1, -1)
+	var strongest_turn := 0.08
 
 	for y in range(1, size.y - 1):
 		for x in range(1, size.x - 1):
@@ -65,6 +68,23 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 				if score > flood_score:
 					flood_score = score
 					flooded = cell
+			# Для отдельного кадра #96 ищем не произвольную реку,
+			# а настоящий поворот по направлению графа Hydrology.
+			# Визуальный изгиб не участвует в выборе физической точки.
+			if hydro.river_at(index):
+				var next: int = hydro.downstream_of(index)
+				if next >= 0 and hydro.river_at(next) and \
+						x >= 8 and y >= 8 and x < size.x - 8 and y < size.y - 8:
+					var start_frame: Dictionary = Water._river_frame(
+						world, hydro, cell)
+					var end_frame: Dictionary = Water._river_frame(
+						world, hydro, hydro.cell_from_index(next))
+					var turn := 1.0 - clampf(
+						start_frame["direction"].dot(end_frame["direction"]),
+						-1.0, 1.0)
+					if turn > strongest_turn:
+						strongest_turn = turn
+						river_bend = cell
 			if hydro.has_water(index):
 				continue
 			var height: float = world.vertex_at(cell)
@@ -100,6 +120,8 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 	_check(mountain.x >= 0, "Найдена скальная область")
 	_check(wetland.x >= 0, "Найдена суша с измеряемой влажностью")
 	_check(flooded.x >= 0, "Для сравнения найдена реально подтопленная пойма")
+	_check(river_bend.x >= 0,
+		"Найден настоящий речной поворот для двух контрольных GL-кадров")
 	return [
 		{"name": SCENE_NAMES[0], "center": Vector2i(middle), "zoom": 96.0},
 		{"name": SCENE_NAMES[1], "center": coastal, "zoom": 28.0},
@@ -108,6 +130,8 @@ func _select_positions(view: Node3D) -> Array[Dictionary]:
 		{"name": SCENE_NAMES[2], "center": mountain, "zoom": 22.0},
 		{"name": "пойма_реки", "center": flooded if flooded.x >= 0 else wetland,
 			"zoom": 22.0},
+		{"name": "река_поворот_вблизи", "center": river_bend, "zoom": 16.0},
+		{"name": "река_поворот_издалека", "center": river_bend, "zoom": 56.0},
 		{"name": SCENE_NAMES[3], "center": wetland, "zoom": 24.0}
 	]
 
