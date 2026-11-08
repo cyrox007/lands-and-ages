@@ -142,6 +142,8 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 
 
 const RIVER_SEGMENTS := 4
+const RIVER_BEND_SEGMENTS := 8
+const RIVER_WIDTH_REFERENCE_FLOW := 180.0
 
 
 static func _river_frame(world: RefCounted, hydro: RefCounted, cell: Vector2i) -> Dictionary:
@@ -206,6 +208,57 @@ static func _river_curve_direction(p0: Vector2, p1: Vector2,
 		else (p3 - p0).normalized()
 
 
+static func _river_segment_count(start: Vector2, finish: Vector2) -> int:
+	# Прямые участки остаются дешёвыми, но при смене направления
+	# более чем примерно на 22° добавляем вершины кривой Безье.
+	# Важно не превращать весь речной граф в равномерную сетку 8×.
+	return RIVER_BEND_SEGMENTS if start.dot(finish) < 0.93 else RIVER_SEGMENTS
+
+
+static func _river_width(discharge: float) -> float:
+	# Ширина только изображает существующий физический расход.
+	# Корень уменьшает контраст между соседними ячейками, а
+	# верхняя граница ограничивает число пересечений с берегом.
+	var relative := maxf(0.0, discharge) / RIVER_WIDTH_REFERENCE_FLOW
+	return clampf(0.22 + sqrt(relative) * 0.10, 0.24, 0.55)
+
+
+static func _river_visual_ground(world: RefCounted, point: Vector2) -> float:
+	# Сравниваем кромку не с физической диагональю треугольника,
+	# а с билинейным грунтом, который действительно рисует Chunk.
+	# Иначе русло может заходить на сухой склон на стыке диагоналей.
+	if not world.config.contains_point(point):
+		return INF
+	var cell: Vector2i = world.config.cell_at(point)
+	var u := point.x - float(cell.x)
+	var v := point.y - float(cell.y)
+	return ShoreVisual.height(
+		world.vertex_at(cell), world.vertex_at(cell + Vector2i.RIGHT),
+		world.vertex_at(cell + Vector2i.DOWN),
+		world.vertex_at(cell + Vector2i(1, 1)), u, v)
+
+
+static func _river_bank(world: RefCounted, center: Vector2,
+		target: Vector2, physical_level: float) -> Vector2:
+	# Сначала оставляем полный поперечник, если грунт затоплен.
+	# На сухом берегу двоичным поиском оставляем только мокрую
+	# часть; обе стороны каждого речного звена рассчитываются
+	# одинаково в мировых координатах, даже на стыке чанков.
+	if _river_visual_ground(world, target) <= physical_level:
+		return target
+	if _river_visual_ground(world, center) > physical_level:
+		return center
+	var wet := 0.0
+	var dry := 1.0
+	for _step in range(12):
+		var middle := (wet + dry) * 0.5
+		if _river_visual_ground(world, center.lerp(target, middle)) <= physical_level:
+			wet = middle
+		else:
+			dry = middle
+	return center.lerp(target, wet)
+
+
 static func _render_river(tool: SurfaceTool, world: RefCounted,
 		hydro: RefCounted, cell: Vector2i, index: int,
 		level: float, tint: Color, ice: float,
@@ -235,6 +288,13 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	if next >= 0:
 		var pressure: float = hydro.flow_pressure_at(index)
 		intensity = clampf(0.35 + sqrt(maxf(0.0, pressure)) * 0.32, 0.35, 1.0)
+	# У истока и конца соседнего руслового звена одинаковый
+	# расход, поэтому обе независимо построенные кромки совпадут.
+	var initial_width := _river_width(hydro.discharge_at_index(index))
+	var final_width := initial_width
+	if next >= 0 and hydro.river_at(next):
+		final_width = _river_width(hydro.discharge_at_index(next))
+	var segments := _river_segment_count(direction_start, direction_end)
 	var last_dir := Vector2.ZERO
 	var last := PackedVector3Array()
 	var last_coverage := 1.0
@@ -246,12 +306,13 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 			hydro.cell_from_index(next), fire, ice)
 	var previous_tint := tint
 	var terminal: bool = next < 0 or not hydro.has_water(next)
-	for segment in range(RIVER_SEGMENTS + 1):
-		var t := float(segment) / float(RIVER_SEGMENTS)
+	for segment in range(segments + 1):
+		var t := float(segment) / float(segments)
 		var center := _river_curve(start, control0, control1, finish, t)
 		var direction := _river_curve_direction(start, control0, control1, finish, t)
 		var altitude := lerpf(level + WATER_OFFSET, end_level, t)
-		var section := _river_section(world, center, direction, altitude)
+		var width := lerpf(initial_width, final_width, t)
+		var section := _river_section(world, center, direction, altitude, width)
 		var coverage := 1.0
 		if start_frame["headwater"]:
 			coverage *= smoothstep(0.0, 0.65, t)
@@ -268,23 +329,31 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 		previous_tint = tint.lerp(end_tint, t)
 		last = section
 		last_dir = direction
-	return RIVER_SEGMENTS * 4
+	return segments * 4
 
 
 static func _river_section(world: RefCounted, center: Vector2,
-		direction: Vector2, altitude: float) -> PackedVector3Array:
-	# Одна и та же мировая фаза даёт общий поперечник на стыке звеньев.
+		direction: Vector2, altitude: float,
+		physical_width: float = 0.30) -> PackedVector3Array:
+	# Небольшой мировой изгиб оси удерживается внутри мокрой
+	# поверхности. По тому же правилу соседние чанки получают
+	# одинаковый центр и нормаль на общей речной вершине.
 	var normal := Vector2(-direction.y, direction.x)
-	var bend := sin(center.dot(Vector2(0.34, 0.41)))
-	var shifted := center + normal * bend * 0.22
-	if world.height_at(shifted) <= altitude - WATER_OFFSET:
+	var bend := sin(center.dot(Vector2(0.72, 0.43)))
+	var shifted := center + normal * bend * 0.18
+	var water_level := altitude - WATER_OFFSET
+	if _river_visual_ground(world, shifted) <= water_level:
 		center = shifted
-	var width := 0.24 + sin(center.dot(Vector2(0.70, -0.43))) * 0.07
-	var side := normal * width
+	# Колебания ширины непрерывны по мировым координатам,
+	# а основная ширина следует расходу настоящего водосбора.
+	var width := clampf(physical_width +
+		sin(center.dot(Vector2(0.70, -0.43))) * 0.035, 0.20, 0.58)
+	var left := _river_bank(world, center, center - normal * width, water_level)
+	var right := _river_bank(world, center, center + normal * width, water_level)
 	return PackedVector3Array([
-		world.config.to_scene(center - side, altitude),
+		world.config.to_scene(left, altitude),
 		world.config.to_scene(center, altitude),
-		world.config.to_scene(center + side, altitude),
+		world.config.to_scene(right, altitude),
 	])
 
 
