@@ -138,10 +138,13 @@ func _run() -> void:
 	var before: Dictionary = Save.capture(view._storage_models())
 	_check(not before.is_empty(), "Перед прогулкой получен полный WorldSave")
 	var shots: Array[Dictionary] = []
+	var controls_saved := false
 	for i in range(EXPECTED.size()):
 		# Нажатие настоящей кнопки проверяет путь пользователя.
 		tour_button.pressed.emit()
 		_check(view._showcase_index == i, "Маршрут переключился на вид %d" % i)
+		_check(view._showcase_overlay.visible and not view._main_panel.visible,
+			"Прогулка освобождает экран от большой служебной панели")
 		if view._showcase_index != i:
 			break
 		var spot: Dictionary = view._showcase_views[i]
@@ -156,6 +159,19 @@ func _run() -> void:
 			break
 		await process_frame
 		await process_frame
+		if not controls_saved:
+			# Сохраняем отдельно реальный игровой интерфейс, затем
+			# снимаем четыре пейзажа без панели: художественную
+			# геометрию нужно оценивать без скрывающих деталей меню.
+			var controls: Image = view.get_viewport().get_texture().get_image()
+			_check(controls.save_png(out.path_join("00-tour-ui.png")) == OK,
+				"Сохранён компактный игровой интерфейс прогулки")
+			for child in view.get_children():
+				if child is CanvasLayer and child != view._loading_layer:
+					child.visible = false
+			controls_saved = true
+			await process_frame
+			await process_frame
 		var image: Image = view.get_viewport().get_texture().get_image()
 		_check(image != null and image.get_width() >= 1280
 			and image.get_height() >= 720,
@@ -188,6 +204,7 @@ func _run() -> void:
 		"gpu": RenderingServer.get_video_adapter_name(),
 		"seed": view._world_model.config.world_seed,
 		"day": view._climate.day,
+		"controls_file": "00-tour-ui.png",
 		"views": shots,
 		"physical_world_unchanged": Save.capture(view._storage_models()) == before,
 		"checks_passed": failures.is_empty()
