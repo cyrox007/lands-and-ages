@@ -493,7 +493,8 @@ func _test_broad_flood_contour() -> void:
 	_check(world.to_data() == before and original != before,
 		"Визуализация не изменила рельеф; отдельная тестовая правка учтена")
 	print("#96/BROAD-FLOOD: ошибка покрытия 3×3=", old_error,
-		", 6×6=", new_error, ", корень=", refined_error)
+		", ", Water.FLOOD_SUBDIVISIONS, "×", Water.FLOOD_SUBDIVISIONS,
+		"=", new_error, ", корень=", refined_error)
 
 
 func _test_river_curves() -> void:
