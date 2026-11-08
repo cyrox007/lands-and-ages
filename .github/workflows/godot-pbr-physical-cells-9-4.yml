@@ -1,0 +1,149 @@
+name: "#93 — общий снимок физики грунта для PBR"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain_pbr_cells.gd"
+      - "godot/scripts/landscape_appearance.gd"
+      - "godot/scripts/terrain_material_mix.gd"
+      - "godot/scripts/chunk.gd"
+      - "godot/scripts/chunk_build_worker.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_benchmark_runner.gd"
+      - "godot/tests/pbr_physical_cells*_9_4_smoke.gd"
+      - ".github/workflows/godot-pbr-physical-cells-9-4.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/terrain_pbr_cells.gd"
+      - "godot/scripts/landscape_appearance.gd"
+      - "godot/scripts/terrain_material_mix.gd"
+      - "godot/scripts/chunk.gd"
+      - "godot/scripts/chunk_build_worker.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_benchmark_runner.gd"
+      - "godot/tests/pbr_physical_cells*_9_4_smoke.gd"
+      - ".github/workflows/godot-pbr-physical-cells-9-4.yml"
+  workflow_dispatch:
+
+jobs:
+  cpu-exact:
+    name: "#93/CPU — точные PBR, снег, мокрота, швы и скорость"
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установить Godot 4.7.2
+        run: |
+          curl --fail --location --retry 16 --retry-delay 6             --retry-max-time 180             "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"             --output /tmp/godot-pbr.zip
+          unzip -q /tmp/godot-pbr.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт GDScript и тестов
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64             --headless --path godot --editor --import --quit 2>&1             | tee /tmp/pbr-cells-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/pbr-cells-import.log; then
+            exit 1
+          fi
+      - name: Два seed, CPU A/B и идентичность PBR
+        run: |
+          set -o pipefail
+          timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64             --headless --audio-driver Dummy --path godot             --script res://tests/pbr_physical_cells_9_4_smoke.gd             -- --report=/tmp/pbr-physical-cpu.json 2>&1 | tee /tmp/pbr-physical-cpu.log
+          grep -q "#93/PBR-CELLS: два seed, сезон, шов, маски и CPU — успешно" /tmp/pbr-physical-cpu.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/pbr-physical-cpu.log; then
+            exit 1
+          fi
+      - name: Проверить A/B-отчёт CPU
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("/tmp/pbr-physical-cpu.json").read_text())
+          assert report["passed"] and not report["hardware_approval"]
+          assert report["gpu_frame_ms"] is None and report["vram_bytes"] is None
+          assert [(p["width"], p["height"], p["seed"]) for p in report["profiles"]] == [
+              (128, 96, 1729), (192, 160, 4471)
+          ]
+          for p in report["profiles"]:
+              assert p["chunks_compared"] >= 5 and p["coastal_chunks"] > 0
+              assert p["arrays_identical"] and p["physics_unchanged"]
+              for key in ("previous_prepare_cpu_ms", "shared_prepare_cpu_ms"):
+                  assert 0 < p[key]["p50"] <= p[key]["p95"]
+              print("CPU PBR:", p["width"], p["height"], p["chunks_compared"],
+                    "старый p50", p["previous_prepare_cpu_ms"]["p50"],
+                    "общий p50", p["shared_prepare_cpu_ms"]["p50"],
+                    "ускорение", p["p50_speedup"])
+          PY
+      - name: Артефакт CPU-профиля
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbr-physical-cells-cpu-ab
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/pbr-physical-cpu.json
+            /tmp/pbr-physical-cpu.log
+            /tmp/pbr-cells-import.log
+
+  gl-route:
+    name: "#93/GL — PBR A/B, два маршрута по 370 кадров"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Godot и программный OpenGL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa
+          curl --fail --location --retry 16 --retry-delay 6             --retry-max-time 180             "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"             --output /tmp/godot-pbr.zip
+          unzip -q /tmp/godot-pbr.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: Импорт материалов
+        run: |
+          set -o pipefail
+          timeout 145s /tmp/Godot_v4.7.2-stable_linux.x86_64             --headless --path godot --editor --import --quit 2>&1             | tee /tmp/pbr-physical-gl-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/pbr-physical-gl-import.log; then
+            exit 1
+          fi
+      - name: Равные игровые маршруты 370 + 370 кадров
+        timeout-minutes: 21
+        run: |
+          set -o pipefail
+          timeout 1150s xvfb-run -a -s "-screen 0 960x540x24"             env LIBGL_ALWAYS_SOFTWARE=1             /tmp/Godot_v4.7.2-stable_linux.x86_64             --audio-driver Dummy --path godot --rendering-method gl_compatibility             --script res://tests/pbr_physical_cells_gl_9_4_smoke.gd             -- --report=/tmp/pbr-physical-gl.json 2>&1 | tee /tmp/pbr-physical-gl.log
+          grep -q "#93/PBR-CELLS-GL: 740 кадров, PBR и физика — успешно" /tmp/pbr-physical-gl.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/pbr-physical-gl.log; then
+            exit 1
+          fi
+      - name: Проверить GL-метрики и память
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path("/tmp/pbr-physical-gl.json").read_text())
+          assert r["passed"] and r["physics_unchanged"] and r["setting_restored"]
+          assert not r["hardware_approval"]
+          assert r["gpu_frame_ms"] is None and r["vram_bytes"] is None
+          assert len(r["passes"]) == 2
+          assert [p["route_frames"] for p in r["passes"]] == [370, 370]
+          assert [p["cache_enabled"] for p in r["passes"]] == [False, True]
+          for p in r["passes"]:
+              s = p["summary"]
+              assert s["chunks_built"] > 0 and s["ground_prepare_worker_ms_total"] > 0
+              assert 0 < s["interval_ms_p50"] <= s["interval_ms_p95"] <= s["interval_ms_p99"]
+              assert s["peak_godot_static_bytes"] > 0 and s["physics_unchanged"]
+          print("PBR physical GL A/B:", r["passes"][0]["summary"],
+                r["passes"][1]["summary"])
+          PY
+      - name: Артефакт GL-профиля
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbr-physical-cells-740-frames-ab
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/pbr-physical-gl.json
+            /tmp/pbr-physical-gl.log
+            /tmp/pbr-physical-gl-import.log
