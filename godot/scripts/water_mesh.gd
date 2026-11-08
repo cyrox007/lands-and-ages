@@ -7,6 +7,7 @@ const WATER_OFFSET := 0.018
 const SHORE_FADE_DEPTH := 0.7
 # Только пересекающие сушу клетки получают более точную кромку.
 const SHORE_SUBDIVISIONS := ShoreVisual.SUBDIVISIONS
+const COAST_SUBDIVISIONS := ShoreVisual.COAST_SUBDIVISIONS
 # Метки стоячей воды в UV2 не пересекаются с речным вектором длиной <= 1.
 # Шейдер выбирает разные волны для озёр и моря без дополнительных мешей.
 const STANDING_LAKE := Vector2(0.0, 2.0)
@@ -113,13 +114,15 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, level: float, tint: Color, ice: float,
 		ha: float, hb: float, hc: float, hd: float,
 		water_kind: Vector2 = Vector2.ZERO) -> int:
+	# Только пересечения береговой линии получают 6×6:
+	# соседний грунт использует такой же шаг триангуляции.
 	var added := 0
-	for j in range(SHORE_SUBDIVISIONS):
-		for i in range(SHORE_SUBDIVISIONS):
-			var u0 := float(i) / float(SHORE_SUBDIVISIONS)
-			var u1 := float(i + 1) / float(SHORE_SUBDIVISIONS)
-			var v0 := float(j) / float(SHORE_SUBDIVISIONS)
-			var v1 := float(j + 1) / float(SHORE_SUBDIVISIONS)
+	for j in range(COAST_SUBDIVISIONS):
+		for i in range(COAST_SUBDIVISIONS):
+			var u0 := float(i) / float(COAST_SUBDIVISIONS)
+			var u1 := float(i + 1) / float(COAST_SUBDIVISIONS)
+			var v0 := float(j) / float(COAST_SUBDIVISIONS)
+			var v1 := float(j + 1) / float(COAST_SUBDIVISIONS)
 			var a := Vector2(cell) + Vector2(u0, v0)
 			var b := Vector2(cell) + Vector2(u1, v0)
 			var c := Vector2(cell) + Vector2(u0, v1)
