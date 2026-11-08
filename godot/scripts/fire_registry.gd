@@ -3,10 +3,11 @@ extends RefCounted
 ## Камера, частицы, шейдеры и пользовательский FPS здесь не участвуют.
 
 const Terrain = preload("res://scripts/terrain.gd")
-const FORMAT_VERSION := 7
+const FORMAT_VERSION := 8
 const MAX_FIRES := 1024
 const MAX_SCORCHED_CELLS := 4096
 const MAX_EMBERS := 512
+const MAX_LITTER_RESERVES := 4096
 const MAX_LITTER_FUEL := 360
 const ASH_RECOVERY_PER_DAY := 12
 const SOIL_HEAL_PER_DAY := 4
@@ -30,6 +31,7 @@ var last_events: Array[Dictionary] = []
 var _burning: Dictionary = {}
 var _scorched: Dictionary = {}
 var _embers: Dictionary = {}
+var _litter_remaining: Dictionary = {}
 var _soil_damage: Dictionary = {}
 var _charcoal: Dictionary = {}
 var _suspended_ash: Dictionary = {}
@@ -634,6 +636,60 @@ static func litter_recovery_factor(soil_damage: float) -> float:
         0.0, 1.0)
 
 
+func _litter_capacity(cell: Vector2i, damage: float) -> int:
+    # Биомасса зависит от физического грунта и живого полога.
+    # Старую формулу сохраняем: здоровые клетки дают те же объёмы.
+    var recovery: float = litter_recovery_factor(damage)
+    if recovery <= 0.0:
+        return 0
+    var soil: Dictionary = surface.profile_at(cell, damage)
+    if soil.is_empty() or soil.get("substrate", "") == "скала":
+        return 0
+    var fertility: float = clampf(float(soil.get("fertility", 0.0)),
+        0.0, 1.0)
+    var canopy: float = nature.canopy_pressure_at(cell)
+    var cover: float = clampf((fertility * 0.35 + canopy * 0.40)
+        * recovery, 0.0, 1.0)
+    if cover < 0.15:
+        return 0
+    return clampi(roundi(60.0 + cover * 285.0), 60, MAX_LITTER_FUEL)
+
+
+func _recover_litter_remaining() -> void:
+    # Потушенная подстилка остаётся физическим ресурсом, а не
+    # исчезает вместе с эффектом тлеющих углей. Её естественный
+    # прирост идёт лишь по новым суткам и при реальном росте грунта.
+    var indices: Array[int] = []
+    for key in _litter_remaining.keys():
+        indices.append(int(key))
+    indices.sort()
+    for index in indices:
+        # Активное тление не может одновременно сжигать и
+        # восстанавливать одни и те же единицы биомассы.
+        if _embers.has(index):
+            continue
+        var cell := Vector2i(index % world.config.width,
+            index / world.config.width)
+        var damage: float = soil_damage_at(cell)
+        var soil: Dictionary = surface.profile_at(cell, damage)
+        var growth: float = clampf(float(soil.get("growth_potential", 0.0)),
+            0.0, 1.0)
+        if growth <= 0.0:
+            continue
+        var capacity: int = _litter_capacity(cell, damage)
+        if capacity <= 0:
+            continue
+        var previous: int = int(_litter_remaining[index])
+        var regenerated: int = mini(capacity, previous +
+            maxi(1, roundi(growth * 4.0)))
+        # Полное восстановление возвращает клетку обычной модели,
+        # чтобы не копить пожизненно все когда-либо горевшие участки.
+        if damage <= 0.0 and scorched_at(cell) <= 0.0 and regenerated >= capacity:
+            _litter_remaining.erase(index)
+        else:
+            _litter_remaining[index] = regenerated
+
+
 func _ignite_litter(cell: Vector2i, changed: Dictionary) -> bool:
     # Запас подстилки появляется из реального плодородия и лесного
     # полога только при первом воспламенении сухой клетки. Сгоревший
@@ -644,29 +700,20 @@ func _ignite_litter(cell: Vector2i, changed: Dictionary) -> bool:
     if _embers.has(index) or _embers.size() >= MAX_EMBERS \
             or _flammability(cell) < 0.20 or scorched_at(cell) > 0.15:
         return false
-    var soil_damage: float = soil_damage_at(cell)
-    # Реальный ожог сохраняется дольше золы: пока верхний грунт
-    # повреждён, биомасса подстилки не возвращается мгновенно.
-    var recovery: float = litter_recovery_factor(soil_damage)
-    if recovery <= 0.0:
+    # Дождь может погасить жар или смыть золу, но не может
+    # восстановить уже сгоревшее топливо в тот же момент.
+    var capacity: int = _litter_capacity(cell, soil_damage_at(cell))
+    if capacity <= 0:
         return false
-    var soil: Dictionary = surface.profile_at(cell, soil_damage)
-    if soil.is_empty() or soil.get("substrate", "") == "скала":
+    var available: int = mini(capacity,
+        int(_litter_remaining.get(index, capacity)))
+    if available <= 0:
         return false
-    var fertility: float = clampf(float(soil.get("fertility", 0.0)),
-        0.0, 1.0)
-    var canopy: float = nature.canopy_pressure_at(cell)
-    # Полог и плодородие задают исходный запас, а повреждение
-    # почвы ограничивает долю уже восстановившейся подстилки.
-    var cover: float = clampf((fertility * 0.35 + canopy * 0.40)
-        * recovery, 0.0, 1.0)
-    if cover < 0.15:
+    if (not _litter_remaining.has(index)
+            and _litter_remaining.size() >= MAX_LITTER_RESERVES):
         return false
-    _embers[index] = {
-        "fuel": clampi(roundi(60.0 + cover * 285.0),
-            60, MAX_LITTER_FUEL),
-        "since": last_day
-    }
+    _litter_remaining[index] = available
+    _embers[index] = {"fuel": available, "since": last_day}
     changed[world.config.chunk_of(cell)] = true
     _record("подстилка загорелась", -1, cell)
     return true
@@ -719,6 +766,9 @@ func _advance_litter(changed: Dictionary) -> void:
         var heat := clampi(roundi(20.0 + dryness * 65.0), 20, 85)
         var previous_fuel := int(state["fuel"])
         state["fuel"] = maxi(0, previous_fuel - heat)
+        # Общий запас убывает даже если завтра дождь погасит угли.
+        # Вновь возникший жар сможет использовать только остаток.
+        _litter_remaining[index] = int(state["fuel"])
         # Одна десятая древесной единицы угля образуется лишь после
         # расхода каждых 50 условных единиц сухой подстилки.
         # Пороговый расчёт сохраняет остаток между сутками без таймера.
@@ -880,6 +930,7 @@ func advance_day(day: int, strikes: Array = [],
     var ground_changed := {}
     _recover_ground(ground_changed)
     _recover_soil(ground_changed)
+    _recover_litter_remaining()
     # Сначала перемещаем вчерашнюю взвесь по течению, потом
     # смываем сегодняшнюю золу с суши. Двухфазный порядок
     # исключает дополнительный переход в те же сутки.
@@ -961,6 +1012,13 @@ func to_data() -> Dictionary:
     for index in ember_indices:
         var ember: Dictionary = _embers[index]
         ember_entries.append([index, int(ember["fuel"]), int(ember["since"])])
+    var reserve_entries := []
+    var reserve_indices: Array[int] = []
+    for key in _litter_remaining.keys():
+        reserve_indices.append(int(key))
+    reserve_indices.sort()
+    for index in reserve_indices:
+        reserve_entries.append([index, int(_litter_remaining[index])])
     var scar_entries := []
     var scar_indices: Array[int] = []
     for index in _soil_damage.keys():
@@ -995,7 +1053,8 @@ func to_data() -> Dictionary:
         "version": FORMAT_VERSION,
         "day": last_day, "total_ignitions": total_ignitions,
         "fires": entries, "scorched": ash_entries,
-        "embers": ember_entries, "soil_damage": scar_entries,
+        "embers": ember_entries, "litter_remaining": reserve_entries,
+        "soil_damage": scar_entries,
         "charcoal": charcoal_entries, "suspended_ash": suspended_entries,
         "deposited_ash": settled_entries
     }
@@ -1011,10 +1070,10 @@ func load_data(data: Dictionary) -> bool:
             or not is_finite(float(raw_version)):
         return false
     var version := int(raw_version)
-    # JSON восстанавливает версии 1–7 как числа; проверяем
+    # JSON восстанавливает версии 1–8 как числа; проверяем
     # значение явно, иначе Array.has() сравнивает типы слишком строго.
     if float(version) != float(raw_version) \
-            or version not in [1, 2, 3, 4, 5, 6, FORMAT_VERSION]:
+            or version not in [1, 2, 3, 4, 5, 6, 7, FORMAT_VERSION]:
         return false
     if not (data.get("day") is int or data.get("day") is float) \
             or not (data.get("total_ignitions") is int \
@@ -1103,6 +1162,39 @@ func load_data(data: Dictionary) -> bool:
             parsed_embers[cell_index] = {
                 "fuel": fuel, "since": since
             }
+    # В формате v8 остаток после тушения отделён от горячих углей.
+    # Старые версии не знали о потушенном топливе: переносим
+    # исключительно запасы реально тлеющих клеток.
+    var parsed_litter := {}
+    if version >= 8:
+        var raw_litter: Variant = data.get("litter_remaining")
+        if (not (raw_litter is Array)
+                or raw_litter.size() > MAX_LITTER_RESERVES):
+            return false
+        for record in raw_litter:
+            if not (record is Array) or record.size() != 2:
+                return false
+            for value in record:
+                if (not (value is int or value is float)
+                        or not is_finite(float(value))
+                        or float(value) != float(int(value))):
+                    return false
+            var index := int(record[0])
+            var amount := int(record[1])
+            if (index < 0 or index >= world.config.width * world.config.height
+                    or parsed_litter.has(index) or amount < 0
+                    or amount > MAX_LITTER_FUEL):
+                return false
+            parsed_litter[index] = amount
+        # Активные угли и остаток одной клетки обязаны совпадать.
+        # Несогласованный JSON не заменяет действующее состояние.
+        for index in parsed_embers.keys():
+            if (not parsed_litter.has(index)
+                    or int(parsed_litter[index]) != int(parsed_embers[index]["fuel"])):
+                return false
+    else:
+        for index in parsed_embers.keys():
+            parsed_litter[index] = int(parsed_embers[index]["fuel"])
     # Старый JSON v1–v3 не имел самостоятельной почвенной травмы.
     # Повреждённые новые записи полностью отвергаются до записи
     # в реестр, включая дубли, нецелые числа и будущие даты.
@@ -1205,6 +1297,7 @@ func load_data(data: Dictionary) -> bool:
     _burning = parsed
     _scorched = parsed_scorched
     _embers = parsed_embers
+    _litter_remaining = parsed_litter
     _soil_damage = parsed_soil
     _charcoal = parsed_charcoal
     _suspended_ash = parsed_suspended
