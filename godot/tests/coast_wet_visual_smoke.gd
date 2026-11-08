@@ -138,10 +138,22 @@ func _test_coast() -> void:
 		"Только берег моря и озера имеет удвоенную точность")
 	var old_error := _contour_error(ShoreVisual.SUBDIVISIONS)
 	var refined_error := _contour_error(ShoreVisual.COAST_SUBDIVISIONS)
+	var complex_error := _contour_error(ShoreVisual.COMPLEX_COAST_SUBDIVISIONS)
 	_check(old_error > 0.10 and refined_error < old_error * 0.5,
 		"Уточнённая изолиния береговой седловины ближе к физической поверхности")
-	print("#96/COAST: максимальное отклонение изолинии ", old_error,
-		" → ", refined_error)
+	_check(complex_error < refined_error * 0.55,
+		"Сложная береговая седловина имеет ещё меньшую ошибку контура")
+	_check(ShoreVisual.coast_density(-3.0, 2.0, 1.0, -4.0, 0.0)
+		== ShoreVisual.COMPLEX_COAST_SUBDIVISIONS,
+		"Сложная седловина выбирает 12×12")
+	_check(ShoreVisual.coast_density(-1.0, 1.0, -1.0, 1.0, 0.0)
+		== ShoreVisual.COAST_SUBDIVISIONS,
+		"Обычный прямой берег остаётся 6×6")
+	_check(ShoreVisual.coast_density(-2.0, -1.0, -2.0, -1.0, 0.0)
+		== ShoreVisual.SUBDIVISIONS,
+		"Открытая вода не получает лишние вершины")
+	print("#96/COAST: ошибка седловины 3×3 → 6×6 → 12×12: ",
+		old_error, " → ", refined_error, " → ", complex_error)
 
 
 
@@ -156,6 +168,7 @@ func _test_shared_coastal_mesh() -> void:
 	var water_before := hydro.to_snapshot()
 	var total_shores := 0
 	var refined_shores := 0
+	var complex_shores := 0
 	var subdivisions: int = ShoreVisual.COAST_SUBDIVISIONS
 	# Проверяем полное покрытие: уточняются только береговые клетки,
 	# массивы атрибутов остаются одинакового размера.
@@ -175,6 +188,8 @@ func _test_shared_coastal_mesh() -> void:
 					extra_indices += density * density * 6 - 6
 					if density == subdivisions:
 						refined_shores += 1
+					elif density == ShoreVisual.COMPLEX_COAST_SUBDIVISIONS:
+						complex_shores += 1
 			var prepared := Chunk.prepare_arrays(cx, cy, 1, world, null, 0, null, hydro)
 			var points: PackedVector3Array = prepared[Mesh.ARRAY_VERTEX]
 			var triangles: PackedInt32Array = prepared[Mesh.ARRAY_INDEX]
@@ -192,8 +207,10 @@ func _test_shared_coastal_mesh() -> void:
 			for index in triangles:
 				_check(index >= 0 and index < points.size(),
 					"Индекс новой триангуляции попадает в массив вершин")
-	_check(total_shores > 0 and refined_shores > 0,
+	_check(total_shores > 0 and refined_shores + complex_shores > 0,
 		"Реальные пересечения моря/озера уточнены, а остальные клетки не разрослись")
+	print("#96/COAST-ADAPTIVE: обычные=", refined_shores,
+		", сложные=", complex_shores, ", всего береговых=", total_shores)
 	var dry_side_extensions := 0
 	for y in range(world.config.height):
 		for x in range(world.config.width):
