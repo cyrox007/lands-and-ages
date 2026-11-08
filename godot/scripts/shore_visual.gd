@@ -3,8 +3,10 @@ extends RefCounted
 ## WorldMap.height_at, физические вершины и гидрология не меняются.
 
 const SUBDIVISIONS := 3
-# Морской и озёрный контур уточняем вдвое; паводковая сетка остаётся 3×3.
+# Берега стоячей воды и контуры настоящей поймы используют
+# одинаковую с грунтом сетку; остальной рельеф остаётся на 3×3.
 const COAST_SUBDIVISIONS := 6
+const FLOOD_SUBDIVISIONS := 6
 
 
 static func height(ha: float, hb: float, hc: float, hd: float,
@@ -67,9 +69,12 @@ static func water_context(world: RefCounted, hydro: RefCounted,
 
 static func subdivision_count(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> int:
-	# Усиливаем только действительно пересечённую берегом клетку.
-	# Это согласует плотность суши и воды, не увеличивая всю
-	# сетку паводков, рек или полностью затопленных площадей.
+	# У реального разлива граница задаётся нелинейной изолинией.
+	# В пределах локального окружения поймы грунт и вода должны
+	# иметь одинаковый шаг; сухие дальние клетки не меняем.
+	if near_flood(hydro, cell):
+		return FLOOD_SUBDIVISIONS
+	# Для морей и озёр уточняем только пересечение уровня с сушей.
 	var context: Dictionary = water_context(world, hydro, cell)
 	if context.is_empty():
 		return SUBDIVISIONS
@@ -96,8 +101,8 @@ static func near_flood(hydro: RefCounted, cell: Vector2i) -> bool:
 
 static func is_coastal_cell(world: RefCounted, hydro: RefCounted,
 		cell: Vector2i) -> bool:
-	# Пойма тоже использует визуальную сетку 3×3, иначе вода
-	# пересекала бы крупные треугольники соседней сухой клетки.
+	# Пойма тоже использует уточнённую визуальную сетку, иначе
+	# вода пересекала бы крупные треугольники соседнего грунта.
 	if near_flood(hydro, cell):
 		return true
 	var context: Dictionary = water_context(world, hydro, cell)
