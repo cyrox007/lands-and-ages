@@ -74,6 +74,8 @@ jobs:
           assert data["art_accepted"] is False
           assert data["hardware_accepted"] is False
           assert data["renderer"] != "headless"
+          assert data["controls_file"] == "00-tour-ui.png"
+          assert (root / data["controls_file"]).stat().st_size > 20000
           assert len(data["views"]) == 4
           assert [view["name"] for view in data["views"]] == [
               "Лесная долина", "Изгиб реки",
