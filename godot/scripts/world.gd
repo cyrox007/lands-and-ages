@@ -1221,7 +1221,7 @@ func _start_chunk_jobs() -> void:
 			_skipped_stale_jobs += 1
 			continue
 		var worker := ChunkBuildWorker.new(coord, _view_mode, _world_model,
-			_surface, _climate, _hydro)
+			_surface, _climate, _hydro, _fire)
 		var task: int = WorkerThreadPool.add_task(worker.run, false,
 			"Подготовка поверхности чанка")
 		_chunk_jobs[coord] = {
@@ -1318,7 +1318,7 @@ func _attach_chunk(coord: Vector2i, ground_mesh: ArrayMesh,
 	var water_started := Time.get_ticks_usec()
 	var water_mesh: ArrayMesh = prepared_water
 	if water_mesh == null:
-		water_mesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface)
+		water_mesh = WaterMesh.create_mesh(_world_model, _hydro, coord, _surface, _fire)
 	var water_us := Time.get_ticks_usec() - water_started
 	_last_water_build_us += water_us
 	_total_water_build_us += water_us
