@@ -28,15 +28,9 @@ class RiverRoute:
 			route.append(cell)
 		for i in range(route.size()):
 			var index := cell_index(route[i])
-			dowstream_guard(index)
 			downstream[index] = cell_index(route[i + 1]) \
 				if i + 1 < route.size() else -1
 			discharges[index] = 180.0 + float(i) * 170.0
-
-	func dowstream_guard(_index: int) -> void:
-		# Специальных действий нет: выделяем здесь этап,
-		# чтобы все индексы маршрута имели валидную карту.
-		pass
 
 	func ensure_ready() -> void:
 		# Тестовый речной граф полностью рассчитан при создании.
@@ -201,7 +195,7 @@ func _test_dry_bank() -> void:
 		"Создан реальный склон для пересечения речного берега")
 	var level := 0.55
 	var section: PackedVector3Array = Water._river_section(
-		world, Vector2(7.20, 8.5), Vector2.DOWN,
+		world, Vector2(7.38, 8.5), Vector2.DOWN,
 		level + Water.WATER_OFFSET, 0.45)
 	_check(section.size() == 3,
 		"На сухом берегу сохранились оба края и ось русла")
