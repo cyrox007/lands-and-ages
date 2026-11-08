@@ -113,7 +113,30 @@ func _same_physics(a: Dictionary, b: Dictionary, context: String) -> void:
 		"Ожог, зола, уголь, активные очаги: " + context)
 	_check(a["natural"].to_data() == b["natural"].to_data(),
 		"Медленная эрозия: " + context)
-	_check(a["disasters"].to_data() == b["disasters"].to_data(),
+	# При расхождении длинных физических снимков указываем первое
+	# отличающееся поле и индекс, а не печатаем гигантские массивы.
+	# Это диагностирует точный источник дрейфа после JSON.
+	var disasters_left: Dictionary = a["disasters"].to_data()
+	var disasters_right: Dictionary = b["disasters"].to_data()
+	if disasters_left != disasters_right:
+		for key in disasters_left.keys():
+			if disasters_left[key] == disasters_right.get(key):
+				continue
+			var left: Variant = disasters_left[key]
+			var right: Variant = disasters_right.get(key)
+			if left is Array and right is Array:
+				var limit: int = mini(left.size(), right.size())
+				for index in range(limit):
+					if left[index] != right[index]:
+						print("11.10/DIAG: ", context, " поле=", key,
+							" индекс=", index, " оригинал=", left[index],
+							" копия=", right[index])
+						break
+			else:
+				print("11.10/DIAG: ", context, " поле=", key,
+					" оригинал=", str(left).substr(0, 160),
+					" копия=", str(right).substr(0, 160))
+	_check(disasters_left == disasters_right,
 		"Накопленный риск бедствий: " + context)
 	_check(a["weather"].to_snapshot() == b["weather"].to_snapshot(),
 		"Молнии и история гроз: " + context)
