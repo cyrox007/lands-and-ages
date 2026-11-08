@@ -11,6 +11,7 @@ var world: RefCounted
 var surface: RefCounted
 var climate: RefCounted
 var hydro: RefCounted
+var fire: RefCounted
 var arrays: Array = []
 var prepare_us := 0
 var water_arrays: Array = []
@@ -21,13 +22,14 @@ var _cancelled := false
 
 func _init(p_coord: Vector2i, p_mode: int, p_world: RefCounted,
 		p_surface: RefCounted, p_climate: RefCounted,
-		p_hydro: RefCounted) -> void:
+		p_hydro: RefCounted, p_fire: RefCounted = null) -> void:
 	coord = p_coord
 	mode = p_mode
 	world = p_world
 	surface = p_surface
 	climate = p_climate
 	hydro = p_hydro
+	fire = p_fire
 
 
 func cancel() -> void:
@@ -53,5 +55,5 @@ func run() -> void:
 	if is_cancelled():
 		return
 	started = Time.get_ticks_usec()
-	water_arrays = Water.prepare_arrays(world, hydro, coord, surface)
+	water_arrays = Water.prepare_arrays(world, hydro, coord, surface, fire)
 	water_prepare_us = Time.get_ticks_usec() - started
