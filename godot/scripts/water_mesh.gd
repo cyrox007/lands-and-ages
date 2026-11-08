@@ -315,7 +315,7 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	# Устье определяется только фактическим графом гидрологии:
 	# впадение речной клетки в физическое озеро или океан.
 	# Рисуем расширение ленты, но не добавляем новой воды.
-	var river_mouth := next >= 0 and hydro.has_water(next) and \
+	var river_mouth: bool = next >= 0 and hydro.has_water(next) and \
 		(hydro.lake_at(next) or hydro.ocean_at(next))
 	if river_mouth:
 		final_width = _river_mouth_width(final_width)
