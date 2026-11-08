@@ -114,15 +114,17 @@ static func _subdivided_shore(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, level: float, tint: Color, ice: float,
 		ha: float, hb: float, hc: float, hd: float,
 		water_kind: Vector2 = Vector2.ZERO) -> int:
-	# Только пересечения береговой линии получают 6×6:
-	# соседний грунт использует такой же шаг триангуляции.
+	# Сложные седловины уточняются до 12×12; обычные берега
+	# остаются 6×6. Тот же расчёт использует меш грунта Chunk,
+	# поэтому вода не отделяется от настоящей поверхности.
+	var density := ShoreVisual.coast_density(ha, hb, hc, hd, level)
 	var added := 0
-	for j in range(COAST_SUBDIVISIONS):
-		for i in range(COAST_SUBDIVISIONS):
-			var u0 := float(i) / float(COAST_SUBDIVISIONS)
-			var u1 := float(i + 1) / float(COAST_SUBDIVISIONS)
-			var v0 := float(j) / float(COAST_SUBDIVISIONS)
-			var v1 := float(j + 1) / float(COAST_SUBDIVISIONS)
+	for j in range(density):
+		for i in range(density):
+			var u0 := float(i) / float(density)
+			var u1 := float(i + 1) / float(density)
+			var v0 := float(j) / float(density)
+			var v1 := float(j + 1) / float(density)
 			var a := Vector2(cell) + Vector2(u0, v0)
 			var b := Vector2(cell) + Vector2(u1, v0)
 			var c := Vector2(cell) + Vector2(u0, v1)
