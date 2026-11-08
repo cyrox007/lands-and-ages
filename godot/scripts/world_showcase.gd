@@ -109,7 +109,7 @@ static func _find_forest(world: RefCounted, hydro: RefCounted,
 				continue
 			var center := sum / float(trees)
 			var distance := center.distance_squared_to(middle)
-			var cell := Vector2i(roundi(center.x), roundi(center.y))
+			var cell := Vector2i(floori(center.x), floori(center.y))
 			# Вид леса не должен наполовину состоять из моря.
 			# Учитываем океан в восьми направлениях от середины
 			# чанка, не подменяя реальное расположение деревьев.
