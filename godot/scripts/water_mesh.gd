@@ -682,7 +682,7 @@ static func _flood_cell(tool: SurfaceTool, world: RefCounted,
 		world.vertex_at(cell + Vector2i(1, 1))
 	])
 	var grid := PackedVector4Array()
-	# Изолиния разлива теперь строится на 6×6, а не на 3×3:
+	# Изолиния разлива строится на 4×4 вместо исходных 3×3:
 	# сложные границы и седловины получают промежуточные
 	# физические пробы, без создания новых мокрых клеток.
 	for sy in range(FLOOD_SUBDIVISIONS + 1):
