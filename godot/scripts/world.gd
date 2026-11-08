@@ -495,6 +495,10 @@ func _setup_interface() -> void:
 	landscape_benchmark.text = "Измерить перестройку рельефа (11.7/RF4)"
 	landscape_benchmark.pressed.connect(_run_landscape_benchmark)
 	_debug_details.add_child(landscape_benchmark)
+	var relief_benchmark := Button.new()
+	relief_benchmark.text = "Профиль рельефа R6: материал и кадры"
+	relief_benchmark.pressed.connect(_run_relief_benchmark)
+	_debug_details.add_child(relief_benchmark)
 	var felling_button := Button.new()
 	felling_button.text = "Ударить по ближайшему дереву"
 	felling_button.pressed.connect(_debug_fell_nearest_tree)
@@ -2070,6 +2074,57 @@ func _run_device_benchmark() -> void:
 		int(summary["cache_hits"]),
 		"JSON скопирован и сохранён: " + path if saved
 		else "JSON скопирован; сохранение файла не удалось"]
+	_center = saved_center
+	_camera.size = saved_zoom
+	_update_material_detail()
+	_update_camera()
+	_refresh_visible(false)
+	_benchmark_running = false
+	_update_hud()
+
+
+
+
+func _run_relief_benchmark() -> void:
+	# Отдельный маршрут R6 доступен непосредственно в игровом HUD
+	# на ПК и Android. Не смешиваем измерения с фоновыми сутками
+	# и не допускаем повторного запуска, пока идут замеры.
+	if _benchmark_running:
+		return
+	if _days_pending > 0 or _day_task_id >= 0 or not _storage_request.is_empty():
+		_benchmark_status = "R6: дождитесь окончания расчёта и сохранения"
+		_update_hud()
+		return
+	_benchmark_running = true
+	_benchmark_status = "R6: два одинаковых маршрута камеры, 740 кадров"
+	_update_hud()
+	var saved_center := _center
+	var saved_zoom := _camera.size
+	var report: Dictionary = await BenchmarkRunner.new().run_relief(self)
+
+	# Отчёт сохраняется в пользовательский путь платформы, а его
+	# полный JSON копируется, чтобы можно было прислать результаты
+	# с телефона без доступа к файловому менеджеру Godot.
+	var path := "user://world-relief-r6-device.json"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	var saved := file != null
+	if saved:
+		file.store_string(JSON.stringify(report, "\t") + "\n")
+		file.close()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.clipboard_set(JSON.stringify(report))
+	var passes: Array = report["passes"]
+	var initial: Dictionary = passes[0]["summary"]
+	var current: Dictionary = passes[1]["summary"]
+	_benchmark_status = "R6: p95 %.1f → %.1f мс; физика %s. %s" % [
+		float(initial["interval_ms_p95"]),
+		float(current["interval_ms_p95"]),
+		"без изменений" if report["physics_unchanged"] else "ИЗМЕНИЛАСЬ",
+		"JSON сохранён и скопирован" if saved
+		else "JSON скопирован; запись не удалась"
+	]
+	# После теста восстанавливаем исходный вид камеры. Повторная
+	# синхронизация затрагивает только графические чанки, не модель.
 	_center = saved_center
 	_camera.size = saved_zoom
 	_update_material_detail()
