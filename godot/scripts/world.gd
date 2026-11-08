@@ -134,6 +134,8 @@ var _loading_progress: ProgressBar
 var _startup_task_id := -1
 var _terrain_holder: Node3D
 var _ground_material: ShaderMaterial
+# A/B-диагностика CPU-чанков; в обычной игре кеш всегда включён.
+var _pbr_shore_cache_enabled := true
 var _debug_ground_material: StandardMaterial3D
 var _active: Dictionary = {}
 var _pending: Array[Vector2i] = []
@@ -1221,7 +1223,8 @@ func _start_chunk_jobs() -> void:
 			_skipped_stale_jobs += 1
 			continue
 		var worker := ChunkBuildWorker.new(coord, _view_mode, _world_model,
-			_surface, _climate, _hydro, _fire)
+			_surface, _climate, _hydro, _fire,
+			_pbr_shore_cache_enabled)
 		var task: int = WorkerThreadPool.add_task(worker.run, false,
 			"Подготовка поверхности чанка")
 		_chunk_jobs[coord] = {
@@ -1288,7 +1291,8 @@ func _create_chunk(coord: Vector2i) -> void:
 	# Синхронный путь сохраняем для тестов и изолированных вызовов.
 	var started := Time.get_ticks_usec()
 	var arrays: Array = Chunk.prepare_arrays(coord.x, coord.y, 1,
-		_world_model, _surface, _view_mode, _climate, _hydro)
+		_world_model, _surface, _view_mode, _climate, _hydro,
+		_pbr_shore_cache_enabled)
 	var prepared_us := Time.get_ticks_usec() - started
 	started = Time.get_ticks_usec()
 	var mesh := Chunk.mesh_from_arrays(arrays)
