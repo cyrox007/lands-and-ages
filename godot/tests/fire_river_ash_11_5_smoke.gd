@@ -102,7 +102,7 @@ func _test_suspension() -> void:
     var index: int = hydro.cell_index(source)
     var saved: Dictionary = fire.to_data()
     saved["scorched"] = [[index, 850, 1]]
-    _check(fire.load_data(saved), "Исходная зола принята JSON v6")
+    _check(fire.load_data(saved), "Исходная зола принята JSON v7")
     if fire.scorched_count() != 1:
         return
 
@@ -169,9 +169,9 @@ func _test_suspension() -> void:
     # Нельзя присвоить одну порцию двум участкам, переполнить
     # речную ячейку или подменить целые порции дробными.
     var valid: Dictionary = fire.to_data()
-    _check(int(valid["version"]) == 6
+    _check(int(valid["version"]) == 7
         and not valid["suspended_ash"].is_empty(),
-        "Новый речной слой существует только в формате v6")
+        "Речной слой сохраняется в формате v7")
     var invalid: Dictionary = valid.duplicate(true)
     invalid["suspended_ash"].append(invalid["suspended_ash"][0].duplicate())
     _check(not fire.load_data(invalid) and fire.to_data() == valid,

@@ -208,7 +208,8 @@ static func _river_curve_direction(p0: Vector2, p1: Vector2,
 
 static func _render_river(tool: SurfaceTool, world: RefCounted,
 		hydro: RefCounted, cell: Vector2i, index: int,
-		level: float, tint: Color, ice: float) -> int:
+		level: float, tint: Color, ice: float,
+		fire: RefCounted = null, pristine_tint: Color = Color.WHITE) -> int:
 	var start_frame := _river_frame(world, hydro, cell)
 	var start: Vector2 = start_frame["center"]
 	var direction_start: Vector2 = start_frame["direction"]
@@ -237,6 +238,13 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	var last_dir := Vector2.ZERO
 	var last := PackedVector3Array()
 	var last_coverage := 1.0
+	# Цвет следующего руслового звена читается из его фактической
+	# взвеси; между центрами плавно смешиваем оба физических уровня.
+	var end_tint := tint
+	if fire != null and next >= 0 and hydro.has_water(next):
+		end_tint = _ash_tint(pristine_tint,
+			hydro.cell_from_index(next), fire, ice)
+	var previous_tint := tint
 	var terminal: bool = next < 0 or not hydro.has_water(next)
 	for segment in range(RIVER_SEGMENTS + 1):
 		var t := float(segment) / float(RIVER_SEGMENTS)
@@ -253,9 +261,11 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 			var flow := (last_dir + direction).normalized() * intensity
 			if next < 0:
 				flow = RIVER_WITHOUT_FLOW
-			_add_river_section(tool, last, section, tint, ice, flow,
-				Vector2(last_coverage, coverage))
+			var current_tint: Color = tint.lerp(end_tint, t)
+			_add_river_section(tool, last, section, previous_tint,
+				current_tint, ice, flow, Vector2(last_coverage, coverage))
 		last_coverage = coverage
+		previous_tint = tint.lerp(end_tint, t)
 		last = section
 		last_dir = direction
 	return RIVER_SEGMENTS * 4
@@ -279,9 +289,10 @@ static func _river_section(world: RefCounted, center: Vector2,
 
 
 static func _add_river_section(tool: SurfaceTool, start: PackedVector3Array,
-		finish: PackedVector3Array, tint: Color, ice: float, flow: Vector2,
-		coverage: Vector2) -> void:
-	tool.set_color(tint)
+		finish: PackedVector3Array, tint: Color, end_tint: Color,
+		ice: float, flow: Vector2, coverage: Vector2) -> void:
+	# Цвет отдельной вершины следует концентрации у начала/конца
+	# течения, не добавляя ни вершин, ни новой текстуры в шейдер.
 	tool.set_normal(Vector3.UP)
 	tool.set_uv2(flow)
 	for half in range(2):
@@ -290,6 +301,7 @@ static func _add_river_section(tool: SurfaceTool, start: PackedVector3Array,
 			# Глубина уменьшается к берегам и на концах русла.
 			var at_start: bool = corner < 2
 			var depth := coverage.x if at_start else coverage.y
+			tool.set_color(tint if at_start else end_tint)
 			tool.set_uv(Vector2(depth if across == 1 else 0.0, ice))
 			tool.add_vertex(start[across] if at_start else finish[across])
 
@@ -486,9 +498,9 @@ static func _flood_tint(ice: float) -> Color:
 
 
 static func create_mesh(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
-		surface: RefCounted = null) -> ArrayMesh:
+		surface: RefCounted = null, fire: RefCounted = null) -> ArrayMesh:
 	hydro.ensure_ready()
-	return mesh_from_arrays(prepare_arrays(world, hydro, chunk, surface))
+	return mesh_from_arrays(prepare_arrays(world, hydro, chunk, surface, fire))
 
 
 static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
@@ -498,8 +510,19 @@ static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	return result
 
 
+static func _ash_tint(color: Color, cell: Vector2i,
+		fire: RefCounted, ice: float) -> Color:
+	# Мутность основана только на конечной взвеси FireRegistry.
+	# Осевший ил не окрашивает воду; замёрзшая вода сохраняет лёд.
+	if fire == null:
+		return color
+	var intensity: float = fire.ash_turbidity_at(cell) * (1.0 - ice)
+	var amount := intensity * 0.72
+	return color.lerp(Color(0.42, 0.34, 0.23, color.a), amount)
+
+
 static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i,
-		surface: RefCounted = null) -> Array:
+		surface: RefCounted = null, fire: RefCounted = null) -> Array:
 	# Models must already be ready; this isolated SurfaceTool only builds CPU arrays.
 	var bounds: Rect2i = world.config.chunk_rect(chunk)
 	if not bounds.has_area():
@@ -534,10 +557,15 @@ static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i
 				var frost: float = surface.frost_at_index(frost_index)
 				ice = smoothstep(0.20, 0.90, frost)
 				color = color.lerp(Color(0.77, 0.86, 0.89, 0.96), ice)
+			# Настоящая взвесь подкрашивает уже существующий цвет
+			# воды, не меняя уровней, русел, волн и природной физики.
+			var pristine_tint := color
+			color = _ash_tint(color, cell, fire, ice)
 			if flood_near and not ocean:
-				# Озёрные и речные клетки в пойме используют одно поле.
-				# Иначе независимая тёмная лента перекрывает разлив.
-				added += _flood_cell(tool, world, hydro, cell, _flood_tint(ice),
+				# Для затопленной поймы сохраняем физический контур,
+				# окрашивая его только при действительном запасе золы.
+				added += _flood_cell(tool, world, hydro, cell,
+					_ash_tint(_flood_tint(ice), cell, fire, ice),
 					ice, flood_samples)
 				continue
 			if ocean or lake:
@@ -550,7 +578,7 @@ static func prepare_arrays(world: RefCounted, hydro: RefCounted, chunk: Vector2i
 			# Геометрия — плавная кривая, физический сток остаётся дискретным.
 			# Непрерывное направление концов для соседних русловых звеньев.
 			added += _render_river(tool, world, hydro, cell, index,
-				level, color, ice)
+				level, color, ice, fire, pristine_tint)
 	if added > 0:
 		return tool.commit_to_arrays()
 	return []
