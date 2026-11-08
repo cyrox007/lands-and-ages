@@ -39,7 +39,7 @@ static func grid(bounds: Rect2i, world: RefCounted,
 			return []
 		for x in range(width):
 			var cell := bounds.position + Vector2i(x - 1, y - 1)
-			var at := y * width + x
+			var at: int = y * width + x
 			if not world.config.contains_cell(cell):
 				# Пустой словарь исключает клетку мира на границе;
 				# он не заменяется выдуманной почвой или водой.
@@ -58,7 +58,7 @@ static func vertex_cells(bounds: Rect2i, vertex: Vector2i,
 	var result: Array[Dictionary] = []
 	for dy in [-1, 0]:
 		for dx in [-1, 0]:
-			var at := (origin.y + dy) * width + origin.x + dx
+			var at: int = (origin.y + dy) * width + origin.x + dx
 			var sample: Dictionary = samples[at]
 			if not sample.is_empty():
 				result.append(sample)
