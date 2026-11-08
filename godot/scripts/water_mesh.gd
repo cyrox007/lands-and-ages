@@ -226,6 +226,21 @@ static func _river_width(discharge: float) -> float:
 	return clampf(0.22 + sqrt(relative) * 0.10, 0.24, 0.55)
 
 
+static func _river_mouth_width(physical_width: float) -> float:
+	# Устье шире подводящего русла, но не расширяется
+	# до произвольного размера озёрной или морской клетки.
+	# Исходная ширина по-прежнему зависит только от расхода.
+	return clampf(physical_width * 1.5, physical_width, 0.80)
+
+
+static func _river_mouth_coverage(t: float) -> float:
+	# На подходе к озеру речная плёнка должна раствориться
+	# в уже существующей стоячей воде. Нулевая глубина UV
+	# в конце ленты даёт нулевую прозрачность в шейдере;
+	# физический уровень и русло не изменяются.
+	return 1.0 - smoothstep(0.18, 1.0, t)
+
+
 static func _river_visual_ground(world: RefCounted, point: Vector2) -> float:
 	# Сравниваем кромку не с физической диагональю треугольника,
 	# а с билинейным грунтом, который действительно рисует Chunk.
@@ -297,6 +312,13 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 	var final_width := initial_width
 	if next >= 0 and hydro.river_at(next):
 		final_width = _river_width(hydro.discharge_at_index(next))
+	# Устье определяется только фактическим графом гидрологии:
+	# впадение речной клетки в физическое озеро или океан.
+	# Рисуем расширение ленты, но не добавляем новой воды.
+	var river_mouth: bool = next >= 0 and hydro.has_water(next) and \
+		(hydro.lake_at(next) or hydro.ocean_at(next))
+	if river_mouth:
+		final_width = _river_mouth_width(final_width)
 	var segments := _river_segment_count(direction_start, direction_end)
 	var last_dir := Vector2.ZERO
 	var last := PackedVector3Array()
@@ -314,9 +336,16 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 		var center := _river_curve(start, control0, control1, finish, t)
 		var direction := _river_curve_direction(start, control0, control1, finish, t)
 		var altitude := lerpf(level + WATER_OFFSET, end_level, t)
-		var width := lerpf(initial_width, final_width, t)
-		var section := _river_section(world, center, direction, altitude, width)
+		# На обычном русле ширина меняется как прежде. Только
+		# перед устьем расширяем её плавно, без резкой границы
+		# на стыке двух физических клеток.
+		var width_blend := smoothstep(0.18, 1.0, t) if river_mouth else t
+		var width := lerpf(initial_width, final_width, width_blend)
+		var section := _river_section(world, center, direction, altitude,
+			width, river_mouth)
 		var coverage := 1.0
+		if river_mouth:
+			coverage *= _river_mouth_coverage(t)
 		if start_frame["headwater"]:
 			coverage *= smoothstep(0.0, 0.65, t)
 		if terminal:
@@ -337,7 +366,8 @@ static func _render_river(tool: SurfaceTool, world: RefCounted,
 
 static func _river_section(world: RefCounted, center: Vector2,
 		direction: Vector2, altitude: float,
-		physical_width: float = 0.30) -> PackedVector3Array:
+		physical_width: float = 0.30,
+		mouth_flare: bool = false) -> PackedVector3Array:
 	# Небольшой мировой изгиб оси удерживается внутри мокрой
 	# поверхности. По тому же правилу соседние чанки получают
 	# одинаковый центр и нормаль на общей речной вершине.
@@ -349,8 +379,11 @@ static func _river_section(world: RefCounted, center: Vector2,
 		center = shifted
 	# Колебания ширины непрерывны по мировым координатам,
 	# а основная ширина следует расходу настоящего водосбора.
+	# Только устью разрешён более широкий поперечник.
+	# Срез сухого берега ниже действует и при расширении.
+	var max_width := 0.82 if mouth_flare else 0.58
 	var width := clampf(physical_width +
-		sin(center.dot(Vector2(0.70, -0.43))) * 0.035, 0.20, 0.58)
+		sin(center.dot(Vector2(0.70, -0.43))) * 0.035, 0.20, max_width)
 	var left := _river_bank(world, center, center - normal * width, water_level)
 	var right := _river_bank(world, center, center + normal * width, water_level)
 	return PackedVector3Array([
