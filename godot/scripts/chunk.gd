@@ -22,7 +22,7 @@ static func create_mesh(cx: int, cy: int, day: int, world: RefCounted = null,
 static func prepare_arrays(cx: int, cy: int, _day: int,
 		world: RefCounted, surface: RefCounted = null,
 		mode: int = 0, climate: RefCounted = null,
-		hydro: RefCounted = null) -> Array:
+		hydro: RefCounted = null, cached_near_water: bool = true) -> Array:
 	# Этот метод только читает физическую модель и собирает локальные
 	# PackedArray. В воркере запрещены изменение модели и вызовы сцены.
 
@@ -40,6 +40,12 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 	var conditions := PackedByteArray()
 	var shape_features := PackedByteArray()
 	var indices := PackedInt32Array()
+	# По умолчанию береговой контекст читается один раз на клетку
+	# физической рамки. Для проверочного A/B-теста сохраняется
+	# прежний поштучный вызов, без отдельного рендера или физики.
+	var shore_grid: Array[Vector3] = []
+	if cached_near_water and mode == 0 and surface != null and hydro != null:
+		shore_grid = Appearance.near_water_grid(bounds, world, hydro)
 	for j in range(height + 1):
 		for i in range(width + 1):
 			var x := x0 + i
@@ -60,7 +66,9 @@ static func prepare_arrays(cx: int, cy: int, _day: int,
 			var cell := Vector2i(mini(x, world.config.width - 1),
 				mini(y, world.config.height - 1))
 			if mode == 0 and surface != null and hydro != null:
-				var nearby := Appearance.near_water(vertex, world, hydro)
+				var nearby: Vector3 = shore_grid[j * (width + 1) + i] \
+					if not shore_grid.is_empty() else Appearance.near_water(
+						vertex, world, hydro)
 				var color := Appearance.color_at(vertex, h, normal,
 					world, surface, hydro, nearby)
 				var sample: Dictionary = MaterialMix.sample_at(

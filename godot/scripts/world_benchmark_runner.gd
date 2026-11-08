@@ -309,3 +309,60 @@ func run_relief(view: Node3D) -> Dictionary:
 		"artistic_approval": false,
 		"hardware_approval": false
 	}
+
+
+func run_pbr_cache(view: Node3D) -> Dictionary:
+	# Замер 9.4.2 выполняет штатный маршрут из 370 кадров дважды.
+	# A/B отличается лишь числом повторных чтений Hydrology:
+	# без кеша и с локальной таблицей береговых клеток.
+	# Мир, климат, вода, вид камеры и настройки шейдера совпадают.
+	var original_setting: bool = view._pbr_shore_cache_enabled
+	var snapshot_world: Dictionary = view._world_model.to_data()
+	var snapshot_hydro: Dictionary = view._hydro.to_snapshot()
+	var snapshot_surface: Dictionary = view._surface.to_snapshot()
+	var passes: Array[Dictionary] = []
+	for candidate in [
+		{"name": "предыдущий_алгоритм", "enabled": false},
+		{"name": "локальный_кеш", "enabled": true}
+	]:
+		# run() сбрасывает кеш рендер-чанков и просматривает
+		# идентичные точки камеры. Отдельные величины CPU и
+		# главного потока не выдаём за аппаратное время GPU.
+		view._pbr_shore_cache_enabled = candidate["enabled"]
+		var measured: Dictionary = await run(view)
+		passes.append({
+			"name": candidate["name"],
+			"cache_enabled": candidate["enabled"],
+			"route_frames": measured["route_frames"],
+			"summary": measured["summary"],
+			"phases": measured["phases"]
+		})
+
+	# Исходная настройка восстанавливается даже для тестового
+	# запуска без кеша. Физические снимки сравниваем целиком.
+	view._pbr_shore_cache_enabled = original_setting
+	var physics_unchanged: bool = snapshot_world == view._world_model.to_data() \
+		and snapshot_hydro == view._hydro.to_snapshot() \
+		and snapshot_surface == view._surface.to_snapshot()
+	var viewport: Vector2 = view.get_viewport().get_visible_rect().size
+	return {
+		"schema_version": 1,
+		"task": "9.4.2/PBR-shore-cache",
+		"route": "camera-8.8-370-frames-twice",
+		"map": view._world_model.config.to_data(),
+		"platform": OS.get_name(),
+		"engine": Engine.get_version_info().get("string", "unknown"),
+		"display_server": DisplayServer.get_name(),
+		"viewport": {"width": int(viewport.x), "height": int(viewport.y)},
+		"passes": passes,
+		"physics_unchanged": physics_unchanged,
+		"setting_restored": view._pbr_shore_cache_enabled == original_setting,
+		"gpu_frame_ms": null,
+		"vram_bytes": null,
+		"hardware_approval": false,
+		"units": {
+			"ground_prepare_worker_ms_total": "CPU подготовки PBR-мешей в воркерах",
+			"interval_ms_p95": "интервал кадров программного GL, не аппаратный FPS",
+			"peak_godot_static_bytes": "статическая память движка, не VRAM"
+		}
+	}

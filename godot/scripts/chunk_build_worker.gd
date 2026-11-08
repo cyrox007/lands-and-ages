@@ -12,6 +12,7 @@ var surface: RefCounted
 var climate: RefCounted
 var hydro: RefCounted
 var fire: RefCounted
+var cached_near_water := true
 var arrays: Array = []
 var prepare_us := 0
 var water_arrays: Array = []
@@ -22,7 +23,8 @@ var _cancelled := false
 
 func _init(p_coord: Vector2i, p_mode: int, p_world: RefCounted,
 		p_surface: RefCounted, p_climate: RefCounted,
-		p_hydro: RefCounted, p_fire: RefCounted = null) -> void:
+		p_hydro: RefCounted, p_fire: RefCounted = null,
+		p_cached_near_water: bool = true) -> void:
 	coord = p_coord
 	mode = p_mode
 	world = p_world
@@ -30,6 +32,7 @@ func _init(p_coord: Vector2i, p_mode: int, p_world: RefCounted,
 	climate = p_climate
 	hydro = p_hydro
 	fire = p_fire
+	cached_near_water = p_cached_near_water
 
 
 func cancel() -> void:
@@ -50,7 +53,7 @@ func run() -> void:
 		return
 	var started := Time.get_ticks_usec()
 	arrays = Chunk.prepare_arrays(coord.x, coord.y, 1,
-		world, surface, mode, climate, hydro)
+		world, surface, mode, climate, hydro, cached_near_water)
 	prepare_us = Time.get_ticks_usec() - started
 	if is_cancelled():
 		return

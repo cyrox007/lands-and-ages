@@ -37,6 +37,66 @@ static func near_water(cell: Vector2i, world: RefCounted,
 	return Vector3(sea, inland, level)
 
 
+
+static func near_water_grid(bounds: Rect2i, world: RefCounted,
+		hydro: RefCounted) -> Array[Vector3]:
+	# Один PBR-чанк содержит общие вершины соседних клеток.
+	# Вместо девяти повторных обращений к Hydrology для каждой
+	# вершины читаем флаги и уровень каждой соседней клетки
+	# ровно один раз в локальной рамке размером (W+3)×(H+3).
+	# Кеш принадлежит только одному вызову, не переживает смену
+	# дня/ревизии и безопасен для параллельных CPU-воркеров.
+	var sample_width: int = bounds.size.x + 3
+	var sample_height: int = bounds.size.y + 3
+	var type_grid := PackedByteArray()
+	type_grid.resize(sample_width * sample_height)
+	var water_grid := PackedFloat32Array()
+	water_grid.resize(sample_width * sample_height)
+
+	for y in range(sample_height):
+		for x in range(sample_width):
+			var cell := bounds.position + Vector2i(x - 1, y - 1)
+			if not world.config.contains_cell(cell):
+				continue
+			var index: int = hydro.cell_index(cell)
+			var level: float = hydro.level_at(index)
+			if is_nan(level):
+				continue
+			var at: int = y * sample_width + x
+			# 1 — море, 2 — любая другая физическая вода.
+			# Сам уровень нужен даже для стоячей воды без океана.
+			type_grid[at] = 1 if hydro.ocean_at(index) else 2
+			water_grid[at] = level
+
+	var vertices_width: int = bounds.size.x + 1
+	var vertices_height: int = bounds.size.y + 1
+	var result: Array[Vector3] = []
+	result.resize(vertices_width * vertices_height)
+	for y in range(vertices_height):
+		for x in range(vertices_width):
+			var level := -INF
+			var sea := 0.0
+			var inland := 0.0
+			# Точно сохраняем прежние веса: 1 для центра,
+			# 0.78 для ортогональных и 0.55 для диагональных
+			# клеток, включая границы соседних GPU-чанков.
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					var at: int = (y + 1 + dy) * sample_width + x + 1 + dx
+					var kind: int = type_grid[at]
+					if kind == 0:
+						continue
+					var weight := 1.0 if dx == 0 and dy == 0 else (
+						0.78 if dx == 0 or dy == 0 else 0.55)
+					level = maxf(level, water_grid[at])
+					if kind == 1:
+						sea = maxf(sea, weight)
+					else:
+						inland = maxf(inland, weight)
+			result[y * vertices_width + x] = Vector3(sea, inland, level)
+	return result
+
+
 static func _cell_color(cell: Vector2i, normal: Vector3,
 		height: float, _world: RefCounted, surface: RefCounted,
 		hydro: RefCounted) -> Color:
