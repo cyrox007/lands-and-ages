@@ -18,6 +18,8 @@ class RiverRoute:
 	var downstream: Dictionary = {}
 	var discharges: Dictionary = {}
 	var floods: Dictionary = {}
+	var lakes: Dictionary = {}
+	var oceans: Dictionary = {}
 
 	func _init() -> void:
 		# Один непрерывный граф без декоративной воды. Расход
@@ -57,13 +59,15 @@ class RiverRoute:
 		# Не подменяем речной меш озером или морской плиткой.
 		return has_water(index)
 
-	func lake_at(_index: int) -> bool:
-		# Озёр на заданном маршруте нет.
-		return false
+	func lake_at(index: int) -> bool:
+		# Только отдельный сценарий добавляет настоящее озеро
+		# в конце действующей речной цепочки.
+		return lakes.has(index)
 
-	func ocean_at(_index: int) -> bool:
-		# Морского уровня в контролируемой модели нет.
-		return false
+	func ocean_at(index: int) -> bool:
+		# Морское устье проверяем отдельно от озёрного,
+		# используя те же высоты и расход тестового русла.
+		return oceans.has(index)
 
 	func flooded_at(index: int) -> bool:
 		# В отдельных тестах включаем реальный источник разлива.
@@ -251,6 +255,104 @@ func _test_river_to_flood() -> void:
 		", соединение с поймой=", middle, " — успешно")
 
 
+
+func _mouth_mesh(world: RefCounted, hydro: RefCounted,
+		cell: Vector2i) -> Array:
+	# Создаём настоящий треугольный меш выбранного руслового
+	# звена, чтобы проверить UV и ширину на конечных вершинах.
+	# Гидрологию и высоты этот тестовый рендер не меняет.
+	var index: int = hydro.cell_index(cell)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var triangles: int = Water._render_river(tool, world, hydro,
+		cell, index, hydro.level_at(index), Color.BLUE, 0.0)
+	_check(triangles > 0, "Устье создало речные треугольники")
+	return tool.commit_to_arrays() if triangles > 0 else []
+
+
+func _mouth_end_metrics(arrays: Array, end_x: float) -> Dictionary:
+	# Сравниваем фактический поперечник и глубину UV.x
+	# у центра следующей озёрной клетки. Нулевая глубина
+	# означает прозрачный конец поверх готовой воды озера.
+	var left := INF
+	var right := -INF
+	var max_depth := 0.0
+	var points := 0
+	if arrays.is_empty():
+		return {"width": 0.0, "depth": 1.0, "points": 0}
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	for i in range(vertices.size()):
+		if absf(vertices[i].x - end_x) > 0.0001:
+			continue
+		left = minf(left, vertices[i].z)
+		right = maxf(right, vertices[i].z)
+		max_depth = maxf(max_depth, uv[i].x)
+		points += 1
+	return {"width": right - left if points > 0 else 0.0,
+		"depth": max_depth, "points": points}
+
+
+func _test_river_mouth() -> void:
+	# Прежняя лента заканчивалась в центре озера с обычной
+	# шириной и полным покрытием. Получалась заметная полоска
+	# поверх озёрного материала и резкий край устья.
+	var world: RefCounted = _flat_world()
+	var hydro := RiverRoute.new()
+	var physical_before: Dictionary = world.to_data()
+	var route_before: Dictionary = hydro.downstream.duplicate(true)
+	var flow_before: Dictionary = hydro.discharges.duplicate(true)
+	var source := Vector2i(16, 7)
+	var target := Vector2i(17, 7)
+	var target_index: int = hydro.cell_index(target)
+	var normal: Dictionary = _mouth_end_metrics(
+		_mouth_mesh(world, hydro, source), 17.5)
+	_check(normal["points"] > 0 and normal["depth"] > 0.95,
+		"Обычная речная секция завершается с полным покрытием")
+
+	for kind in ["озеро", "море"]:
+		# Для обоих физических водоёмов используем один и тот
+		# же маршрут. Озеро/море не создают новый речной сток.
+		if kind == "озеро":
+			hydro.lakes[target_index] = true
+		else:
+			hydro.lakes.clear()
+			hydro.oceans[target_index] = true
+		var mouth: Dictionary = _mouth_end_metrics(
+			_mouth_mesh(world, hydro, source), 17.5)
+		_check(mouth["points"] > 0
+			and mouth["width"] > normal["width"] + 0.17,
+			"Устье " + kind + " расширяется перед водоёмом")
+		_check(mouth["depth"] < 0.00001,
+			"Речная плёнка полностью исчезает на поверхности " + kind)
+		_check(Water._river_mouth_coverage(0.0) > 0.999
+			and Water._river_mouth_coverage(1.0) < 0.00001
+			and Water._river_mouth_coverage(0.5) > 0.0,
+			"Прозрачность устья уменьшается без скачка")
+		_check(Water._river_mouth_width(
+			Water._river_width(hydro.discharge_at_index(target_index))) <= 0.80,
+			"Устье ограничено физической шириной, а не размером всей клетки")
+		# В полном пути построения физически мокрая цель
+		# содержит настоящую стоячую поверхность под устьем.
+		var left: Array = Water.prepare_arrays(world, hydro, Vector2i.ZERO)
+		var right: Array = Water.prepare_arrays(world, hydro, Vector2i(1, 0))
+		_check(not left.is_empty() and not right.is_empty(),
+			"Устье " + kind + " не оставляет пустого чанка на x=16")
+		_check(world.to_data() == physical_before
+			and hydro.downstream == route_before and hydro.discharges == flow_before,
+			"Рендер устья " + kind + " не меняет геометрию и расход")
+
+	# Проверяем также, что вне озёр и морей обычное речное
+	# звено осталось прежним; ни одна физическая клетка не добавлена.
+	hydro.lakes.clear()
+	hydro.oceans.clear()
+	var restored: Dictionary = _mouth_end_metrics(
+		_mouth_mesh(world, hydro, source), 17.5)
+	_check(absf(float(restored["width"]) - float(normal["width"])) < 0.0001
+		and restored["depth"] > 0.95,
+		"В обычных реках геометрия и глубина не изменились")
+	print("#96/RIVER-MOUTH: плавное озёрное/морское устье и исходное русло — успешно")
+
 func _test_dry_bank() -> void:
 	# Высокий грунт справа пересекает ширину реки. Раньше
 	# поперечник всегда рисовался целиком поверх сухого склона.
@@ -337,6 +439,7 @@ func _initialize() -> void:
 	# видеокарты или художественное утверждение речной графики.
 	_test_route_and_seam()
 	_test_river_to_flood()
+	_test_river_mouth()
 	_test_dry_bank()
 	_test_real_hydrology()
 	if not failures.is_empty():
