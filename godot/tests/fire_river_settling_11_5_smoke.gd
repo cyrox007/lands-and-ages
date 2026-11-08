@@ -174,7 +174,7 @@ func _test() -> void:
 				"WorldSave сохранил оба состояния конечной золы")
 
 	# Некорректные записи не способны частично изменить живой мир.
-	_check(int(current["version"]) == 7
+	_check(int(current["version"]) == 8
 		and not current["deposited_ash"].is_empty(),
 		"Сохранение v7 содержит физическое дно")
 	var invalid: Dictionary = current.duplicate(true)
