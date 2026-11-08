@@ -378,6 +378,64 @@ static func _clip_flood_coverage(triangle: PackedVector4Array) -> PackedVector4A
 	return polygon
 
 
+
+static func _flood_clearance(vertex: Vector4, cell: Vector2i,
+		heights: PackedFloat32Array) -> float:
+	# Сравниваем именно физический уровень воды (Z), а не высоту
+	# уже поднятого визуального меша. Высоту склона берём из той
+	# же билинейной сетки, что используется в Chunk у берега.
+	var u := clampf(vertex.x - float(cell.x), 0.0, 1.0)
+	var v := clampf(vertex.y - float(cell.y), 0.0, 1.0)
+	var terrain := ShoreVisual.height(
+		heights[0], heights[1], heights[2], heights[3], u, v)
+	return vertex.z - terrain
+
+
+static func _clip_flood_to_ground(polygon: PackedVector4Array,
+		cell: Vector2i, heights: PackedFloat32Array) -> PackedVector4Array:
+	# Одной изолинии заполнения недостаточно: она заходила на
+	# высокий сухой берег, после чего max(level, terrain) превращал
+	# его в нарисованную бирюзовую воду. Второй контур оставляет
+	# только точки, где физический уровень достигает грунта.
+	# Общие рёбра соседних чанков используют одни физические
+	# вершины и одинаковую линейную интерполяцию пересечения.
+	var clipped := PackedVector4Array()
+	if polygon.is_empty():
+		return clipped
+	var previous: Vector4 = polygon[polygon.size() - 1]
+	var previous_depth := _flood_clearance(previous, cell, heights)
+	for current in polygon:
+		var depth := _flood_clearance(current, cell, heights)
+		var previous_wet := previous_depth >= 0.0
+		var current_wet := depth >= 0.0
+		if previous_wet != current_wet:
+			var fraction := clampf(previous_depth /
+				(previous_depth - depth), 0.0, 1.0)
+			# На диагонали билинейный склон может быть нелинейным.
+			# Уточняем пересечение двоичным поиском, но на
+			# горизонтальных и вертикальных рёбрах сохраняем
+			# точную линейную точку для бесшовных соседей.
+			if not is_equal_approx(previous.x, current.x) \
+					and not is_equal_approx(previous.y, current.y):
+				var low := 0.0
+				var high := 1.0
+				for _step in range(16):
+					var middle := (low + high) * 0.5
+					var middle_wet := _flood_clearance(
+						previous.lerp(current, middle), cell, heights) >= 0.0
+					if middle_wet == previous_wet:
+						low = middle
+					else:
+						high = middle
+				fraction = (low + high) * 0.5
+			clipped.append(previous.lerp(current, fraction))
+		if current_wet:
+			clipped.append(current)
+		previous = current
+		previous_depth = depth
+	return clipped
+
+
 static func _flood_motion_at(hydro: RefCounted, point: Vector2) -> float:
 	## Вычисляем только визуальную силу паводка из готовой гидрологии.
 	## Никакой анимационный параметр не меняет уровень воды или сток.
@@ -412,17 +470,21 @@ static func _flood_motion_at(hydro: RefCounted, point: Vector2) -> float:
 static func _add_flood_polygon(tool: SurfaceTool, world: RefCounted,
 		cell: Vector2i, polygon: PackedVector4Array, heights: PackedFloat32Array,
 		tint: Color, ice: float, hydro: RefCounted = null) -> int:
-	if polygon.size() < 3:
+	# Сначала отсекаем сухой склон; прозрачность и небольшой
+	# вертикальный WATER_OFFSET не могут изображать там воду.
+	var submerged: PackedVector4Array = _clip_flood_to_ground(
+		polygon, cell, heights)
+	if submerged.size() < 3:
 		return 0
 	var added := 0
 	tool.set_normal(Vector3.UP)
-	for i in range(1, polygon.size() - 1):
-		var a := Vector2(polygon[0].x, polygon[0].y)
-		var b := Vector2(polygon[i].x, polygon[i].y)
-		var c := Vector2(polygon[i + 1].x, polygon[i + 1].y)
+	for i in range(1, submerged.size() - 1):
+		var a := Vector2(submerged[0].x, submerged[0].y)
+		var b := Vector2(submerged[i].x, submerged[i].y)
+		var c := Vector2(submerged[i + 1].x, submerged[i + 1].y)
 		if absf((b - a).cross(c - a)) < 0.000001:
 			continue
-		for vertex in [polygon[0], polygon[i], polygon[i + 1]]:
+		for vertex in [submerged[0], submerged[i], submerged[i + 1]]:
 			var u := clampf(vertex.x - float(cell.x), 0.0, 1.0)
 			var v := clampf(vertex.y - float(cell.y), 0.0, 1.0)
 			var terrain := ShoreVisual.height(
