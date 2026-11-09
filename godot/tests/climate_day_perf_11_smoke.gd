@@ -36,6 +36,12 @@ func _reference_day(climate: RefCounted) -> Dictionary:
 	rain.resize(count)
 	wind.resize(count)
 	storm.resize(count)
+	# Читаем исходные климатические массивы один раз. Без этого
+	# эталон многократно обращался бы к динамическим свойствам
+	# RefCounted и сравнение времени стало бы нечестным.
+	var mean: PackedFloat32Array = climate._mean
+	var humidity: PackedFloat32Array = climate._humidity
+	var marine: PackedFloat32Array = climate._marine
 	var day: int = climate.day
 	var seed: int = climate.world.config.world_seed
 	for y in range(climate._height):
@@ -46,27 +52,27 @@ func _reference_day(climate: RefCounted) -> Dictionary:
 				float(Climate.YEAR_DAYS))
 			var rain_factor := Climate._seasonal_rain_factor(day, latitude)
 			var amplitude: float = lerpf(13.0, 6.0, latitude) * \
-				(1.0 - climate._marine[i] * 0.28)
+				(1.0 - marine[i] * 0.28)
 			var front := Climate._smooth_noise(
 				(float(x) + float(day) * 1.8) / 55.0,
 				(float(y) - float(day) * 0.65) / 49.0, seed + 990)
 			var local := Climate._smooth_noise(
 				(float(x) + float(day) * 0.7) / 38.0,
 				(float(y) + float(day) * 0.4) / 38.0, seed + 991)
-			temperature[i] = climate._mean[i] + season * amplitude + front * 3.1
-			var threshold: float = 0.11 - climate._humidity[i] * 0.20
+			temperature[i] = mean[i] + season * amplitude + front * 3.1
+			var threshold: float = 0.11 - humidity[i] * 0.20
 			var convection := clampf((temperature[i] - 7.0) / 17.0, 0.0, 1.0) * \
-				clampf((climate._humidity[i] - 0.24) / 0.52, 0.0, 1.0)
+				clampf((humidity[i] - 0.24) / 0.52, 0.0, 1.0)
 			var frontal_lift := clampf(0.55 + front * 0.60 \
 				+ local * 0.38, 0.0, 1.0)
 			storm[i] = clampf(convection * frontal_lift, 0.0, 1.0)
 			rain[i] = clampf(maxf(0.0, local * 0.9 + front * 0.4 - threshold) \
-				* climate._humidity[i] * 2.5 * rain_factor \
+				* humidity[i] * 2.5 * rain_factor \
 				+ storm[i] * 1.35, 0.0, 3.0)
 			wind[i] = clampf(5.0 + absf(front) * 10.0 \
 				+ storm[i] * 5.0 + maxf(0.0, -local) * 3.0 \
 				+ 2.5 * absf(sin(TAU * float(day % Climate.YEAR_DAYS) /
-				Climate.YEAR_DAYS)) + climate._marine[i] * 1.5, 0.0, 24.0)
+				Climate.YEAR_DAYS)) + marine[i] * 1.5, 0.0, 24.0)
 	return {"temperature": temperature, "rain": rain,
 		"storm": storm, "wind": wind}
 
