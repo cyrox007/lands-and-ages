@@ -298,7 +298,13 @@ func load_data(data: Dictionary, saved_day: int) -> bool:
                 or not is_finite(float(value)) \
                 or float(value) != float(int(value)):
             return false
-        if key != "tree_id" and (value < 0 or value > 100000):
+        # Загрузка не может подделать сотни кирпичей из трёх единиц
+        # глины: ограничиваем каждый отсек объёмом настоящего заказа.
+        var limit := FUEL_UNITS if key in [
+            "cargo_wood", "stored_wood"] else (
+            CLAY_UNITS if key in ["cargo_clay", "stored_clay"]
+            else BRICKS_REQUIRED)
+        if key != "tree_id" and (value < 0 or value > limit):
             return false
     var cells := {}
     for key in ["site", "worker", "clay_cell", "tree_stop"]:
@@ -316,6 +322,14 @@ func load_data(data: Dictionary, saved_day: int) -> bool:
             return false
         cells[key] = cell
     if bool(data["built"]) != (data["phase"] == "готово"):
+        return false
+    if bool(data["built"]) and (int(data["cargo_clay"]) != 0
+            or int(data["cargo_wood"]) != 0
+            or int(data["stored_clay"]) != 0
+            or int(data["stored_wood"]) != 0 or int(data["bricks"]) != 0):
+        return false
+    if data["phase"] != "ожидание" and str(data["clay_id"]) != \
+            str(resources.source_id("глина", cells["clay_cell"])):
         return false
     if data["phase"] != "ожидание" and (int(data["tree_id"]) < 1 \
             or not str(data["clay_id"]).begins_with("глина:")):
