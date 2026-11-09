@@ -1,0 +1,84 @@
+name: "11/CLIMATE-PERF — точность и время суточного климата"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/climate.gd"
+      - "godot/tests/climate_day_perf_11_smoke.gd"
+      - "godot/tests/climate_day_legacy_reference.gd"
+      - ".github/workflows/godot-climate-day-perf.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/climate.gd"
+      - "godot/tests/climate_day_perf_11_smoke.gd"
+      - "godot/tests/climate_day_legacy_reference.gd"
+      - ".github/workflows/godot-climate-day-perf.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: climate-perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  climate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Скачать Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-climate.zip
+          unzip -q /tmp/godot-climate.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+
+      - name: "Проверить компиляцию GDScript"
+        run: |
+          set -o pipefail
+          timeout 130s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/climate-perf-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/climate-perf-import.log; then
+            exit 1
+          fi
+
+      - name: "Этап 5 — неизменность климата, почвы и биомов"
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/climate_smoke.gd 2>&1 \
+            | tee /tmp/climate-original-smoke.log
+          grep -q "Этап 5:.*успешно" /tmp/climate-original-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" \
+              /tmp/climate-original-smoke.log; then
+            exit 1
+          fi
+
+      - name: "11/CLIMATE-PERF — точное равенство 256×192 и относительное ускорение"
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          timeout 265s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/climate_day_perf_11_smoke.gd \
+            2>&1 | tee /tmp/climate-day-profile.log
+          grep -q "CLIMATE-PERF:.*успешно" /tmp/climate-day-profile.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" \
+              /tmp/climate-day-profile.log; then
+            exit 1
+          fi
+
+      - name: "Логи проверки и числа ускорения"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: climate-day-profile-logs
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/climate-perf-import.log
+            /tmp/climate-original-smoke.log
+            /tmp/climate-day-profile.log

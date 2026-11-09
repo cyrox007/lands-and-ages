@@ -197,23 +197,86 @@ func _rebuild_row(y: int) -> void:
 		previous = height
 
 
+
+static func _noise_lattice(min_x: int, max_x: int, min_y: int,
+		max_y: int, seed: int) -> PackedFloat64Array:
+	# Сетка фронта намного реже клеток мира: в прямоугольнике
+	# 256×192 требуется несколько десятков хешей, а не тысячи.
+	# Точность float64 сохраняет исходные значения Terrain.hash2,
+	# чтобы климат и WorldSave были побитово воспроизводимыми.
+	var stride := max_x - min_x + 1
+	var values := PackedFloat64Array()
+	values.resize(stride * (max_y - min_y + 1))
+	var index := 0
+	for y in range(min_y, max_y + 1):
+		for x in range(min_x, max_x + 1):
+			values[index] = Terrain.hash2(x, y, seed)
+			index += 1
+	return values
+
+
+static func _lattice_noise(x: float, y: float, values: PackedFloat64Array,
+		min_x: int, min_y: int, stride: int) -> float:
+	# Используем ту же гладкую интерполяцию, что _smooth_noise.
+	# Меняется лишь источник четырёх угловых значений: хеш уже
+	# был вычислен один раз для всех соседних клеток дня.
+	var x0 := floori(x)
+	var y0 := floori(y)
+	var u := smoothstep(0.0, 1.0, x - float(x0))
+	var v := smoothstep(0.0, 1.0, y - float(y0))
+	var index := (y0 - min_y) * stride + x0 - min_x
+	var a := lerpf(values[index], values[index + 1], u)
+	var c := lerpf(values[index + stride], values[index + stride + 1], u)
+	return lerpf(a, c, v) * 2.0 - 1.0
+
+
 func _calculate_day(rows: Dictionary = {}) -> void:
 	# Волны медленно перемещаются в пространстве, а не выпадают из
 	# независимого генератора для каждой клетки.
+	# День одинаков для всех клеток. Прежде сезонные sin() и
+	# широтный множитель осадков пересчитывались десятки тысяч
+	# раз на большой карте, хотя на данной широте они неизменны.
+	# Убираем только повторы, сохраняя порядок формул каждой клетки.
+	var season := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
+	var wind_season := 2.5 * absf(sin(TAU * float(day % YEAR_DAYS) / YEAR_DAYS))
+	# Крупные и местные фронты сдвигаются ежедневно. Их опорные
+	# узлы вычисляем один раз за день, но ни одну клетку не
+	# заменяем ближайшим узлом: интерполяция остаётся точной.
+	var front_x := float(day) * 1.8
+	var front_y := -float(day) * 0.65
+	var front_min_x := floori(front_x / 55.0)
+	var front_min_y := floori(front_y / 49.0)
+	var front_max_x := floori((float(_width - 1) + front_x) / 55.0) + 1
+	var front_max_y := floori((float(_height - 1) + front_y) / 49.0) + 1
+	var front_stride := front_max_x - front_min_x + 1
+	var fronts := _noise_lattice(front_min_x, front_max_x,
+		front_min_y, front_max_y, world.config.world_seed + 990)
+	var local_x := float(day) * 0.7
+	var local_y := float(day) * 0.4
+	var local_min_x := floori(local_x / 38.0)
+	var local_min_y := floori(local_y / 38.0)
+	var local_max_x := floori((float(_width - 1) + local_x) / 38.0) + 1
+	var local_max_y := floori((float(_height - 1) + local_y) / 38.0) + 1
+	var local_stride := local_max_x - local_min_x + 1
+	var locals := _noise_lattice(local_min_x, local_max_x,
+		local_min_y, local_max_y, world.config.world_seed + 991)
 	for y in range(_height):
 		if not rows.is_empty() and not rows.has(y):
 			continue
 		var latitude := (float(y) + 0.5) / float(_height)
+		# Фактор дождей общий для всех клеток одной широты.
+		# Отдельные фронты по-прежнему вычисляются для каждой.
+		var rain_factor := _seasonal_rain_factor(day, latitude)
 		for x in range(_width):
 			var i := y * _width + x
-			var season := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
-			var rain_factor := _seasonal_rain_factor(day, latitude)
 			var amplitude := lerpf(13.0, 6.0, latitude) * \
 				(1.0 - _marine[i] * 0.28)
-			var front := _smooth_noise((float(x) + float(day) * 1.8) / 55.0,
-				(float(y) - float(day) * 0.65) / 49.0, world.config.world_seed + 990)
-			var local := _smooth_noise((float(x) + float(day) * 0.7) / 38.0,
-				(float(y) + float(day) * 0.4) / 38.0, world.config.world_seed + 991)
+			var front := _lattice_noise((float(x) + float(day) * 1.8) / 55.0,
+				(float(y) - float(day) * 0.65) / 49.0,
+				fronts, front_min_x, front_min_y, front_stride)
+			var local := _lattice_noise((float(x) + float(day) * 0.7) / 38.0,
+				(float(y) + float(day) * 0.4) / 38.0,
+				locals, local_min_x, local_min_y, local_stride)
 			_temperature[i] = _mean[i] + season * amplitude + front * 3.1
 			var threshold := 0.11 - _humidity[i] * 0.20
 			# Тёплый влажный воздух поднимается вдоль погодного фронта:
@@ -231,7 +294,7 @@ func _calculate_day(rows: Dictionary = {}) -> void:
 			# Скорость условная: шкалу м/с откалибруем позже.
 			_wind[i] = clampf(5.0 + absf(front) * 10.0
 				+ _storm[i] * 5.0 + maxf(0.0, -local) * 3.0
-				+ 2.5 * absf(sin(TAU * float(day % YEAR_DAYS) / YEAR_DAYS))
+				+ wind_season
 				+ _marine[i] * 1.5, 0.0, 24.0)
 	revision += 1
 	weather_changed.emit(day)
