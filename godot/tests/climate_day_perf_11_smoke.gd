@@ -1,94 +1,37 @@
 extends SceneTree
-## 11/CLIMATE-PERF: суточный климат 256×192 с прямым
-## сравнением старой формулы, новых массивов и времени.
-## Тест намеренно не подменяет гидрологию и не подгоняет погоду.
+## 11/CLIMATE-PERF: измерение и полное физическое сравнение
+## старой и новой реализации на одной карте 256×192.
 
 const Config = preload("res://scripts/world_config.gd")
 const Map = preload("res://scripts/world_map.gd")
 const Hydro = preload("res://scripts/hydrology.gd")
 const Climate = preload("res://scripts/climate.gd")
+const Legacy = preload("res://tests/climate_day_legacy_reference.gd")
 const WIDTH := 256
 const HEIGHT := 192
 const DAYS := [1, 24, 49, 73, 96]
 var failures: Array[String] = []
 
 
-func _check(ok: bool, description: String) -> void:
-	# Каждое нарушение регистрируем отдельно, чтобы изменение
-	# скорости не маскировало отличия физических данных.
-	if not ok:
+func _check(condition: bool, description: String) -> void:
+	# Ошибки физических полей перечисляем по компоненту и дню,
+	# даже если остальные компоненты продолжают работать.
+	if not condition:
 		failures.append(description)
 
 
-func _reference_day(climate: RefCounted) -> Dictionary:
-	# Независимая эталонная копия первоначального суточного
-	# расчёта: сезон и дождевой множитель вычисляются В КАЖДОЙ
-	# клетке. Никаких значений, подготовленных оптимизацией,
-	# здесь не используем, кроме неизменных средних полей.
-	var count: int = climate._width * climate._height
-	var temperature := PackedFloat32Array()
-	var rain := PackedFloat32Array()
-	var wind := PackedFloat32Array()
-	var storm := PackedFloat32Array()
-	# Размер выделяем по каждому PackedFloat32Array напрямую:
-	# временная переменная цикла использовала бы копию Variant.
-	temperature.resize(count)
-	rain.resize(count)
-	wind.resize(count)
-	storm.resize(count)
-	# Читаем исходные климатические массивы один раз. Без этого
-	# эталон многократно обращался бы к динамическим свойствам
-	# RefCounted и сравнение времени стало бы нечестным.
-	var mean: PackedFloat32Array = climate._mean
-	var humidity: PackedFloat32Array = climate._humidity
-	var marine: PackedFloat32Array = climate._marine
-	var day: int = climate.day
-	var seed: int = climate.world.config.world_seed
-	for y in range(climate._height):
-		var latitude := (float(y) + 0.5) / float(climate._height)
-		for x in range(climate._width):
-			var i: int = y * int(climate._width) + x
-			var season := sin(TAU * float(day % Climate.YEAR_DAYS) /
-				float(Climate.YEAR_DAYS))
-			var rain_factor := Climate._seasonal_rain_factor(day, latitude)
-			var amplitude: float = lerpf(13.0, 6.0, latitude) * \
-				(1.0 - marine[i] * 0.28)
-			var front := Climate._smooth_noise(
-				(float(x) + float(day) * 1.8) / 55.0,
-				(float(y) - float(day) * 0.65) / 49.0, seed + 990)
-			var local := Climate._smooth_noise(
-				(float(x) + float(day) * 0.7) / 38.0,
-				(float(y) + float(day) * 0.4) / 38.0, seed + 991)
-			temperature[i] = mean[i] + season * amplitude + front * 3.1
-			var threshold: float = 0.11 - humidity[i] * 0.20
-			var convection := clampf((temperature[i] - 7.0) / 17.0, 0.0, 1.0) * \
-				clampf((humidity[i] - 0.24) / 0.52, 0.0, 1.0)
-			var frontal_lift := clampf(0.55 + front * 0.60 \
-				+ local * 0.38, 0.0, 1.0)
-			storm[i] = clampf(convection * frontal_lift, 0.0, 1.0)
-			rain[i] = clampf(maxf(0.0, local * 0.9 + front * 0.4 - threshold) \
-				* humidity[i] * 2.5 * rain_factor \
-				+ storm[i] * 1.35, 0.0, 3.0)
-			wind[i] = clampf(5.0 + absf(front) * 10.0 \
-				+ storm[i] * 5.0 + maxf(0.0, -local) * 3.0 \
-				+ 2.5 * absf(sin(TAU * float(day % Climate.YEAR_DAYS) /
-				Climate.YEAR_DAYS)) + marine[i] * 1.5, 0.0, 24.0)
-	return {"temperature": temperature, "rain": rain,
-		"storm": storm, "wind": wind}
-
-
-func _same_fields(climate: RefCounted, expected: Dictionary,
-		day: int) -> void:
-	# Сравнение всех 49 152 клеток каждого поля использует
-	# равенство PackedFloat32Array, а не выборку трёх точек.
-	# Так ловим любое смещение грозы, осадков или ветра.
-	_check(climate._temperature == expected["temperature"],
+func _same_fields(old: RefCounted, current: RefCounted, day: int) -> void:
+	# Сравниваем все 49 152 значения каждого массива — в точности,
+	# без допусков и усреднения. Сохранения и реальные механики
+	# используют именно эти исходные значения температуры, дождя,
+	# ветра и силы грозы.
+	_check(old._temperature == current._temperature,
 		"Температура полностью совпадает на дне %d" % day)
-	_check(climate._rain == expected["rain"],
+	_check(old._rain == current._rain,
 		"Осадки полностью совпадают на дне %d" % day)
-	_check(climate._wind == expected["wind"],
+	_check(old._wind == current._wind,
 		"Ветер полностью совпадает на дне %d" % day)
-	_check(climate._storm == expected["storm"],
+	_check(old._storm == current._storm,
 		"Грозы полностью совпадают на дне %d" % day)
 
 
@@ -96,51 +39,65 @@ func _run() -> void:
 	var world := Map.new(Config.new(WIDTH, HEIGHT, 1729, 16, 32))
 	var hydro := Hydro.new(world)
 	hydro.rebuild()
-	var climate := Climate.new(world, hydro)
-	climate.rebuild()
-	var legacy_us := 0
-	var optimized_us := 0
-	for day in DAYS:
-		# Сначала измеряем прежний код на тех же неизменных
-		# средних климатических полях, затем текущую формулу.
-		climate.day = day
-		var before := Time.get_ticks_usec()
-		var expected := _reference_day(climate)
-		legacy_us += Time.get_ticks_usec() - before
-		before = Time.get_ticks_usec()
-		climate._calculate_day()
-		optimized_us += Time.get_ticks_usec() - before
-		_same_fields(climate, expected, day)
+	# Оба экземпляра получают одни и те же карты и одинаковый
+	# способ записи в собственные PackedFloat32Array. Отличие
+	# только в повторном вычислении сезонных коэффициентов.
+	var original := Legacy.new(world, hydro)
+	var optimized := Climate.new(world, hydro)
+	original.rebuild()
+	optimized.rebuild()
+	_same_fields(original, optimized, 0)
+	var old_us := 0
+	var new_us := 0
+	# Два последовательных сезонных цикла уменьшают влияние
+	# одиночной перегрузки GitHub runner; результаты считаются
+	# по сумме длительностей 10 одинаковых физических дней.
+	for pass_index in range(2):
+		for day in DAYS:
+			# Меняем порядок этапов во втором цикле, чтобы
+			# систематический прогрев не делал новую формулу быстрее
+			# только из-за порядка измерения.
+			var start: int = Time.get_ticks_usec()
+			if pass_index == 0:
+				original.set_day(day)
+				old_us += Time.get_ticks_usec() - start
+				start = Time.get_ticks_usec()
+				optimized.set_day(day)
+				new_us += Time.get_ticks_usec() - start
+			else:
+				optimized.set_day(day)
+				new_us += Time.get_ticks_usec() - start
+				start = Time.get_ticks_usec()
+				original.set_day(day)
+				old_us += Time.get_ticks_usec() - start
+			_same_fields(original, optimized, day)
 
-	# Частичная перестройка не должна менять погоду в строках,
-	# которых не коснулось изменение грунта.
-	climate.day = 37
-	var unaffected: float = climate._rain[110 * WIDTH + 80]
-	var selected := {0: true, 95: true, 191: true}
-	var partial_reference: Dictionary = _reference_day(climate)
-	climate._calculate_day(selected)
-	for y in selected:
-		for x in range(WIDTH):
-			var i: int = y * WIDTH + x
-			_check(climate._rain[i] == partial_reference["rain"][i],
-				"Частичная пересборка осадков на широте %d" % y)
-	_check(climate._rain[110 * WIDTH + 80] == unaffected,
-		"Строка вне частичной перестройки не меняется")
+	# Частичная перестройка не должна менять погоду вне выбранных
+	# широт даже в середине другого сезона.
+	var untouched: float = optimized._rain[110 * WIDTH + 80]
+	original.day = 37
+	optimized.day = 37
+	var rows := {0: true, 95: true, 191: true}
+	original._calculate_day(rows)
+	optimized._calculate_day(rows)
+	_same_fields(original, optimized, 37)
+	_check(optimized._rain[110 * WIDTH + 80] == untouched,
+		"Строка вне частичной перестройки остаётся прежней")
 
-	var ratio := float(optimized_us) / float(maxi(1, legacy_us))
-	print("CLIMATE-PERF: 256×192, пять сезонов, старый расчёт=",
-		legacy_us, " мкс, новый=", optimized_us, " мкс, коэффициент=", ratio)
-	# Используем один runner без конкурирующей нагрузки; даже
-	# фоновая CI-машина может менять абсолютную скорость, поэтому
-	# сравниваем только тот же код и те же входные данные.
-	_check(ratio < 0.90, "Климат стал заметно быстрее прежней формулы")
+	var ratio := float(new_us) / float(maxi(1, old_us))
+	print("CLIMATE-PERF: 256×192, 10 суточных шагов, старая формула=",
+		old_us, " мкс, новая=", new_us, " мкс, коэффициент=", ratio)
+	# Требование касается только фактически измеренного времени
+	# климата. Полный игровой день, GPU и аппаратный FPS не входят
+	# в этот тест и не считаются ускоренными автоматически.
+	_check(ratio < 0.90, "Суточный климат быстрее прежней формулы минимум на 10%")
 	if not failures.is_empty():
 		for failure in failures.slice(0, 25):
 			push_error("CLIMATE-PERF: " + failure)
-		print("CLIMATE-PERF: ошибок ", failures.size())
+		print("CLIMATE-PERF: нарушений ", failures.size())
 		quit(1)
 		return
-	print("CLIMATE-PERF: полный климат неизменен, ускорение подтверждено — успешно")
+	print("CLIMATE-PERF: поля климата неизменны, ускорение подтверждено — успешно")
 	quit(0)
 
 
