@@ -3,6 +3,7 @@ extends RefCounted
 ## Равномерные квоты применяются лишь среди геологически допустимых участков.
 
 const Terrain = preload("res://scripts/terrain.gd")
+const Geology = preload("res://scripts/natural_mineral_geology.gd")
 const STEP := 4
 const MIN_DISTANCE_SQUARED := 36
 
@@ -15,12 +16,7 @@ const MATERIALS := [
 
 # Минеральные проявления не гарантируются каждому региону.
 # Редкость и геологическая пригодность создают торговую специализацию.
-const MINERALS := [
-    {"kind": "железная руда", "material": "железная руда", "chance": 0.48},
-    {"kind": "медная руда", "material": "медная руда", "chance": 0.30},
-    {"kind": "оловянная руда", "material": "оловянная руда", "chance": 0.18},
-    {"kind": "каменный уголь", "material": "каменный уголь", "chance": 0.24}
-]
+const MINERALS := Geology.RULES
 
 static func _suitability(kind: String, substrate: String,
         depth: float, slope: float, wet: float) -> float:
@@ -109,8 +105,29 @@ static func populate(world: RefCounted, hydro: RefCounted,
                     regions[region][kind] = []
                 regions[region][kind].append(candidate)
 
+            # Залежь допускается лишь при подходящей глубинной провинции,
+            # рудной насыщенности и реально существующей поверхности.
+            # Один и тот же набор кандидатов для всех металлов запрещён.
+            for rule in MINERALS:
+                var surveyed: Dictionary = Geology.prospect(
+                    world, surface, cell, rule)
+                if surveyed.is_empty():
+                    continue
+                var mineral_kind: String = rule["kind"]
+                var mineral_candidate := {
+                    "cell": cell, "id": index,
+                    "score": float(surveyed["grade"]),
+                    "quantity": int(surveyed["units"]),
+                    "quality": int(surveyed["quality"])
+                }
+                if not regions[region].has(mineral_kind):
+                    regions[region][mineral_kind] = []
+                regions[region][mineral_kind].append(mineral_candidate)
+
     var totals := {}
     var missing := {}
+    var mineral_regions := {}
+    var chosen_mineral_cells: Array[Vector2i] = []
     # Квоты обеспечивают базовое сырьё, если регион действительно
     # содержит подходящие залежи. Нет ресурса — фиксируем дефицит,
     # а не подменяем рельеф искусственным месторождением.
@@ -133,22 +150,33 @@ static func populate(world: RefCounted, hydro: RefCounted,
                         item["cell"], int(item["quantity"]),
                         int(item["quality"])):
                     totals[kind] = int(totals.get(kind, 0)) + 1
-        # Более редкие залежи выбираются только на участках с коренной
-        # породой или щебнем. Это предварительная минеральная модель,
-        # а не промышленная карта доказанных рудных провинций.
-        var hard_rock: Array = regions[region].get("камень", [])
+        # Отсутствующая руда — естественный торговый дефицит.
+        # Берём максимум одну лучшую разведанную жилу на регион,
+        # не гарантируя железо, медь, олово или уголь повсюду.
         for mineral in MINERALS:
             var kind: String = mineral["kind"]
-            var regional_seed := Terrain.hash2(region.x, region.y,
-                seed + 18000 + kind.hash())
-            if regional_seed >= float(mineral["chance"]) or hard_rock.is_empty():
-                continue
-            var selected: Array = _pick(hard_rock.duplicate(), 1)
-            for candidate in selected:
+            var choices: Array = regions[region].get(kind, []).duplicate()
+            choices.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+                if a["score"] == b["score"]:
+                    return int(a["id"]) < int(b["id"])
+                return float(a["score"]) > float(b["score"])
+            )
+            for candidate in choices:
+                var pos: Vector2i = candidate["cell"]
+                var busy := false
+                for previous in chosen_mineral_cells:
+                    if pos.distance_squared_to(previous) < MIN_DISTANCE_SQUARED:
+                        busy = true
+                        break
+                if busy:
+                    continue
                 if registry.add_source(kind, str(mineral["material"]),
-                        candidate["cell"],
-                        maxi(20, int(candidate["quantity"]) / 3),
+                        pos, int(candidate["quantity"]),
                         int(candidate["quality"])):
+                    chosen_mineral_cells.append(pos)
                     totals[kind] = int(totals.get(kind, 0)) + 1
+                    mineral_regions[kind] = int(mineral_regions.get(kind, 0)) + 1
+                    break
+
     return {"sources": totals, "missing_regions": missing,
-        "sampled_regions": keys.size()}
+        "mineral_regions": mineral_regions, "sampled_regions": keys.size()}

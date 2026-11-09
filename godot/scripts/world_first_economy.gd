@@ -3,6 +3,7 @@ extends RefCounted
 ## Поставки расходуют реальные залежи и древесину, не создавая сырьё из команд.
 
 const SourceRegistry = preload("res://scripts/natural_resource_registry.gd")
+const Paths = preload("res://scripts/world_resource_path.gd")
 
 const CLAY_UNITS := 3
 const FUEL_UNITS := 3
@@ -53,14 +54,9 @@ func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
 
 
 func _walkable(cell: Vector2i) -> bool:
-    # Используем те же базовые запреты, что и географический сценарий:
-    # вода, паводок, слишком крутой склон или заболоченная поверхность.
-    if not world.config.contains_cell(cell):
-        return false
-    var index: int = cell.y * world.config.width + cell.x
-    return not hydro.has_water(index) and not hydro.flooded_at(index) \
-        and world.normal_at(cell).y >= 0.76 \
-        and surface.waterlogging_at_index(index) <= 0.85
+    # Используем общий маршрутный контракт для всех отраслей,
+    # чтобы рабочие леса и каменоломни не расходились в физике.
+    return Paths.walkable(world, hydro, surface, cell)
 
 
 func _buildable(cell: Vector2i) -> bool:
@@ -75,48 +71,9 @@ func _buildable(cell: Vector2i) -> bool:
 
 
 func _route(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
-    # Четырёхсвязный поиск на физической карте: не телепортируем груз
-    # через море и не считаем непреодолимые склоны готовыми дорогами.
-    var result: Array[Vector2i] = []
-    if not _walkable(from) or not _walkable(to):
-        return result
-    if from == to:
-        return result
-    var width: int = world.config.width
-    var size: int = width * world.config.height
-    var parents := PackedInt32Array()
-    parents.resize(size)
-    parents.fill(-1)
-    var first: int = from.y * width + from.x
-    var finish: int = to.y * width + to.x
-    var queue: Array[int] = [first]
-    parents[first] = first
-    var cursor := 0
-    while cursor < queue.size() and parents[finish] == -1:
-        var current: int = queue[cursor]
-        cursor += 1
-        var x: int = current % width
-        var y: int = current / width
-        for direction in DIRECTIONS:
-            var next_cell: Vector2i = Vector2i(x, y) + direction
-            if not _walkable(next_cell):
-                continue
-            var next: int = next_cell.y * width + next_cell.x
-            if parents[next] != -1:
-                continue
-            parents[next] = current
-            queue.append(next)
-            if next == finish:
-                break
-    if parents[finish] == -1:
-        return result
-    var reverse: Array[Vector2i] = []
-    var position := finish
-    while position != first:
-        reverse.append(Vector2i(position % width, position / width))
-        position = parents[position]
-    reverse.reverse()
-    return reverse
+    # Длина поставки и препятствия общие для всех видов сырья;
+    # маршруты не вычисляются по соседству изображения.
+    return Paths.find(world, hydro, surface, from, to)
 
 
 func _find_site(clay: Vector2i) -> Vector2i:

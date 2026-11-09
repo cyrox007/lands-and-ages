@@ -38,6 +38,8 @@ const Nature = preload("res://scripts/nature_registry.gd")
 const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
+const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
+const ResourceRecipes = preload("res://scripts/natural_resource_recipes.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
@@ -73,6 +75,11 @@ var _climate: RefCounted
 var _nature: RefCounted
 var _resources: RefCounted
 var _economy: RefCounted
+var _industry: RefCounted
+var _industry_status: Label
+var _industry_kind := "камень"
+var _industry_recipe := "тесать камень"
+var _industry_building := "каменный фундамент"
 var _economy_visual: Node3D
 var _economy_status: Label
 var _fire: RefCounted
@@ -224,7 +231,10 @@ static func _generate_world_models() -> Dictionary:
 	ResourceGeneration.populate(world, hydro, surface, resources)
 	var economy := FirstEconomy.new(world, hydro, surface, nature,
 		resources, climate.day)
-	return {"economy": economy, "resources": resources, "world": world, "hydro": hydro, "surface": surface,
+	var industry := ResourceIndustry.new(world, hydro, surface, nature,
+		resources, climate.day)
+	return {"industry": industry, "economy": economy,
+		"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
 
@@ -252,6 +262,7 @@ func _ready() -> void:
 	_nature = models["nature"]
 	_resources = models["resources"]
 	_economy = models["economy"]
+	_industry = models["industry"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
@@ -630,6 +641,53 @@ func _setup_interface() -> void:
 		event_button.text = "Изменить рельеф: " + kind
 		event_button.pressed.connect(_apply_landscape_event.bind(kind))
 		_debug_details.add_child(event_button)
+	# Производственный стенд доступен лишь после первой настоящей
+	# мастерской. Выбираем сырьё, рецепт и потребителя из общего
+	# реестра; десятки однотипных кнопок не занимают игровую карту.
+	var resource_select := OptionButton.new()
+	_industry_kind = str(ResourceRecipes.RAW_MATERIALS[0])
+	for material in ResourceRecipes.RAW_MATERIALS:
+		resource_select.add_item(material)
+	resource_select.item_selected.connect(func(i: int):
+		_industry_kind = str(ResourceRecipes.RAW_MATERIALS[i]))
+	_debug_details.add_child(resource_select)
+	var delivery_button := Button.new()
+	delivery_button.text = "Доставить выбранное сырьё (3 ед.)"
+	delivery_button.pressed.connect(_industry_order)
+	_debug_details.add_child(delivery_button)
+	var recipe_select := OptionButton.new()
+	var recipe_ids := ResourceRecipes.RECIPES.keys()
+	recipe_ids.sort()
+	_industry_recipe = str(recipe_ids[0])
+	for name in recipe_ids:
+		recipe_select.add_item(name)
+	recipe_select.item_selected.connect(func(i: int):
+		_industry_recipe = str(recipe_ids[i]))
+	_debug_details.add_child(recipe_select)
+	var produce_button := Button.new()
+	produce_button.text = "Произвести по выбранному рецепту"
+	produce_button.pressed.connect(_industry_produce)
+	_debug_details.add_child(produce_button)
+	var consumer_select := OptionButton.new()
+	var consumer_ids := ResourceRecipes.CONSUMERS.keys()
+	consumer_ids.sort()
+	_industry_building = str(consumer_ids[0])
+	for name in consumer_ids:
+		consumer_select.add_item(name)
+	consumer_select.item_selected.connect(func(i: int):
+		_industry_building = str(consumer_ids[i]))
+	_debug_details.add_child(consumer_select)
+	var build_button := Button.new()
+	build_button.text = "Израсходовать товары на строительство"
+	build_button.pressed.connect(_industry_build)
+	_debug_details.add_child(build_button)
+	var research_button := Button.new()
+	research_button.text = "Изучить следующую технологию (за материалы)"
+	research_button.pressed.connect(_industry_research)
+	_debug_details.add_child(research_button)
+	_industry_status = Label.new()
+	_industry_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_details.add_child(_industry_status)
 	for button in _debug_details.get_children():
 		if button is Button:
 			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2105,13 +2163,67 @@ func _sync_first_economy_visual() -> void:
 	_economy_visual.add_child(building)
 
 
+
+func _industry_action_allowed() -> bool:
+	# Природные записи меняются только между фоновыми сутками;
+	# во время перемотки или бенчмарка действия блокируются.
+	return _industry != null and _industry.site.x >= 0 \
+		and _day_task_id < 0 and _days_pending == 0 \
+		and not _benchmark_running and not _fire_demo_active()
+
+
+func _industry_order() -> void:
+	# Перевозчик выбирает ближайшую достижимую залежь, а древесину
+	# забирает из исходного реестра поваленных деревьев.
+	if not _industry_action_allowed():
+		_storage_status = "Сначала завершите кирпичную мастерскую"
+	elif _industry_kind == "древесина":
+		if not _industry.order_wood(3):
+			_storage_status = _industry.last_event
+	else:
+		if not _industry.order_deposit(_industry_kind, 3):
+			_storage_status = _industry.last_event
+	_update_hud()
+
+
+func _industry_produce() -> void:
+	# Необеспеченные рецепты не меняют запасы; статус поясняет
+	# необходимость доставить сырьё или повысить технологию.
+	if not _industry_action_allowed():
+		_storage_status = "Хозяйственный участок ещё не активен"
+	elif not _industry.produce(_industry_recipe):
+		_storage_status = "Недостаточно сырья или технологии: " + _industry_recipe
+	_update_hud()
+
+
+func _industry_build() -> void:
+	# Потребитель получает лишь реально изготовленную продукцию;
+	# новый объект не создаёт металлы, камень или древесину.
+	if not _industry_action_allowed():
+		_storage_status = "Хозяйственный участок ещё не активен"
+	elif not _industry.construct(_industry_building):
+		_storage_status = "Не хватает продукции: " + _industry_building
+	_update_hud()
+
+
+func _industry_research() -> void:
+	# Стоимость технологии списывается со склада; прямой выбор
+	# следующего уровня без материалов не предусмотрен.
+	if not _industry_action_allowed():
+		_storage_status = "Хозяйственный участок ещё не активен"
+	elif not _industry.research_next():
+		_storage_status = "Для развития нужны изделия текущего уровня"
+	_update_hud()
+
+
 func _storage_models() -> Dictionary:
 	return {
 		"world": _world_model, "hydro": _hydro,
 		"surface": _surface, "climate": _climate,
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
-		"resources": _resources, "economy": _economy, "fire": _fire
+		"resources": _resources, "economy": _economy,
+		"industry": _industry, "fire": _fire
 	}
 
 
@@ -2174,6 +2286,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_nature = models["nature"]
 	_resources = models["resources"]
 	_economy = models["economy"]
+	_industry = models["industry"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2303,6 +2416,12 @@ func _complete_day(result: Dictionary) -> void:
 	if _economy != null:
 		_economy.advance_day(_last_completed_day)
 		_sync_first_economy_visual()
+	# Второй участок появляется только после строительства первой
+	# мастерской: до этого он не является источником материалов.
+	if _industry != null and _economy != null:
+		if _economy.built and _industry.site.x < 0:
+			_industry.activate(_economy.site)
+		_industry.advance_day(_last_completed_day)
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2580,6 +2699,14 @@ func _run_landscape_benchmark() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
+	if _industry_status != null and _industry != null:
+		if _industry.site.x < 0:
+			_industry_status.text = "Склад: нужен первый кирпичный цех"
+		else:
+			var warehouse: Dictionary = _industry.state()
+			_industry_status.text = "Технология %d · склад %s · объекты %s · %s" % [
+				int(warehouse["technology"]), JSON.stringify(warehouse["stock"]),
+				JSON.stringify(warehouse["completed"]), str(warehouse["event"])]
 	if _economy_status != null and _economy != null:
 		var info: Dictionary = _economy.summary()
 		_economy_status.text = "Хозяйство: %s · %s · кирпичи %d" % [

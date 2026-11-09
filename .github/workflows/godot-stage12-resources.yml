@@ -1,4 +1,4 @@
-name: "12.0–12.3 — ресурсы и первый хозяйственный цикл"
+name: "12.0–12.3 — геология, производство и хозяйство"
 
 on:
   pull_request:
@@ -6,12 +6,18 @@ on:
     paths:
       - "godot/scripts/natural_resource_registry.gd"
       - "godot/scripts/natural_resource_generation.gd"
+      - "godot/scripts/natural_mineral_geology.gd"
+      - "godot/scripts/natural_resource_recipes.gd"
+      - "godot/scripts/world_resource_industry.gd"
+      - "godot/scripts/world_resource_path.gd"
       - "godot/scripts/natural_resource_uses.gd"
       - "godot/scripts/world_first_economy.gd"
       - "godot/scripts/world.gd"
       - "godot/scripts/world_save.gd"
       - "godot/tests/natural_resources_12_smoke.gd"
       - "godot/tests/world_first_economy_12_smoke.gd"
+      - "godot/tests/world_mineral_geology_12_smoke.gd"
+      - "godot/tests/world_resource_industry_12_smoke.gd"
       - ".github/workflows/godot-stage12-resources.yml"
   workflow_dispatch:
 
@@ -50,3 +56,19 @@ jobs:
             2>&1 | tee /tmp/economy.log
           grep -q "STAGE12-ECONOMY: успешно" /tmp/economy.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/economy.log; then exit 1; fi
+      - name: "12.2 — региональная геология нескольких seed"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_mineral_geology_12_smoke.gd \
+            2>&1 | tee /tmp/geology.log
+          grep -q "STAGE12-GEOLOGY: успешно" /tmp/geology.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/geology.log; then exit 1; fi
+      - name: "12.3 — реальные поставки, фундамент и дорога"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_resource_industry_12_smoke.gd \
+            2>&1 | tee /tmp/industry.log
+          grep -q "STAGE12-INDUSTRY: успешно" /tmp/industry.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/industry.log; then exit 1; fi

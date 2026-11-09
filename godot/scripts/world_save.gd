@@ -15,6 +15,7 @@ const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
+const Industry = preload("res://scripts/world_resource_industry.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -102,6 +103,13 @@ static func capture(state: Dictionary) -> Dictionary:
 		if economy.last_day != climate.day:
 			return {}
 		snapshot["economy"] = economy.to_data()
+	# Новый производственный склад необязателен для старых миров.
+	# Его время строго синхронно с климатом и физической экономикой.
+	var industry: RefCounted = state.get("industry")
+	if industry != null and industry.site.x >= 0:
+		if industry.last_day != climate.day:
+			return {}
+		snapshot["industry"] = industry.to_data()
 	return snapshot
 
 
@@ -174,12 +182,19 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("economy") and (not (snapshot["economy"] is Dictionary)
 			or not economy.load_data(snapshot["economy"], int(saved_day))):
 		return {}
+	# Новый склад может отсутствовать в ранних сохранениях, но при
+	# наличии должен пройти полную проверку до подмены моделей.
+	var industry := Industry.new(world, hydro, surface, nature,
+		resources, int(saved_day))
+	if snapshot.has("industry") and (not (snapshot["industry"] is Dictionary)
+			or not industry.load_data(snapshot["industry"], int(saved_day))):
+		return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
-		"economy": economy,
+		"economy": economy, "industry": industry,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)
