@@ -88,24 +88,27 @@ func _run() -> void:
 		if stage in ["complete", "failed"]:
 			break
 	_check(stage == "complete",
-		"Пожар, два кадра и восстановление завершились в реальной сцене")
+		"Пожар, выгорание, кадры и восстановление завершились в игровой сцене")
 	if stage != "complete":
 		_check(false, "Статус: " + str(view._fire_demo_status.text))
 	else:
-		_check(view._climate.day == initial_day + 1
+		_check(view._climate.day == initial_day + 2
 			and view._center.is_equal_approx(initial_center)
 			and is_equal_approx(view._camera.size, initial_zoom),
 			"До, после и после загрузки используют одну камеру")
 		_check(Demo.physical_equal(
-			view._fire_demo["after_snapshot"], Save.capture(view._storage_models())),
-			"Все физические состояния сохранились после фактической загрузки")
+			view._fire_demo["after_snapshot"], Save.capture(view._storage_models()))
+			and view._fire.scorched_count() >
+				int(view._fire_demo["scorched_before"]),
+			"Обожжённая почва и физические состояния восстановлены")
 		var folder := _output_folder()
 		_check(DirAccess.make_dir_recursive_absolute(folder) == OK,
 			"Создан каталог реальных кадров")
 		for item in [
 			{"path": Demo.BEFORE_PNG, "name": "01-before.png"},
-			{"path": Demo.AFTER_PNG, "name": "02-after.png"},
-			{"path": Demo.RESTORED_PNG, "name": "03-restored.png"}
+			{"path": Demo.IGNITION_PNG, "name": "02-ignition.png"},
+			{"path": Demo.AFTER_PNG, "name": "03-scorched.png"},
+			{"path": Demo.RESTORED_PNG, "name": "04-restored.png"}
 		]:
 			_export_capture(str(item["path"]),
 				folder.path_join(str(item["name"])))
@@ -121,7 +124,7 @@ func _run() -> void:
 			push_error("FIRE-DEMO-GL: " + failure)
 		quit(1)
 		return
-	print("FIRE-DEMO-GL: три реальных кадра, один ракурс и WorldSave — успешно")
+	print("FIRE-DEMO-GL: четыре реальных кадра, обожжённый грунт и WorldSave — успешно")
 	quit(0)
 
 
