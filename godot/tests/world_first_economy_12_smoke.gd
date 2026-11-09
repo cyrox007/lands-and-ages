@@ -148,6 +148,18 @@ func _test() -> bool:
             or restored.to_data() != saved:
         push_error("Повреждённый снимок изменил запасы")
         return false
+    invalid = saved.duplicate(true)
+    invalid["bricks"] = 999
+    if restored.load_data(invalid, economy.last_day) \
+            or restored.to_data() != saved:
+        push_error("Снимок разрешил подделку производственных запасов")
+        return false
+    invalid = saved.duplicate(true)
+    invalid["clay_id"] = "глина:1:1"
+    if restored.load_data(invalid, economy.last_day) \
+            or restored.to_data() != saved:
+        push_error("Снимок подменил географический источник сырья")
+        return false
     print("STAGE12-ECONOMY-REPORT: ", JSON.stringify({
         "site": [economy.site.x, economy.site.y],
         "days": economy.last_day - 1,
