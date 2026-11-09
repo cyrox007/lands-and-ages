@@ -40,6 +40,8 @@ const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
 const ResourceRecipes = preload("res://scripts/natural_resource_recipes.gd")
+const WildlifeHabitats = preload("res://scripts/wildlife_habitats.gd")
+const WildlifePopulations = preload("res://scripts/wildlife_populations.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
@@ -76,6 +78,9 @@ var _nature: RefCounted
 var _resources: RefCounted
 var _economy: RefCounted
 var _industry: RefCounted
+var _habitats: RefCounted
+var _fauna: RefCounted
+var _fauna_status: Label
 var _industry_status: Label
 var _industry_kind := "камень"
 var _industry_recipe := "тесать камень"
@@ -233,7 +238,13 @@ static func _generate_world_models() -> Dictionary:
 		resources, climate.day)
 	var industry := ResourceIndustry.new(world, hydro, surface, nature,
 		resources, climate.day)
-	return {"industry": industry, "economy": economy,
+	# Дикая фауна заселяет только физически пригодные ареалы
+	# после подготовки леса, климата и настоящих водоёмов.
+	var habitats := WildlifeHabitats.new(world, hydro, surface, climate, nature)
+	var fauna := WildlifePopulations.new(world, habitats)
+	fauna.generate()
+	return {"habitats": habitats, "fauna": fauna,
+		"industry": industry, "economy": economy,
 		"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
@@ -263,12 +274,17 @@ func _ready() -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
+	_habitats = models["habitats"]
+	_fauna = models["fauna"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
 	_natural_disasters = NaturalDisasters.new(_world_model, _hydro, _surface, _climate)
 	_weather_events = WeatherEvents.new(_world_model, _climate, _surface, _hydro)
 	_fire = Fire.new(_world_model, _hydro, _surface, _climate, _nature)
+	# Травяной покров реагирует на физически выгоревшие участки:
+	# следующая суточная оценка среды увидит настоящие следы огня.
+	_habitats.fire = _fire
 	_bind_nature_events()
 	_ensure_day_runner()
 	_last_completed_day = _climate.day
@@ -516,6 +532,11 @@ func _setup_interface() -> void:
 	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_showcase_text.text = "Лес · река · горы · побережье"
 	column.add_child(_showcase_text)
+	# Реальная численность агрегированных диких популяций.
+	# Отображение отдельных животных будет только в этапе 12.9.
+	_fauna_status = Label.new()
+	_fauna_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_fauna_status)
 	# Игрок может запустить настоящую цепочку из физического сырья.
 	# Работа идёт по календарю, а не по нажатию декоративной кнопки.
 	var economy_button := Button.new()
@@ -2223,7 +2244,7 @@ func _storage_models() -> Dictionary:
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
 		"resources": _resources, "economy": _economy,
-		"industry": _industry, "fire": _fire
+		"industry": _industry, "fauna": _fauna, "fire": _fire
 	}
 
 
@@ -2287,6 +2308,8 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
+	_habitats = models["habitats"]
+	_fauna = models["fauna"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2422,6 +2445,10 @@ func _complete_day(result: Dictionary) -> void:
 		if _economy.built and _industry.site.x < 0:
 			_industry.activate(_economy.site)
 		_industry.advance_day(_last_completed_day)
+	# Агрегированные популяции рассчитываются после завершения
+	# физического дня, не внутри рабочего потока и без Node3D.
+	if _fauna != null and _fauna.generated:
+		_fauna.advance_day(_last_completed_day)
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2699,6 +2726,11 @@ func _run_landscape_benchmark() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
+	if _fauna_status != null and _fauna != null:
+		var population: Dictionary = _fauna.by_species()
+		_fauna_status.text = "Дикая фауна: %s · особей %d · родилось %d · погибло %d · переселилось %d" % [
+			JSON.stringify(population), _fauna.total(), _fauna.last_births,
+			_fauna.last_deaths, _fauna.last_migrated]
 	if _industry_status != null and _industry != null:
 		if _industry.site.x < 0:
 			_industry_status.text = "Склад: нужен первый кирпичный цех"
