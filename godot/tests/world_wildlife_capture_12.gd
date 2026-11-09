@@ -19,9 +19,9 @@ func _capture() -> void:
 
     var camera := Camera3D.new()
     camera.position = Vector3(0.0, 2.9, 11.0)
-    camera.look_at(Vector3(0.0, 1.0, 0.0))
     camera.current = true
     stage.add_child(camera)
+    camera.look_at(Vector3(0.0, 1.0, 0.0))
 
     var sun := DirectionalLight3D.new()
     sun.rotation_degrees = Vector3(-42.0, -32.0, 0.0)
