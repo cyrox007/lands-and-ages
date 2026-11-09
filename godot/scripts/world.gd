@@ -41,6 +41,9 @@ const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
+const WildlifeHarvest = preload("res://scripts/wildlife_harvest.gd")
+const WildlifeDomestic = preload("res://scripts/wildlife_domestication.gd")
+const WildlifeAccess = preload("res://scripts/wildlife_region_access.gd")
 const ResourceRecipes = preload("res://scripts/natural_resource_recipes.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
@@ -80,6 +83,11 @@ var _economy: RefCounted
 var _industry: RefCounted
 var _wildlife: RefCounted
 var _food_web: RefCounted
+var _harvest: RefCounted
+var _domestic: RefCounted
+var _animal_status: Label
+var _hunt_species := "олень"
+var _capture_species := "корова"
 var _wildlife_status: Label
 var _industry_status: Label
 var _industry_kind := "камень"
@@ -246,7 +254,12 @@ static func _generate_world_models() -> Dictionary:
 	# реального источника добычи и появились бы фиктивные стаи.
 	var food_web := FoodWeb.new(world, climate, wildlife)
 	food_web.generate()
-	return {"food_web": food_web, "wildlife": wildlife, "industry": industry, "economy": economy,
+	# Охота и домашние линии не создают животных сами по себе:
+	# запуск требует реального источника и сухопутного маршрута.
+	var harvest := WildlifeHarvest.new(world, hydro, surface, climate, wildlife)
+	var domestic := WildlifeDomestic.new(world, hydro, surface, climate,
+		wildlife, food_web, harvest)
+	return {"harvest": harvest, "domestic": domestic, "food_web": food_web, "wildlife": wildlife, "industry": industry, "economy": economy,
 		"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
@@ -278,6 +291,8 @@ func _ready() -> void:
 	_industry = models["industry"]
 	_wildlife = models["wildlife"]
 	_food_web = models["food_web"]
+	_harvest = models["harvest"]
+	_domestic = models["domestic"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
@@ -706,6 +721,52 @@ func _setup_interface() -> void:
 	_wildlife_status = Label.new()
 	_wildlife_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_debug_details.add_child(_wildlife_status)
+	# Существующие стада — единственный источник добычи и предков.
+	# Выбор вида не создаёт животных и не обходит физику ареалов.
+	var hunt_menu := OptionButton.new()
+	var hunt_options := WildlifeHarvest.YIELDS.keys()
+	hunt_options.sort()
+	_hunt_species = str(hunt_options[0])
+	for kind in hunt_options:
+		hunt_menu.add_item(str(kind))
+	hunt_menu.item_selected.connect(func(i: int):
+		_hunt_species = str(hunt_options[i]))
+	_debug_details.add_child(hunt_menu)
+	var hunt_button := Button.new()
+	hunt_button.text = "Отправить охотника за выбранным видом"
+	hunt_button.pressed.connect(_order_hunting)
+	_debug_details.add_child(hunt_button)
+	var butcher_button := Button.new()
+	butcher_button.text = "Разделать одну доставленную тушу"
+	butcher_button.pressed.connect(_butcher_animal)
+	_debug_details.add_child(butcher_button)
+	var food_button := Button.new()
+	food_button.text = "Израсходовать 1 ед. мяса"
+	food_button.pressed.connect(_consume_animal_food)
+	_debug_details.add_child(food_button)
+	# Сырьё животного происхождения имеет действующие рецепты:
+	# без шкур, костей и перьев предметы не появляются.
+	for gear in WildlifeHarvest.GEAR:
+		var item_button := Button.new()
+		item_button.text = "Изготовить: " + str(gear)
+		item_button.pressed.connect(_craft_animal_gear.bind(str(gear)))
+		_debug_details.add_child(item_button)
+	var domestic_menu := OptionButton.new()
+	var domestic_options := WildlifeDomestic.LINEAGES.keys()
+	domestic_options.sort()
+	_capture_species = str(domestic_options[0])
+	for kind in domestic_options:
+		domestic_menu.add_item(str(kind))
+	domestic_menu.item_selected.connect(func(i: int):
+		_capture_species = str(domestic_options[i]))
+	_debug_details.add_child(domestic_menu)
+	var capture_button := Button.new()
+	capture_button.text = "Отловить до двух живых предков выбранного вида"
+	capture_button.pressed.connect(_order_capture)
+	_debug_details.add_child(capture_button)
+	_animal_status = Label.new()
+	_animal_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_details.add_child(_animal_status)
 	for button in _debug_details.get_children():
 		if button is Button:
 			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2234,6 +2295,97 @@ func _industry_research() -> void:
 	_update_hud()
 
 
+
+func _animal_actions_allowed() -> bool:
+	# Нельзя охотиться или отлавливать животных во время фонового
+	# изменения популяций, иначе возникнет гонка между потоками.
+	return _harvest != null and _domestic != null \
+		and _harvest.site.x >= 0 and _domestic.site.x >= 0 \
+		and _day_task_id < 0 and _days_pending == 0 \
+		and not _benchmark_running and not _fire_demo_active()
+
+
+func _find_animal_region(species: String, predators: bool) -> Vector2i:
+	# Выбираем ближайшую по реальному маршруту территорию
+	# с живыми животными, а не просто ближайшую по координатам.
+	var best := Vector2i(-1, -1)
+	var min_steps := 100000000
+	var size: Vector2i = _world_model.config.region_count()
+	for y in range(size.y):
+		for x in range(size.x):
+			var region := Vector2i(x, y)
+			var available: int = _food_web.count_at(region, species) \
+				if predators else _wildlife.population_at(region, species)
+			if available < 1:
+				continue
+			var route: Dictionary = WildlifeAccess.entry(
+				_world_model, _hydro, _surface, _harvest.site, region)
+			if route.is_empty() or int(route["steps"]) >= min_steps:
+				continue
+			best = region
+			min_steps = int(route["steps"])
+	return best
+
+
+func _order_hunting() -> void:
+	# Туша появится только после вычета дикого животного и
+	# обратного пути охотника до хозяйственной площадки.
+	if not _animal_actions_allowed():
+		_storage_status = "Сначала завершите мастерскую и расчёт дня"
+	else:
+		var region := _find_animal_region(_hunt_species, false)
+		if not _harvest.order_hunt(region, _hunt_species, 1):
+			_storage_status = "Не найден доступный живой источник: " + _hunt_species
+	_update_hud()
+
+
+func _butcher_animal() -> void:
+	# Разделываем только тушу из завершённого охотничьего рейса.
+	if not _animal_actions_allowed():
+		return
+	var carcasses: Dictionary = _harvest.summary()["carcasses"]
+	for species in carcasses:
+		if _harvest.butcher(str(species), 1):
+			break
+	_update_hud()
+
+
+func _consume_animal_food() -> void:
+	# Потребление уменьшает реальный склад, не выдавая новую еду.
+	if _animal_actions_allowed():
+		_harvest.consume_food(1)
+	_update_hud()
+
+
+func _craft_animal_gear(kind: String) -> void:
+	# Используем физические продукты из доставленных туш;
+	# готовое снаряжение затем меняет поведение охотников.
+	if not _animal_actions_allowed():
+		_storage_status = "Нужен действующий охотничий участок"
+	elif not _harvest.craft_tool(kind):
+		_storage_status = "Не хватает материалов или предмет уже готов: " + kind
+	_update_hud()
+
+
+func _order_capture() -> void:
+	# Отлов не создаёт домашнего животного мгновенно: сперва
+	# доставляются дикие основатели, затем требуются поколения.
+	if not _animal_actions_allowed():
+		_storage_status = "Для отлова нужен действующий природный участок"
+		_update_hud()
+		return
+	var rule: Dictionary = WildlifeDomestic.LINEAGES[_capture_species]
+	var region := _find_animal_region(
+		str(rule["ancestor"]), bool(rule["predator"]))
+	var source_count: int = _food_web.count_at(
+		region, str(rule["ancestor"])) if bool(rule["predator"]) \
+		else _wildlife.population_at(region, str(rule["ancestor"]))
+	var amount := mini(2, source_count)
+	if not _domestic.order_capture(region, _capture_species, amount):
+		_storage_status = "Нет доступных диких предков: " + _capture_species
+	_update_hud()
+
+
 func _storage_models() -> Dictionary:
 	return {
 		"world": _world_model, "hydro": _hydro,
@@ -2242,7 +2394,8 @@ func _storage_models() -> Dictionary:
 		"disasters": _natural_disasters, "nature": _nature,
 		"resources": _resources, "economy": _economy,
 		"industry": _industry, "wildlife": _wildlife,
-		"food_web": _food_web, "fire": _fire
+		"food_web": _food_web, "harvest": _harvest,
+		"domestic": _domestic, "fire": _fire
 	}
 
 
@@ -2308,6 +2461,8 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_industry = models["industry"]
 	_wildlife = models["wildlife"]
 	_food_web = models["food_web"]
+	_harvest = models["harvest"]
+	_domestic = models["domestic"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2451,6 +2606,19 @@ func _complete_day(result: Dictionary) -> void:
 	# после размножения и миграции травоядных в этом же дне.
 	if _food_web != null and _food_web.generated:
 		_food_web.advance_day(_last_completed_day, result["hazards"])
+	# Отлов и охота обновляются лишь после природного дня и охоты
+	# хищников. При постройке цеха животных не выдаём.
+	if _economy != null and _economy.built \
+			and _wildlife != null and _wildlife.generated \
+			and _food_web != null and _food_web.generated:
+		if _harvest != null and _harvest.site.x < 0:
+			_harvest.activate(_economy.site)
+		if _domestic != null and _domestic.site.x < 0:
+			_domestic.activate(_economy.site)
+	if _harvest != null:
+		_harvest.advance_day(_last_completed_day)
+	if _domestic != null:
+		_domestic.advance_day(_last_completed_day)
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2728,6 +2896,13 @@ func _run_landscape_benchmark() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
+	if _animal_status != null and _harvest != null and _domestic != null:
+		var hunt: Dictionary = _harvest.summary()
+		var farm: Dictionary = _domestic.summary()
+		_animal_status.text = "Охота: %s · туши: %s · продукты: %s\nПредки и потомство: %s" % [
+			str(hunt["event"]), JSON.stringify(hunt["carcasses"]),
+			JSON.stringify(hunt["products"]), JSON.stringify(farm["herds"])]
+		_animal_status.text += "\nСнаряжение: " + JSON.stringify(hunt["equipment"])
 	if _wildlife_status != null and _wildlife != null:
 		var fauna: Dictionary = _wildlife.summary()
 		_wildlife_status.text = "Дикие животные · %s · события %s" % [

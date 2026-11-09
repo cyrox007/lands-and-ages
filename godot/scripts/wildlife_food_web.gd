@@ -14,7 +14,9 @@ const SPECIES := {
     "волк": {"prey": ["олень", "кабан", "заяц"],
         "need": 3, "birth": 0.10, "death": 0.035},
     "лиса": {"prey": ["заяц"],
-        "need": 2, "birth": 0.16, "death": 0.045}
+        "need": 2, "birth": 0.16, "death": 0.045},
+    "дикая кошка": {"prey": ["заяц"],
+        "need": 2, "birth": 0.13, "death": 0.035}
 }
 
 var world: RefCounted
@@ -66,6 +68,8 @@ func _limit(region: Vector2i, kind: String) -> int:
         return mini(MAX_PER_REGION, (deer * 2 + boar * 2 + hare) / 14)
     if kind == "лиса":
         return mini(MAX_PER_REGION, hare / 7)
+    if kind == "дикая кошка":
+        return mini(MAX_PER_REGION, hare / 9)
     return 0
 
 
@@ -107,6 +111,23 @@ func total(kind: String = "") -> int:
             if kind.is_empty() or animal == kind:
                 sum += count_at(region, animal)
     return sum
+
+
+func capture_predators(region: Vector2i, kind: String,
+        amount: int) -> bool:
+    # Отлов волков и диких кошек отнимает реальные особи из стаи.
+    # Пустой ареал не является бесплатным источником собак и кошек.
+    if not generated or not SPECIES.has(kind) or amount < 1 \
+            or count_at(region, kind) < amount:
+        return false
+    var key := _key(region, kind)
+    var remaining := count_at(region, kind) - amount
+    if remaining == 0:
+        _packs.erase(key)
+    else:
+        _packs[key] = remaining
+    revision += 1
+    return true
 
 
 func _feed(region: Vector2i, kind: String, amount: int) -> int:

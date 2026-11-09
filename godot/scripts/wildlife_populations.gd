@@ -19,7 +19,10 @@ const DIRECTIONS := [
 const SPECIES := {
     "олень": {"space": 0.38, "birth": 0.11, "mortality": 0.018},
     "заяц": {"space": 0.90, "birth": 0.24, "mortality": 0.045},
-    "кабан": {"space": 0.32, "birth": 0.13, "mortality": 0.025}
+    "кабан": {"space": 0.32, "birth": 0.13, "mortality": 0.025},
+    "тур": {"space": 0.30, "birth": 0.10, "mortality": 0.025},
+    "дикая курица": {"space": 0.65, "birth": 0.20, "mortality": 0.055},
+    "дикий гусь": {"space": 0.38, "birth": 0.16, "mortality": 0.035}
 }
 
 var world: RefCounted
