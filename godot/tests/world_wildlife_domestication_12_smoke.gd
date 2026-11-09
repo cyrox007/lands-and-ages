@@ -96,7 +96,7 @@ func _target(state: Dictionary, kind: String) -> Dictionary:
             var n: int = source.count_at(region, rule["ancestor"]) \
                 if rule["predator"] else source.population_at(
                     region, rule["ancestor"])
-            if n < 2:
+            if n < 1:
                 continue
             var route: Dictionary = Access.entry(state["world"], state["hydro"],
                 state["surface"], state["domestic"].site, region)
@@ -133,46 +133,54 @@ func _check() -> bool:
 
     var origins := {}
     for kind in Domestic.LINEAGES:
-        var place: Dictionary = _target(state, kind)
-        if place.is_empty():
-            push_error("Не найден реальный предок: " + kind)
-            return false
         var rule: Dictionary = Domestic.LINEAGES[kind]
         var source: RefCounted = state["food_web"] \
             if rule["predator"] else state["wildlife"]
-        var region: Vector2i = place["region"]
         var ancestor: String = str(rule["ancestor"])
-        var initial: int = source.count_at(region, ancestor) \
-            if rule["predator"] else source.population_at(region, ancestor)
-        if not farm.order_capture(region, kind, 2):
-            push_error("Нельзя начать отлов: " + kind)
-            return false
-        if farm.total(kind) != 0:
-            push_error("Предки появились до приезда отловщика")
-            return false
-        var taken := 0
-        var finished := false
-        for step in range(140):
-            var before: int = source.count_at(region, ancestor) \
-                if rule["predator"] else source.population_at(region, ancestor)
-            if not _tick(state):
-                return false
-            var after: int = source.count_at(region, ancestor) \
-                if rule["predator"] else source.population_at(region, ancestor)
-            taken += before - after
-            if farm.summary()["pending"].is_empty():
-                finished = true
+        var total_taken := 0
+        var capture_sources: Array = []
+        # У мелких стай может быть лишь один волк или одна дикая
+        # кошка. Двух родителей допустимо собрать из разных ареалов.
+        for expedition in range(4):
+            if total_taken >= 2:
                 break
+            var place: Dictionary = _target(state, kind)
+            if place.is_empty():
+                break
+            var region: Vector2i = place["region"]
+            var initial: int = source.count_at(region, ancestor) \
+                if rule["predator"] else source.population_at(region, ancestor)
+            var amount := mini(2 - total_taken, initial)
+            if not farm.order_capture(region, kind, amount):
+                push_error("Нельзя начать настоящий отлов: " + kind)
+                return false
+            var taken := 0
+            var finished := false
+            for step in range(140):
+                var before: int = source.count_at(region, ancestor) \
+                    if rule["predator"] else source.population_at(region, ancestor)
+                if not _tick(state):
+                    return false
+                var after: int = source.count_at(region, ancestor) \
+                    if rule["predator"] else source.population_at(region, ancestor)
+                taken += before - after
+                if farm.summary()["pending"].is_empty():
+                    finished = true
+                    break
+            if not finished or taken != amount:
+                push_error("Отлов не списал реальных предков: " + kind)
+                return false
+            total_taken += taken
+            capture_sources.append([region.x, region.y, taken])
         var record: Dictionary = farm.summary()["herds"].get(kind, {})
-        var final_count: int = source.count_at(region, ancestor) \
-            if rule["predator"] else source.population_at(region, ancestor)
-        if not finished or taken != 2 or initial - final_count != 2 \
-                or record.is_empty() or int(record["founders"]) != 2 \
-                or record["ancestors"] != [ancestor]:
-            push_error("Не сохранён исходный предок: " + kind)
+        if total_taken != 2 or record.is_empty() \
+                or int(record["founders"]) != 2 \
+                or record["ancestors"] != [ancestor] \
+                or record["origin"] != capture_sources:
+            push_error("Не хватает пары живых предков: " + kind)
             return false
-        origins[kind] = {"region": [region.x, region.y],
-            "ancestor": ancestor, "captured": taken}
+        origins[kind] = {"sources": capture_sources,
+            "ancestor": ancestor, "captured": total_taken}
 
     # Сохранение должно содержать происхождение всех пяти линий.
     # Поддельная домашняя собака из оленя не может пройти импорт.
