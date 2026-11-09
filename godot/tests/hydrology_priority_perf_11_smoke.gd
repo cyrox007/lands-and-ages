@@ -24,6 +24,15 @@ func _check(ok: bool, reason: String) -> void:
 		failures.append(reason)
 
 
+func _bytes(value: Variant) -> PackedByteArray:
+	# PackedByteArray уже является сырой последовательностью байтов;
+	# остальные упакованные массивы переводятся в их собственный
+	# двоичный формат, включая NaN и точные биты float32.
+	if value is PackedByteArray:
+		return value
+	return value.to_byte_array()
+
+
 func _compare(old: RefCounted, current: RefCounted, stage: String) -> void:
 	# Байтовое равенство не путает NaN сухой клетки с NaN
 	# другого участка и проверяет точные float32 уровни,
@@ -33,7 +42,7 @@ func _compare(old: RefCounted, current: RefCounted, stage: String) -> void:
 			"_ocean", "_lake", "_river", "_flood", "_water_level", "_wetness"]:
 		var a: Variant = old.get(field)
 		var b: Variant = current.get(field)
-		_check(a.to_byte_array() == b.to_byte_array(),
+		_check(_bytes(a) == _bytes(b),
 			"Поле %s идентично: %s" % [field, stage])
 	_check(old._summary == current._summary, "Количество воды: " + stage)
 	_check(old.to_snapshot() == current.to_snapshot(),
@@ -146,8 +155,8 @@ func _run() -> void:
 		for field in ["_spill", "_downstream", "_outlet", "_rank",
 				"_catchment", "_discharge", "_lake", "_river", "_ocean",
 				"_flood", "_water_level", "_wetness"]:
-			_check(current.get(field).to_byte_array()
-				== fresh.get(field).to_byte_array(),
+			_check(_bytes(current.get(field))
+				== _bytes(fresh.get(field)),
 				"Глобальная контрольная перестройка: " + field)
 
 	var ratio := float(new_us) / float(maxi(1, old_us))
