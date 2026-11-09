@@ -101,7 +101,7 @@ func _check() -> bool:
     var born := 0
     var died := 0
     var moved := 0
-    var previous_total := wildlife.total()
+    var previous_total: int = wildlife.total()
     for day in range(2, DAYS + 1):
         # Двадцатый день проверен отдельно после загрузки снимка.
         if day == 20:
