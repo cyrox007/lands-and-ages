@@ -761,7 +761,7 @@ func _setup_interface() -> void:
 		_capture_species = str(domestic_options[i]))
 	_debug_details.add_child(domestic_menu)
 	var capture_button := Button.new()
-	capture_button.text = "Отловить двух диких предков выбранного вида"
+	capture_button.text = "Отловить до двух живых предков выбранного вида"
 	capture_button.pressed.connect(_order_capture)
 	_debug_details.add_child(capture_button)
 	_animal_status = Label.new()
@@ -2377,7 +2377,11 @@ func _order_capture() -> void:
 	var rule: Dictionary = WildlifeDomestic.LINEAGES[_capture_species]
 	var region := _find_animal_region(
 		str(rule["ancestor"]), bool(rule["predator"]))
-	if not _domestic.order_capture(region, _capture_species, 2):
+	var source_count: int = _food_web.count_at(
+		region, str(rule["ancestor"])) if bool(rule["predator"]) \
+		else _wildlife.population_at(region, str(rule["ancestor"]))
+	var amount := mini(2, source_count)
+	if not _domestic.order_capture(region, _capture_species, amount):
 		_storage_status = "Нет доступных диких предков: " + _capture_species
 	_update_hud()
 
