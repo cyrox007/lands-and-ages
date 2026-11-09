@@ -16,6 +16,7 @@ const Natural = preload("res://scripts/natural_processes.gd")
 const Disasters = preload("res://scripts/natural_disasters.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const Save = preload("res://scripts/world_save.gd")
+const Runner = preload("res://scripts/world_day_runner.gd")
 
 
 func _initialize() -> void:
@@ -48,13 +49,16 @@ func _test() -> bool:
         return false
 
     # В сохранение входят незавершённая работа и точные запасы.
+    var weather = Weather.new(world, climate, surface, hydro)
+    var natural = Natural.new(world, hydro, surface, climate)
+    var disasters = Disasters.new(world, hydro, surface, climate)
+    var fire = Fire.new(world, hydro, surface, climate, nature)
+    var runner = Runner.new(world, hydro, surface, climate,
+        weather, natural, disasters, nature, fire)
     var state := {
         "world": world, "hydro": hydro, "surface": surface,
-        "climate": climate,
-        "weather": Weather.new(world, climate, surface, hydro),
-        "natural": Natural.new(world, hydro, surface, climate),
-        "disasters": Disasters.new(world, hydro, surface, climate),
-        "nature": nature, "fire": Fire.new(world, hydro, surface, climate, nature),
+        "climate": climate, "weather": weather, "natural": natural,
+        "disasters": disasters, "nature": nature, "fire": fire,
         "resources": deposits, "economy": economy
     }
     var initial: Dictionary = Save.capture(state)
@@ -74,7 +78,13 @@ func _test() -> bool:
     var phases := {}
     var finished := false
     for day in range(2, 90):
-        economy.advance_day(day)
+        # Настоящий природный день изменяет лес, климат, воду и пожары.
+        # Хозяйство начинает работу только после завершения фоновой физики.
+        runner.run_day()
+        if climate.day != day:
+            push_error("Природный календарь разошёлся с хозяйственным")
+            return false
+        economy.advance_day(climate.day)
         phases[economy.phase] = true
         if economy.phase == "приостановлено":
             push_error("Заказ остановился: " + economy.last_event)
@@ -106,6 +116,17 @@ func _test() -> bool:
 
     # Воссоздание из снимка не должно сбрасывать построенный объект.
     var saved: Dictionary = economy.to_data()
+    var final_snapshot: Dictionary = Save.capture(state)
+    if final_snapshot.is_empty() or not final_snapshot.has("economy"):
+        push_error("Построенная мастерская не сохраняется в WorldSave")
+        return false
+    var final_world: Dictionary = Save.restore(final_snapshot)
+    if final_world.is_empty() \
+            or final_world["economy"].to_data() != saved \
+            or final_world["resources"].to_data() != deposits.to_data() \
+            or final_world["nature"].wood_total() != nature.wood_total():
+        push_error("Физические запасы изменились при восстановлении мира")
+        return false
     var restored = Economy.new(world, hydro, surface, nature, deposits,
         economy.last_day)
     if not restored.load_data(saved, economy.last_day) \
