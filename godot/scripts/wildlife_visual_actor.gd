@@ -69,7 +69,13 @@ func configure(species_name: String, scene: PackedScene,
             highest = maxf(highest, height)
     if is_finite(highest - lowest) and highest - lowest > 0.001:
         _visual.scale *= target_height / (highest - lowest)
-    _packed = source == "Gobkit"
+    # Старый FBX-конвертер Gobkit сохраняет меш в сантиметрах
+    # с масштабом узла 100. В Godot его Skin после импортирования
+    # дополнительно усиливает перемещения костей; ограничиваем
+    # визуальный масштаб, не вмешиваясь в настоящий Skeleton3D.
+    if source == "Gobkit":
+        _visual.scale *= 0.04
+    # Gobkit уже предоставляет отдельные клипы idle/attack/dead/walk.\n    # Не перематываем idle как будто это единая длинная дорожка.\n    _packed = false
     _master = str(_player.get_animation_list()[0])
     _player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
     set_motion("покой")
@@ -92,7 +98,7 @@ func set_motion(next: String) -> void:
         _player.pause()
         return
     var target: Array = {"покой": ["idle"], "ходьба": ["walk", "gallop"],
-        "атака": ["attack", "bite"], "смерть": ["death", "die"]}[action]
+        "атака": ["attack", "bite"], "смерть": ["death", "dead", "die"]}[action]
     var selection := ""
     for name in _player.get_animation_list():
         for word in target:
