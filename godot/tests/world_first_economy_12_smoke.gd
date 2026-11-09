@@ -73,7 +73,7 @@ func _test() -> bool:
     # Отмечаем физическое количество сырья до первого рабочего дня.
     var original: Dictionary = deposits.source_at("глина", economy.clay_cell)
     var clay_before: int = int(original["remaining_units"])
-    var wood_before: int = nature.wood_total()
+    var confirmed_wood_spent := 0
     var position_before: Vector2i = economy.worker
     var phases := {}
     var finished := false
@@ -84,7 +84,16 @@ func _test() -> bool:
         if climate.day != day:
             push_error("Природный календарь разошёлся с хозяйственным")
             return false
+        # Списания проверяем между началом и концом операции работника:
+        # глобальный лес за сутки может естественно вырасти или погибнуть.
+        var previous_phase: String = economy.phase
+        var wood_at_operation: int = nature.wood_total()
         economy.advance_day(climate.day)
+        if previous_phase == "рубка" and economy.phase == "назад_с_древесиной":
+            if nature.wood_total() != wood_at_operation - Economy.FUEL_UNITS:
+                push_error("Рубка нарушила сохранение физического запаса дерева")
+                return false
+            confirmed_wood_spent += Economy.FUEL_UNITS
         phases[economy.phase] = true
         if economy.phase == "приостановлено":
             push_error("Заказ остановился: " + economy.last_event)
@@ -103,8 +112,8 @@ func _test() -> bool:
             != clay_before - Economy.CLAY_UNITS:
         push_error("Добытая глина не вычтена из месторождения")
         return false
-    if nature.wood_total() != wood_before - Economy.FUEL_UNITS:
-        push_error("Древесина продублирована или не потрачена")
+    if confirmed_wood_spent != Economy.FUEL_UNITS:
+        push_error("Не было подтверждённого списания древесины")
         return false
     var end: Dictionary = economy.summary()
     if int(end["stored_clay"]) != 0 or int(end["stored_wood"]) != 0 \
@@ -144,7 +153,7 @@ func _test() -> bool:
         "days": economy.last_day - 1,
         "clay_spent": clay_before -
             int(deposits.source_at("глина", economy.clay_cell)["remaining_units"]),
-        "wood_spent": wood_before - nature.wood_total(),
+        "wood_spent": confirmed_wood_spent,
         "building": economy.built, "phases": phases.keys()
     }))
     return true
