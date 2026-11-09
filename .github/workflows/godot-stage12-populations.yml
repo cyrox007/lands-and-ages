@@ -1,0 +1,41 @@
+name: "12.5 — популяции, размножение и миграции"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/wildlife_populations.gd"
+      - "godot/scripts/wildlife_habitats.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/tests/world_wildlife_populations_12_smoke.gd"
+      - ".github/workflows/godot-stage12-populations.yml"
+  workflow_dispatch:
+
+jobs:
+  populations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Проверить импорт Godot и GDScript"
+        run: |
+          set -o pipefail
+          timeout 160s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "12.5 — реальный календарь, животные и WorldSave"
+        run: |
+          set -o pipefail
+          timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_populations_12_smoke.gd \
+            2>&1 | tee /tmp/populations.log
+          grep -q "STAGE12-POPULATIONS: успешно" /tmp/populations.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/populations.log; then exit 1; fi

@@ -16,6 +16,7 @@ const Fire = preload("res://scripts/fire_registry.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
+const Wildlife = preload("res://scripts/wildlife_populations.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -110,6 +111,13 @@ static func capture(state: Dictionary) -> Dictionary:
 		if industry.last_day != climate.day:
 			return {}
 		snapshot["industry"] = industry.to_data()
+	# Дикие популяции добавляются в снимок только после реальной
+	# генерации и обработки того же климатического дня.
+	var wildlife: RefCounted = state.get("wildlife")
+	if wildlife != null and wildlife.generated:
+		if wildlife.last_day != climate.day:
+			return {}
+		snapshot["wildlife"] = wildlife.to_data()
 	return snapshot
 
 
@@ -189,12 +197,18 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("industry") and (not (snapshot["industry"] is Dictionary)
 			or not industry.load_data(snapshot["industry"], int(saved_day))):
 		return {}
+	# Старое сохранение остаётся доступно без автоматического
+	# появления животных. Существующий реестр читается атомарно.
+	var wildlife := Wildlife.new(world, hydro, surface, climate, nature)
+	if snapshot.has("wildlife") and (not (snapshot["wildlife"] is Dictionary)
+			or not wildlife.load_data(snapshot["wildlife"])):
+		return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
-		"economy": economy, "industry": industry,
+		"economy": economy, "industry": industry, "wildlife": wildlife,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)

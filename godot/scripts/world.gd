@@ -39,6 +39,7 @@ const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
+const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const ResourceRecipes = preload("res://scripts/natural_resource_recipes.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
@@ -76,6 +77,8 @@ var _nature: RefCounted
 var _resources: RefCounted
 var _economy: RefCounted
 var _industry: RefCounted
+var _wildlife: RefCounted
+var _wildlife_status: Label
 var _industry_status: Label
 var _industry_kind := "камень"
 var _industry_recipe := "тесать камень"
@@ -233,7 +236,11 @@ static func _generate_world_models() -> Dictionary:
 		resources, climate.day)
 	var industry := ResourceIndustry.new(world, hydro, surface, nature,
 		resources, climate.day)
-	return {"industry": industry, "economy": economy,
+	# Фауна формируется лишь в биотопах с доказанным кормом, водой
+	# и укрытием. Не создаём Node3D для каждого животного.
+	var wildlife := Wildlife.new(world, hydro, surface, climate, nature)
+	wildlife.generate()
+	return {"wildlife": wildlife, "industry": industry, "economy": economy,
 		"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
@@ -263,6 +270,7 @@ func _ready() -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
+	_wildlife = models["wildlife"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
@@ -688,6 +696,9 @@ func _setup_interface() -> void:
 	_industry_status = Label.new()
 	_industry_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_debug_details.add_child(_industry_status)
+	_wildlife_status = Label.new()
+	_wildlife_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_details.add_child(_wildlife_status)
 	for button in _debug_details.get_children():
 		if button is Button:
 			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2223,7 +2234,7 @@ func _storage_models() -> Dictionary:
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
 		"resources": _resources, "economy": _economy,
-		"industry": _industry, "fire": _fire
+		"industry": _industry, "wildlife": _wildlife, "fire": _fire
 	}
 
 
@@ -2287,6 +2298,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
+	_wildlife = models["wildlife"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2422,6 +2434,10 @@ func _complete_day(result: Dictionary) -> void:
 		if _economy.built and _industry.site.x < 0:
 			_industry.activate(_economy.site)
 		_industry.advance_day(_last_completed_day)
+	# Популяции пересчитываются после полной природной физики суток:
+	# они получают фактический снег, паводки и состояние растительности.
+	if _wildlife != null and _wildlife.generated:
+		_wildlife.advance_day(_last_completed_day)
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2699,6 +2715,10 @@ func _run_landscape_benchmark() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
+	if _wildlife_status != null and _wildlife != null:
+		var fauna: Dictionary = _wildlife.summary()
+		_wildlife_status.text = "Дикие животные · %s · события %s" % [
+			JSON.stringify(fauna["population"]), JSON.stringify(fauna["events"])]
 	if _industry_status != null and _industry != null:
 		if _industry.site.x < 0:
 			_industry_status.text = "Склад: нужен первый кирпичный цех"
