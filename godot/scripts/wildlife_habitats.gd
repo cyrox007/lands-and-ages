@@ -173,6 +173,46 @@ func zone(region: Vector2i) -> Dictionary:
     return (_zones.get("%d:%d" % [region.x, region.y], {}) as Dictionary).duplicate(true)
 
 
+func _land_corridor(cell: Vector2i) -> bool:
+    # Сухопутный переход существует только на реальной поверхности,
+    # а не на карте абстрактных соседних регионов.
+    if not world.config.contains_cell(cell):
+        return false
+    var i: int = cell.y * world.config.width + cell.x
+    return not hydro.has_water(i) and not hydro.flooded_at(i) \
+        and world.normal_at(cell).y >= 0.65 \
+        and surface.waterlogging_at_index(i) <= 0.85
+
+
+func connected_regions(from: Vector2i, to: Vector2i) -> bool:
+    # Миграция разрешена только через общую сухую границу.
+    # Стена гор, паводок или непрерывная река не создают телепортов.
+    var difference: Vector2i = to - from
+    if absi(difference.x) + absi(difference.y) != 1:
+        return false
+    var a: Rect2i = world.config.region_rect(from)
+    var b: Rect2i = world.config.region_rect(to)
+    if a.size.x <= 0 or a.size.y <= 0 or b.size.x <= 0 or b.size.y <= 0:
+        return false
+    if difference.x != 0:
+        var y_start := maxi(a.position.y, b.position.y)
+        var y_end := mini(a.end.y, b.end.y)
+        var left := a.end.x - 1 if difference.x > 0 else b.end.x - 1
+        for y in range(y_start, y_end):
+            if _land_corridor(Vector2i(left, y)) \
+                    and _land_corridor(Vector2i(left + 1, y)):
+                return true
+        return false
+    var x_start := maxi(a.position.x, b.position.x)
+    var x_end := mini(a.end.x, b.end.x)
+    var top := a.end.y - 1 if difference.y > 0 else b.end.y - 1
+    for x in range(x_start, x_end):
+        if _land_corridor(Vector2i(x, top)) \
+                and _land_corridor(Vector2i(x, top + 1)):
+            return true
+    return false
+
+
 func to_data() -> Dictionary:
     # Среда полностью производна от физических моделей; в сохранении
     # достаточно дня и версии, сами зоны пересчитываются при загрузке.
