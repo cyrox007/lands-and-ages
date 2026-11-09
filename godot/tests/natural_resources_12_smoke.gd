@@ -5,6 +5,7 @@ const Config = preload("res://scripts/world_config.gd")
 const Map = preload("res://scripts/world_map.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Generation = preload("res://scripts/natural_resource_generation.gd")
+const Uses = preload("res://scripts/natural_resource_uses.gd")
 const Hydro = preload("res://scripts/hydrology.gd")
 const Surface = preload("res://scripts/surface.gd")
 
@@ -48,6 +49,17 @@ func _check() -> bool:
     var copy: Dictionary = restored.source_at("порода", cell)
     copy["remaining_units"] = 999
     if int(restored.source_at("порода", cell)["remaining_units"]) != 0:
+        return false
+    # Новые виды сырья нельзя добавлять без полезного назначения.
+    # Проверяется связь с конечными потребностями через переработку.
+    var kinds: Array = ["древесина"]
+    for rule in Generation.MATERIALS:
+        kinds.append(rule["kind"])
+    for rule in Generation.MINERALS:
+        kinds.append(rule["kind"])
+    if not Uses.unused_sources(kinds).is_empty():
+        return false
+    if Uses.unused_sources(["несуществующее сырьё"]) != ["несуществующее сырьё"]:
         return false
     # Два независимых прохода по одной географии должны дать одинаковые залежи.
     var water = Hydro.new(world)
