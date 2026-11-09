@@ -223,6 +223,23 @@ func construct(consumer_id: String) -> bool:
     return true
 
 
+func research_next() -> bool:
+    # Новые технологии не появляются от кнопки: для развития цеха
+    # требуется уже изготовленная продукция предыдущего уровня.
+    var cost := {}
+    if technology == 0:
+        cost = {"каменные блоки": 2, "обожжённый кирпич": 3}
+    elif technology == 1:
+        cost = {"железо": 2, "медь": 2}
+    else:
+        return false
+    if not _consume(cost):
+        return false
+    technology += 1
+    last_event = "Открыта производственная технология %d" % technology
+    return true
+
+
 func state() -> Dictionary:
     # UI и тесты получают копию, а не изменяемый склад с возможностью
     # неучтённого добавления товара.
