@@ -79,31 +79,52 @@ func _precedes(a: int, b: int) -> bool:
 
 
 func _push(index: int) -> void:
+	# При вставке узла его уровень Priority-Flood неизменен.
+	# Кешируем уровень единожды, вместо вызова _precedes
+	# на каждом шаге подъёма в дереве очереди.
 	_heap.append(index)
 	var pos := _heap.size() - 1
+	var priority: float = _spill[index]
 	while pos > 0:
-		var parent := int(float(pos - 1) / 2.0)
-		if not _precedes(index, _heap[parent]):
+		var parent := int((pos - 1) / 2)
+		var other: int = _heap[parent]
+		var other_priority: float = _spill[other]
+		# При совпадении высот порядок должен остаться прежним:
+		# меньший индекс извлекается первым, сохраняя сток и озёра.
+		if priority > other_priority or (priority == other_priority and index >= other):
 			break
-		_heap[pos] = _heap[parent]
+		_heap[pos] = other
 		pos = parent
 	_heap[pos] = index
 
 
 func _pop() -> int:
+	# Узел в корне имеет минимальный уровень перелива.
+	# Последний элемент поднимается по дереву с одним
+	# чтением своей высоты, а не с повторными вызовами функций.
 	var first := _heap[0]
 	var last: int = _heap.pop_back()
 	if _heap.is_empty():
 		return first
+	var priority: float = _spill[last]
 	var pos := 0
 	var count := _heap.size()
 	while 2 * pos + 1 < count:
 		var child := 2 * pos + 1
-		if child + 1 < count and _precedes(_heap[child + 1], _heap[child]):
-			child += 1
-		if not _precedes(_heap[child], last):
+		var selected: int = _heap[child]
+		var selected_priority: float = _spill[selected]
+		if child + 1 < count:
+			var sibling: int = _heap[child + 1]
+			var sibling_priority: float = _spill[sibling]
+			if sibling_priority < selected_priority or (sibling_priority == selected_priority and sibling < selected):
+				child += 1
+				selected = sibling
+				selected_priority = sibling_priority
+		# Полный порядок остаётся (перелив, индекс клетки).
+		# Это гарантирует прежнее направление стока на плато.
+		if priority < selected_priority or (priority == selected_priority and last < selected):
 			break
-		_heap[pos] = _heap[child]
+		_heap[pos] = selected
 		pos = child
 	_heap[pos] = last
 	return first
