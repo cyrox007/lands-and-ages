@@ -4,6 +4,9 @@ extends SceneTree
 const Config = preload("res://scripts/world_config.gd")
 const Map = preload("res://scripts/world_map.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
+const Generation = preload("res://scripts/natural_resource_generation.gd")
+const Hydro = preload("res://scripts/hydrology.gd")
+const Surface = preload("res://scripts/surface.gd")
 
 func _initialize() -> void:
     # Ошибки отражаются кодом возврата CI, а не только текстом журнала.
@@ -44,4 +47,33 @@ func _check() -> bool:
         return false
     var copy: Dictionary = restored.source_at("порода", cell)
     copy["remaining_units"] = 999
-    return int(restored.source_at("порода", cell)["remaining_units"]) == 0
+    if int(restored.source_at("порода", cell)["remaining_units"]) != 0:
+        return false
+    # Два независимых прохода по одной географии должны дать одинаковые залежи.
+    var water = Hydro.new(world)
+    var ground = Surface.new(world, water)
+    var generated_a = Resources.new(world)
+    var generated_b = Resources.new(world)
+    var report_a: Dictionary = Generation.populate(world, water, ground, generated_a)
+    var report_b: Dictionary = Generation.populate(world, water, ground, generated_b)
+    if report_a != report_b or generated_a.to_data() != generated_b.to_data():
+        return false
+    if int(report_a["sampled_regions"]) <= 0:
+        return false
+    # Каждое месторождение должно соответствовать настоящему грунту.
+    for item in generated_a.to_data()["sources"]:
+        var position := Vector2i(int(item["x"]), int(item["y"]))
+        var profile: Dictionary = ground.profile_at(position)
+        var kind: String = item["kind"]
+        var substrate: String = profile["substrate"]
+        if kind == "камень" and substrate not in ["скала", "щебень"]:
+            return false
+        if kind == "щебень" and substrate not in ["скала", "щебень"]:
+            return false
+        if kind == "песок" and substrate != "песок":
+            return false
+        if kind == "глина" and substrate != "глина":
+            return false
+        if water.has_water(position.y * world.config.width + position.x):
+            return false
+    return true
