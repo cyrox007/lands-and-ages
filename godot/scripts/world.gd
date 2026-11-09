@@ -40,6 +40,7 @@ const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
+const WildlifeVisuals = preload("res://scripts/wildlife_visuals.gd")
 const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 const WildlifeHarvest = preload("res://scripts/wildlife_harvest.gd")
 const WildlifeDomestic = preload("res://scripts/wildlife_domestication.gd")
@@ -83,6 +84,7 @@ var _economy: RefCounted
 var _industry: RefCounted
 var _wildlife: RefCounted
 var _food_web: RefCounted
+var _wildlife_visuals
 var _harvest: RefCounted
 var _domestic: RefCounted
 var _animal_status: Label
@@ -315,6 +317,13 @@ func _ready() -> void:
 	_camera.size = 66.0
 	_camera.current = true
 	add_child(_camera)
+	# Графика животных существует только около камеры. Её создание
+	# не прибавляет особей и не вмешивается в физический календарь.
+	_wildlife_visuals = WildlifeVisuals.new()
+	_wildlife_visuals.name = "Видимые настоящие животные"
+	add_child(_wildlife_visuals)
+	_wildlife_visuals.configure(_world_model, _hydro, _surface,
+		_wildlife, _food_web)
 	_update_material_detail()
 	_update_camera()
 	if stream_camera:
@@ -854,6 +863,11 @@ func _update_camera() -> void:
 
 
 func _process(delta: float) -> void:
+	# Не читаем изменяемые реестры в момент работы фонового
+	# WorldDayRunner; вне видимости не создаём скелетных узлов.
+	if _wildlife_visuals != null and _day_task_id < 0 \
+			and _days_pending == 0:
+		_wildlife_visuals.refresh(_center, _camera.size, delta)
 	_record_frame(delta)
 	_advance_water_animation(delta)
 	_advance_weather_lighting(delta)
@@ -2463,6 +2477,9 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_food_web = models["food_web"]
 	_harvest = models["harvest"]
 	_domestic = models["domestic"]
+	if _wildlife_visuals != null:
+		_wildlife_visuals.configure(_world_model, _hydro, _surface,
+			_wildlife, _food_web)
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2907,6 +2924,11 @@ func _update_hud() -> void:
 		var fauna: Dictionary = _wildlife.summary()
 		_wildlife_status.text = "Дикие животные · %s · события %s" % [
 			JSON.stringify(fauna["population"]), JSON.stringify(fauna["events"])]
+		if _wildlife_visuals != null:
+			var visuals: Dictionary = _wildlife_visuals.stats()
+			_wildlife_status.text += " · реальные модели %d/%d; видимых %d/%d" % [
+				int(visuals["installed"]), int(visuals["catalog"]),
+				int(visuals["visible"]), int(visuals["limit"])]
 		if _food_web != null:
 			var predators: Dictionary = _food_web.summary()
 			_wildlife_status.text += " · хищники: %d волков, %d лис; %s" % [
