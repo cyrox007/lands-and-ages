@@ -37,6 +37,7 @@ const WorldFireDemo = preload("res://scripts/world_fire_demo.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
+const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
@@ -71,6 +72,9 @@ var _surface: RefCounted
 var _climate: RefCounted
 var _nature: RefCounted
 var _resources: RefCounted
+var _economy: RefCounted
+var _economy_visual: Node3D
+var _economy_status: Label
 var _fire: RefCounted
 var _fire_presentation: Node3D
 var _nature_dirty: Dictionary = {}
@@ -218,7 +222,9 @@ static func _generate_world_models() -> Dictionary:
 	# а не появляются только после постройки карьера или шахты.
 	var resources := NaturalResources.new(world)
 	ResourceGeneration.populate(world, hydro, surface, resources)
-	return {"resources": resources, "world": world, "hydro": hydro, "surface": surface,
+	var economy := FirstEconomy.new(world, hydro, surface, nature,
+		resources, climate.day)
+	return {"economy": economy, "resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
 
@@ -245,6 +251,7 @@ func _ready() -> void:
 	_climate = models["climate"]
 	_nature = models["nature"]
 	_resources = models["resources"]
+	_economy = models["economy"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
@@ -296,6 +303,7 @@ func _ready() -> void:
 	_atmosphere.sync_world(_climate, _world_model, _center, _camera.size)
 	_sync_water_weather()
 	_setup_interface()
+	_sync_first_economy_visual()
 	_refresh_visible(true)
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	set_process(true)
@@ -497,6 +505,16 @@ func _setup_interface() -> void:
 	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_showcase_text.text = "Лес · река · горы · побережье"
 	column.add_child(_showcase_text)
+	# Игрок может запустить настоящую цепочку из физического сырья.
+	# Работа идёт по календарю, а не по нажатию декоративной кнопки.
+	var economy_button := Button.new()
+	economy_button.text = "Начать строительство кирпичной мастерской"
+	economy_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	economy_button.pressed.connect(_begin_first_economy)
+	column.add_child(economy_button)
+	_economy_status = Label.new()
+	_economy_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_economy_status)
 	var event_demo := Button.new()
 	event_demo.name = "Сквозной пожар"
 	event_demo.text = "Показать пожар: до → после → восстановление"
@@ -2028,13 +2046,72 @@ func _flush_world_changes() -> void:
 		_refresh_visible(true)
 
 
+
+func _begin_first_economy() -> void:
+	# Нельзя выбирать дерево, когда фоновая физика меняет его запасы.
+	if _economy == null or _day_task_id >= 0 or _days_pending > 0 \
+			or _benchmark_running or _fire_demo_active():
+		_storage_status = "Хозяйство доступно после завершения расчёта дня"
+		_update_hud()
+		return
+	if _economy.start():
+		_storage_status = "Заказ принят: добыча, доставка, обжиг, постройка"
+	else:
+		_storage_status = _economy.last_event
+	_sync_first_economy_visual()
+	_update_hud()
+
+
+func _sync_first_economy_visual() -> void:
+	# У работы нет Node3D на каждую единицу груза: отображаем лишь
+	# одного перевозчика и завершённый объект, физика живёт в реестре.
+	if _economy_visual == null:
+		_economy_visual = Node3D.new()
+		_economy_visual.name = "Хозяйство · первый рабочий цикл"
+		add_child(_economy_visual)
+	for child in _economy_visual.get_children():
+		child.queue_free()
+	if _economy == null or _economy.phase == "ожидание":
+		return
+	var point: Vector2i = _economy.worker
+	if _world_model.config.contains_cell(point):
+		var carrier := MeshInstance3D.new()
+		carrier.name = "Рабочий и груз"
+		var sphere := SphereMesh.new()
+		sphere.radius = 0.24
+		sphere.height = 0.48
+		carrier.mesh = sphere
+		var carrier_mat := StandardMaterial3D.new()
+		carrier_mat.albedo_color = Color(0.89, 0.72, 0.30)
+		carrier.material_override = carrier_mat
+		var center := Vector2(point) + Vector2(0.5, 0.5)
+		carrier.position = _world_model.config.to_scene(
+			center, _world_model.height_at(center) + 0.40)
+		_economy_visual.add_child(carrier)
+	if not _economy.built:
+		return
+	var site_cell: Vector2i = _economy.site
+	var site_center := Vector2(site_cell) + Vector2(0.5, 0.5)
+	var building := MeshInstance3D.new()
+	building.name = "Кирпичная мастерская"
+	var box := BoxMesh.new()
+	box.size = Vector3(1.25, 1.15, 1.25)
+	building.mesh = box
+	var brick := StandardMaterial3D.new()
+	brick.albedo_color = Color(0.64, 0.33, 0.22)
+	building.material_override = brick
+	building.position = _world_model.config.to_scene(
+		site_center, _world_model.height_at(site_center) + 0.575)
+	_economy_visual.add_child(building)
+
+
 func _storage_models() -> Dictionary:
 	return {
 		"world": _world_model, "hydro": _hydro,
 		"surface": _surface, "climate": _climate,
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
-		"resources": _resources, "fire": _fire
+		"resources": _resources, "economy": _economy, "fire": _fire
 	}
 
 
@@ -2096,6 +2173,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 			_nature.tree_struck.disconnect(_on_tree_struck)
 	_nature = models["nature"]
 	_resources = models["resources"]
+	_economy = models["economy"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2141,6 +2219,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_weather_light_current.clear()
 	_center = _world_model.config.clamp_point(_center)
 	_update_camera()
+	_sync_first_economy_visual()
 	for chunk in _active.keys():
 		_active[chunk].queue_free()
 	_active.clear()
@@ -2219,6 +2298,11 @@ func _simulate_one_day() -> void:
 
 func _complete_day(result: Dictionary) -> void:
 	_last_completed_day = int(result["day"])
+	# Рабочая бригада использует только окончательное состояние природы
+	# после фонового расчёта, не создавая гонку с WorkerThreadPool.
+	if _economy != null:
+		_economy.advance_day(_last_completed_day)
+		_sync_first_economy_visual()
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2496,6 +2580,10 @@ func _run_landscape_benchmark() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
+	if _economy_status != null and _economy != null:
+		var info: Dictionary = _economy.summary()
+		_economy_status.text = "Хозяйство: %s · %s · кирпичи %d" % [
+			str(info["phase"]), str(info["event"]), int(info["bricks"])]
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
 	var slowest: Dictionary = WorldFireDemo.slowest_phase(_last_day_profile_us)
 	var slow_text := " · медленнее всего: %s %.1f мс" % [
