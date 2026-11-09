@@ -18,7 +18,7 @@ func _capture() -> void:
     get_root().add_child(stage)
 
     var camera := Camera3D.new()
-    camera.position = Vector3(0.0, 2.9, 11.0)
+    camera.position = Vector3(0.0, 2.45, 6.8)
     camera.current = true
     stage.add_child(camera)
     camera.look_at(Vector3(0.0, 1.0, 0.0))
@@ -50,10 +50,10 @@ func _capture() -> void:
     stage.add_child(ground)
 
     var actors := [
-        {"kind": "олень", "x": -4.0},
-        {"kind": "волк", "x": -1.5},
-        {"kind": "лиса", "x": 1.0},
-        {"kind": "кабан", "x": 3.4}
+        {"kind": "олень", "x": -2.6},
+        {"kind": "волк", "x": -0.85},
+        {"kind": "лиса", "x": 0.65},
+        {"kind": "кабан", "x": 2.30}
     ]
     for item in actors:
         var species: String = item["kind"]
