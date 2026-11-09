@@ -140,6 +140,11 @@ func _check() -> bool:
             died += int(wildlife.last_events["died"])
             moved += int(wildlife.last_events["migrated"])
             continue
+    # Контрольный годовой фрагмент должен действительно испытывать
+    # все три процесса, а не проходить пустым циклом счётчиков.
+    if born <= 0 or died <= 0 or moved <= 0:
+        push_error("Размножение, смертность или миграция не выполнялись")
+        return false
     if wildlife.total() != previous_total + born - died:
         push_error("Суммарная численность не соответствует рождаемости")
         return false
