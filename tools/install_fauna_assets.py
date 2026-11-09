@@ -23,7 +23,7 @@ QUATERNIUS = (
 )
 ASSETS = {
     "олень": ("Deer.gltf", QUATERNIUS + "Deer.gltf", "Quaternius"),
-    "взрослый олень": ("Stag.gltf", QUATERNIUS + "Stag.gltf", "Quaternius"),
+    "тур": ("Bull.gltf", QUATERNIUS + "Bull.gltf", "Quaternius"),
     "волк": ("Wolf.gltf", QUATERNIUS + "Wolf.gltf", "Quaternius"),
     "лиса": ("Fox.gltf", QUATERNIUS + "Fox.gltf", "Quaternius"),
     "корова": ("Cow.gltf", QUATERNIUS + "Cow.gltf", "Quaternius"),
