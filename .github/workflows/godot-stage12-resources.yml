@@ -1,0 +1,52 @@
+name: "12.0–12.3 — ресурсы и первый хозяйственный цикл"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/natural_resource_registry.gd"
+      - "godot/scripts/natural_resource_generation.gd"
+      - "godot/scripts/natural_resource_uses.gd"
+      - "godot/scripts/world_first_economy.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/tests/natural_resources_12_smoke.gd"
+      - "godot/tests/world_first_economy_12_smoke.gd"
+      - ".github/workflows/godot-stage12-resources.yml"
+  workflow_dispatch:
+
+jobs:
+  resources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Проверить импорт"
+        run: |
+          set -o pipefail
+          timeout 160s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "Контракты и атомарное восстановление"
+        run: |
+          set -o pipefail
+          timeout 120s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/natural_resources_12_smoke.gd \
+            2>&1 | tee /tmp/resources.log
+          grep -q "STAGE12-RESOURCES: успешно" /tmp/resources.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/resources.log; then exit 1; fi
+      - name: "Настоящие добыча, перевозка, переработка и строительство"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_first_economy_12_smoke.gd \
+            2>&1 | tee /tmp/economy.log
+          grep -q "STAGE12-ECONOMY: успешно" /tmp/economy.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/economy.log; then exit 1; fi
