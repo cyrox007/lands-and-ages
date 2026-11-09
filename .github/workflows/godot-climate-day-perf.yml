@@ -6,12 +6,14 @@ on:
     paths:
       - "godot/scripts/climate.gd"
       - "godot/tests/climate_day_perf_11_smoke.gd"
+      - "godot/tests/climate_day_legacy_reference.gd"
       - ".github/workflows/godot-climate-day-perf.yml"
   push:
     branches: [develop]
     paths:
       - "godot/scripts/climate.gd"
       - "godot/tests/climate_day_perf_11_smoke.gd"
+      - "godot/tests/climate_day_legacy_reference.gd"
       - ".github/workflows/godot-climate-day-perf.yml"
   workflow_dispatch:
 
