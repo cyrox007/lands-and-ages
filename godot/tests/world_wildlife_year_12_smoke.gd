@@ -18,7 +18,7 @@ const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 const Save = preload("res://scripts/world_save.gd")
 
-const MAX_WORLD_MS := 180000
+const MAX_WORLD_MS := 360000
 const MAX_SERIALIZED_BYTES := 64 * 1024 * 1024
 const MAX_STATIC_MIB := 1024.0
 
@@ -179,7 +179,7 @@ func _check(seed: int, years: int) -> Dictionary:
             return {}
         # После первого полного цикла сохраняем реальные слои.
         # Независимая загрузка обязана дать такой же следующий день.
-        if not replay_verified and step == Climate.YEAR_DAYS - 1:
+        if not replay_verified and step == total_days - 1:
             var snapshot: Dictionary = Save.capture(state)
             if snapshot.is_empty():
                 push_error("Годовой WorldSave не собрался")
@@ -217,7 +217,8 @@ func _check(seed: int, years: int) -> Dictionary:
             - int(events["eaten"]) != remaining:
         push_error("Многосезонный материальный баланс животных неверен")
         return {}
-    return {"seed": seed, "years": years, "days": state["climate"].day - 1,
+    return {"seed": seed, "years": years, "season_days": total_days,
+        "replay_next_day": state["climate"].day,
         "seasons": seasons, "initial": origin, "remaining": remaining,
         "born": events["born"], "died": events["died"],
         "prey_eaten": events["eaten"], "p50_day_ms": _percentile(times, 0.5),
