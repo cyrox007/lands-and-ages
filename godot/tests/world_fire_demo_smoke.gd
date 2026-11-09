@@ -98,9 +98,25 @@ func _test_event_roundtrip() -> void:
 	var events: Array[Dictionary] = fire.advance_day(2, [], cell)
 	_check(Demo.ignition_confirmed(events, cell)
 		and fire.is_burning(id), "Возгорание произошло в настоящем реестре")
+	# Отдельный третий день нужен для настоящего ущерба:
+	# в день воспламенения огонь только появляется, древесина и
+	# грунт расходуются уже на следующем физическом шаге.
+	var tree_before: Dictionary = nature.object_at(id)
+	climate.set_day(3)
+	surface.advance_climate_day(climate)
+	surface._moisture.fill(0.02)
+	surface._snow.fill(0.0)
+	climate._rain.fill(0.0)
+	nature.advance_day(3)
+	fire.advance_day(3)
+	var tree_after: Dictionary = nature.object_at(id)
+	_check(fire.scorched_count() > 0 and
+		int(tree_after.get("wood_units", 0)) <
+			int(tree_before.get("wood_units", 0)),
+		"После суток горения повреждены настоящий грунт и дерево")
 	var after: Dictionary = Save.capture(state)
 	_check(not after.is_empty() and after["fire"] != before["fire"],
-		"После огня сохранение содержит изменённую физику")
+		"После обжига сохранение содержит изменённую физику")
 	_check(not Demo.physical_equal(before, after),
 		"До и после — разные физические состояния")
 
@@ -124,6 +140,7 @@ func _test_event_roundtrip() -> void:
 		"Повторная загрузка не порождает новый пожар")
 	print("FIRE-DEMO: день=", climate.day, ", клетка=", cell,
 		", возгораний=", fire.total_ignitions,
+		", обожжено=", fire.scorched_count(),
 		", снимки совпадают=", Demo.physical_equal(after, copied))
 
 
