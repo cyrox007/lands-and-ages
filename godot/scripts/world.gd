@@ -40,6 +40,7 @@ const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
+const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 const ResourceRecipes = preload("res://scripts/natural_resource_recipes.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
@@ -78,6 +79,7 @@ var _resources: RefCounted
 var _economy: RefCounted
 var _industry: RefCounted
 var _wildlife: RefCounted
+var _food_web: RefCounted
 var _wildlife_status: Label
 var _industry_status: Label
 var _industry_kind := "камень"
@@ -240,7 +242,11 @@ static func _generate_world_models() -> Dictionary:
 	# и укрытием. Не создаём Node3D для каждого животного.
 	var wildlife := Wildlife.new(world, hydro, surface, climate, nature)
 	wildlife.generate()
-	return {"wildlife": wildlife, "industry": industry, "economy": economy,
+	# Хищники инициализируются ПОСЛЕ травоядных, иначе нет
+	# реального источника добычи и появились бы фиктивные стаи.
+	var food_web := FoodWeb.new(world, climate, wildlife)
+	food_web.generate()
+	return {"food_web": food_web, "wildlife": wildlife, "industry": industry, "economy": economy,
 		"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
@@ -271,6 +277,7 @@ func _ready() -> void:
 	_economy = models["economy"]
 	_industry = models["industry"]
 	_wildlife = models["wildlife"]
+	_food_web = models["food_web"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
@@ -2234,7 +2241,8 @@ func _storage_models() -> Dictionary:
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
 		"resources": _resources, "economy": _economy,
-		"industry": _industry, "wildlife": _wildlife, "fire": _fire
+		"industry": _industry, "wildlife": _wildlife,
+		"food_web": _food_web, "fire": _fire
 	}
 
 
@@ -2299,6 +2307,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_economy = models["economy"]
 	_industry = models["industry"]
 	_wildlife = models["wildlife"]
+	_food_web = models["food_web"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2438,6 +2447,10 @@ func _complete_day(result: Dictionary) -> void:
 	# они получают фактический снег, паводки и состояние растительности.
 	if _wildlife != null and _wildlife.generated:
 		_wildlife.advance_day(_last_completed_day)
+	# Пищевые отношения и реакция на настоящие бедствия происходят
+	# после размножения и миграции травоядных в этом же дне.
+	if _food_web != null and _food_web.generated:
+		_food_web.advance_day(_last_completed_day, result["hazards"])
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2719,6 +2732,11 @@ func _update_hud() -> void:
 		var fauna: Dictionary = _wildlife.summary()
 		_wildlife_status.text = "Дикие животные · %s · события %s" % [
 			JSON.stringify(fauna["population"]), JSON.stringify(fauna["events"])]
+		if _food_web != null:
+			var predators: Dictionary = _food_web.summary()
+			_wildlife_status.text += " · хищники: %d волков, %d лис; %s" % [
+				int(predators["wolf"]), int(predators["fox"]),
+				JSON.stringify(predators["events"])]
 	if _industry_status != null and _industry != null:
 		if _industry.site.x < 0:
 			_industry_status.text = "Склад: нужен первый кирпичный цех"
