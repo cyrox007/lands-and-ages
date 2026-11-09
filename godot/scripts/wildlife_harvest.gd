@@ -131,10 +131,10 @@ func butcher(species: String, amount: int) -> bool:
             or amount < 1 or amount > MAX_BATCH \
             or int(_carcasses.get(species, 0)) < amount:
         return false
-    var yield: Dictionary = YIELDS[species]
-    for material in yield:
+    var recipe: Dictionary = YIELDS[species]
+    for material in recipe:
         var new_amount := int(_products.get(material, 0)) \
-            + int(yield[material]) * amount
+            + int(recipe[material]) * amount
         if new_amount > MAX_STOCK:
             return false
     _carcasses[species] = int(_carcasses[species]) - amount
