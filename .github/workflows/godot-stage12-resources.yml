@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - "godot/scripts/natural_resource_registry.gd"
+      - "godot/scripts/natural_resource_generation.gd"
       - "godot/tests/natural_resources_12_smoke.gd"
       - ".github/workflows/godot-stage12-resources.yml"
   workflow_dispatch:
