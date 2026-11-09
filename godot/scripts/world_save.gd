@@ -13,6 +13,7 @@ const Landscape = preload("res://scripts/landscape_events.gd")
 const Runner = preload("res://scripts/world_day_runner.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
+const Resources = preload("res://scripts/natural_resource_registry.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -85,6 +86,14 @@ static func capture(state: Dictionary) -> Dictionary:
 		if fire.last_day != climate.day:
 			return {}
 		snapshot["fire"] = fire.to_data()
+	# Залежи необязательны для старых сохранений без этапа 12.
+	var resources: RefCounted = state.get("resources")
+	if resources != null:
+		var sources: Dictionary = resources.to_data()
+		if not (sources.get("sources") is Array):
+			return {}
+		if not sources["sources"].is_empty():
+			snapshot["resources"] = sources
 	return snapshot
 
 
@@ -143,11 +152,18 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("fire") and (not (snapshot["fire"] is Dictionary) \
 			or not fire.load_data(snapshot["fire"])):
 		return {}
+	# Отсутствующий слой означает старый формат мира, а не ошибку.
+	# Повреждённые новые записи отклоняются до замены игровых моделей.
+	var resources := Resources.new(world)
+	if snapshot.has("resources"):
+		if not (snapshot["resources"] is Dictionary) \
+				or not resources.load_data(snapshot["resources"]):
+			return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
-		"nature": nature, "fire": fire,
+		"nature": nature, "fire": fire, "resources": resources,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)
