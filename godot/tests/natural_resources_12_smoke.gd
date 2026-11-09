@@ -60,6 +60,10 @@ func _check() -> bool:
         return false
     if int(report_a["sampled_regions"]) <= 0:
         return false
+    # Пилот обязан иметь хотя бы один физически доступный источник камня.
+    if int(report_a["sources"].get("камень", 0)) <= 0:
+        return false
+    print("STAGE12-BALANCE: ", JSON.stringify(report_a))
     # Каждое месторождение должно соответствовать настоящему грунту.
     for item in generated_a.to_data()["sources"]:
         var position := Vector2i(int(item["x"]), int(item["y"]))
