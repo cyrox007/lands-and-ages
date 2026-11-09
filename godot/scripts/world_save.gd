@@ -16,6 +16,8 @@ const Fire = preload("res://scripts/fire_registry.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
+const Habitats = preload("res://scripts/wildlife_habitats.gd")
+const Wildlife = preload("res://scripts/wildlife_populations.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -110,6 +112,13 @@ static func capture(state: Dictionary) -> Dictionary:
 		if industry.last_day != climate.day:
 			return {}
 		snapshot["industry"] = industry.to_data()
+	# Животные входят в общий снимок только после реального заселения.
+	# Новые биотопы получаем из физики, а численность сохраняем отдельно.
+	var fauna: RefCounted = state.get("fauna")
+	if fauna != null and fauna.generated:
+		if fauna.last_day != climate.day:
+			return {}
+		snapshot["fauna"] = fauna.to_data()
 	return snapshot
 
 
@@ -189,12 +198,20 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("industry") and (not (snapshot["industry"] is Dictionary)
 			or not industry.load_data(snapshot["industry"], int(saved_day))):
 		return {}
+	# В старых сохранениях популяций нет. Их нельзя самопроизвольно
+	# сгенерировать при загрузке: это изменило бы сохранённый мир.
+	var habitats := Habitats.new(world, hydro, surface, climate, nature, fire)
+	var fauna := Wildlife.new(world, habitats)
+	if snapshot.has("fauna") and (not (snapshot["fauna"] is Dictionary)
+			or not fauna.load_data(snapshot["fauna"])):
+		return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
 		"economy": economy, "industry": industry,
+		"habitats": habitats, "fauna": fauna,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)
