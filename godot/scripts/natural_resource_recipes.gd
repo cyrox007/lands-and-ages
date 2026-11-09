@@ -105,44 +105,68 @@ static func materials() -> Dictionary:
 
 
 static func validate() -> bool:
-    # Все продукты обязаны иметь реальный источник и хотя бы одного
-    # конечного потребителя, а каждый шаг — положительный расход.
+    # В прямом проходе выводим реально производимые товары из
+    # природного сырья и доступных предшествующих рецептов.
     var available := {}
     for raw in RAW_MATERIALS:
         available[raw] = true
-    for count in range(RECIPES.size()):
+    for recipe in RECIPES.values():
+        if recipe["inputs"].is_empty() or recipe["outputs"].is_empty():
+            return false
+        if int(recipe["tier"]) < 0 or int(recipe["tier"]) > 2:
+            return false
+        for inputs in [recipe["inputs"], recipe["outputs"]]:
+            for amount in inputs.values():
+                if not (amount is int) or int(amount) <= 0:
+                    return false
+    for iteration in range(RECIPES.size()):
         var changed := false
         for recipe in RECIPES.values():
-            var ingredients: Dictionary = recipe["inputs"]
-            if ingredients.is_empty() or recipe["outputs"].is_empty():
-                return false
-            var can_make := true
-            for material in ingredients:
-                if int(ingredients[material]) <= 0:
-                    return false
-                if not available.has(material):
-                    can_make = false
-            for material in recipe["outputs"]:
-                if int(recipe["outputs"][material]) <= 0:
-                    return false
-                if can_make and not available.has(material):
-                    available[material] = true
+            var possible := true
+            for ingredient in recipe["inputs"]:
+                if not available.has(ingredient):
+                    possible = false
+            if not possible:
+                continue
+            for product in recipe["outputs"]:
+                if not available.has(product):
+                    available[product] = true
                     changed = true
         if not changed:
             break
-    for recipe in RECIPES.values():
-        for material in recipe["inputs"]:
-            if not available.has(material):
-                return false
-        for material in recipe["outputs"]:
-            if not available.has(material):
-                return false
+    # В обратном проходе оставляем только товары, ведущие к
+    # конкретной стройке; бесконечное производство без спроса запрещено.
+    var demanded := {}
     for consumer in CONSUMERS.values():
-        for material in consumer["inputs"]:
-            if int(consumer["inputs"][material]) <= 0 or not available.has(material):
+        if consumer["inputs"].is_empty():
+            return false
+        for kind in consumer["inputs"]:
+            if not available.has(kind) or int(consumer["inputs"][kind]) <= 0:
+                return false
+            demanded[kind] = true
+    for iteration in range(RECIPES.size()):
+        var changed := false
+        for recipe in RECIPES.values():
+            var useful := false
+            for product in recipe["outputs"]:
+                if demanded.has(product):
+                    useful = true
+            if not useful:
+                continue
+            for ingredient in recipe["inputs"]:
+                if not demanded.has(ingredient):
+                    demanded[ingredient] = true
+                    changed = true
+        if not changed:
+            break
+    for raw in RAW_MATERIALS:
+        if not demanded.has(raw):
+            return false
+    for recipe in RECIPES.values():
+        for product in recipe["outputs"]:
+            if not available.has(product) or not demanded.has(product):
                 return false
     return true
-
 
 static func required_technology(recipe_id: String) -> int:
     # Один реестр определяет допуски для UI и физических списаний.
