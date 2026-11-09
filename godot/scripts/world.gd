@@ -35,6 +35,8 @@ const WorldShowcase = preload("res://scripts/world_showcase.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
 const WorldFireDemo = preload("res://scripts/world_fire_demo.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
+const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
+const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
@@ -68,6 +70,7 @@ var _hydro: RefCounted
 var _surface: RefCounted
 var _climate: RefCounted
 var _nature: RefCounted
+var _resources: RefCounted
 var _fire: RefCounted
 var _fire_presentation: Node3D
 var _nature_dirty: Dictionary = {}
@@ -211,7 +214,11 @@ static func _generate_world_models() -> Dictionary:
 	hydro.apply_rainfall_map(surface.runoff_map())
 	var nature := Nature.new(world, hydro, surface, climate)
 	nature.generate()
-	return {"world": world, "hydro": hydro, "surface": surface,
+	# Естественные источники формируются вместе с ландшафтом,
+	# а не появляются только после постройки карьера или шахты.
+	var resources := NaturalResources.new(world)
+	ResourceGeneration.populate(world, hydro, surface, resources)
+	return {"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
 
@@ -237,6 +244,7 @@ func _ready() -> void:
 	_surface = models["surface"]
 	_climate = models["climate"]
 	_nature = models["nature"]
+	_resources = models["resources"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
@@ -2026,7 +2034,7 @@ func _storage_models() -> Dictionary:
 		"surface": _surface, "climate": _climate,
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
-		"fire": _fire
+		"resources": _resources, "fire": _fire
 	}
 
 
@@ -2087,6 +2095,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 		if _nature.tree_struck.is_connected(_on_tree_struck):
 			_nature.tree_struck.disconnect(_on_tree_struck)
 	_nature = models["nature"]
+	_resources = models["resources"]
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
