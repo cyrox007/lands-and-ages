@@ -59,9 +59,9 @@ func _regions() -> Array[Vector2i]:
 func _limit(region: Vector2i, kind: String) -> int:
     # Ёмкость для хищников выводится из настоящих травоядных.
     # Растительный корм напрямую не становится мясом.
-    var deer := prey.population_at(region, "олень")
-    var boar := prey.population_at(region, "кабан")
-    var hare := prey.population_at(region, "заяц")
+    var deer: int = prey.population_at(region, "олень")
+    var boar: int = prey.population_at(region, "кабан")
+    var hare: int = prey.population_at(region, "заяц")
     if kind == "волк":
         return mini(MAX_PER_REGION, (deer * 2 + boar * 2 + hare) / 14)
     if kind == "лиса":
