@@ -2314,7 +2314,7 @@ func _find_animal_region(species: String, predators: bool) -> Vector2i:
 	for y in range(size.y):
 		for x in range(size.x):
 			var region := Vector2i(x, y)
-			var available := _food_web.count_at(region, species) \
+			var available: int = _food_web.count_at(region, species) \
 				if predators else _wildlife.population_at(region, species)
 			if available < 1:
 				continue
