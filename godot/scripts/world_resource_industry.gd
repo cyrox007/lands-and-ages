@@ -83,6 +83,10 @@ func order_deposit(kind: String, amount: int) -> bool:
         if str(item["kind"]) != kind or int(item["remaining_units"]) < amount:
             continue
         var target := Vector2i(int(item["x"]), int(item["y"]))
+        # Манхэттенова оценка не бывает длиннее реального маршрута:
+        # отсеиваем только заведомо неулучшающие кандидаты.
+        if absi(target.x - site.x) + absi(target.y - site.y) >= best_length:
+            continue
         var route: Array[Vector2i] = Paths.find(
             world, hydro, surface, site, target)
         if route.is_empty() or route.size() >= best_length:
@@ -97,26 +101,43 @@ func order_deposit(kind: String, amount: int) -> bool:
 
 
 func order_wood(amount: int) -> bool:
-    # Подходим к соседней клетке реального дерева. Нельзя брать
-    # древесину у ещё не срубленного дерева или из лесной декорации.
+    # Сначала сортируем деревья по нижней оценке расстояния,
+    # затем рассчитываем дорогой маршрут только для кандидатов,
+    # которые ещё способны улучшить найденный путь.
     if amount < 1 or amount > MAX_DELIVERY \
             or site.x < 0 or not delivery.is_empty():
         return false
-    var best_id := -1
-    var best_stop := Vector2i(-1, -1)
-    var best_length := MAX_PENDING_STEPS + 1
+    var candidates: Array = []
     for object in nature.to_data().get("objects", []):
         if str(object[1]) != "дерево" \
                 or int(object[7]) + int(object[8]) < amount:
             continue
-        var tree := Vector2i(int(object[3]), int(object[4]))
+        var cell := Vector2i(int(object[3]), int(object[4]))
+        var estimate := absi(cell.x - site.x) + absi(cell.y - site.y)
+        candidates.append({"id": int(object[0]), "cell": cell,
+            "distance": estimate})
+    candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+        if a["distance"] == b["distance"]:
+            return int(a["id"]) < int(b["id"])
+        return int(a["distance"]) < int(b["distance"])
+    )
+    var best_id := -1
+    var best_stop := Vector2i(-1, -1)
+    var best_length := MAX_PENDING_STEPS + 1
+    for entry in candidates:
+        if int(entry["distance"]) - 1 >= best_length:
+            break
+        var tree: Vector2i = entry["cell"]
         for direction in DIRECTIONS:
             var target: Vector2i = tree + direction
+            var lower := absi(target.x - site.x) + absi(target.y - site.y)
+            if lower >= best_length:
+                continue
             var route: Array[Vector2i] = Paths.find(
                 world, hydro, surface, site, target)
             if route.is_empty() or route.size() >= best_length:
                 continue
-            best_id = int(object[0])
+            best_id = int(entry["id"])
             best_stop = target
             best_length = route.size()
     if best_id < 0:
