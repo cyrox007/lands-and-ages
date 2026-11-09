@@ -146,6 +146,13 @@ func _breed(kind: String, record: Dictionary) -> void:
         if habitat.is_empty() or float(habitat["food"]) < 0.15 \
                 or float(habitat["water"]) < 0.10:
             return
+        # Даже при наличии двух родителей природный участок имеет
+        # конечную вместимость: нельзя бесконечно разводить стадо
+        # на крошечном лугу без доступного корма.
+        var capacity := mini(MAX_HERD, maxi(8,
+            roundi(float(habitat["food"]) * 40.0)))
+        if parents >= capacity:
+            return
     var next_record: Dictionary = record.duplicate(true)
     # Появляется только одно потомство от реальных родителей.
     # Продвижение линии происходит через поколения, не через здание.
