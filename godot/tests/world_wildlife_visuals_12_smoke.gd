@@ -39,9 +39,19 @@ func _check() -> void:
             actor.queue_free()
             quit(1)
             return
+        # Скелет и анимации должны работать не только на этапе
+        # импорта: проверяем переходы между реальными клипами.
         actor.set_motion("ходьба")
         await process_frame
+        if actor.state != "ходьба":
+            push_error("Не удалось включить анимацию ходьбы: " + kind)
+            quit(1)
+            return
         actor.set_motion("покой")
+        if actor.state != "покой":
+            push_error("Не удалось вернуть анимацию покоя: " + kind)
+            quit(1)
+            return
         var skeleton_count := actor.bone_count()
         var animation_count := actor.animation_count()
         models[kind] = {"bones": skeleton_count,

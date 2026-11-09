@@ -41,6 +41,18 @@ func configure(species_name: String, scene: PackedScene,
         _visual.queue_free()
         _visual = null
         return false
+    # Наличие отдельного Skeleton3D рядом со статичным мешем
+    # не является доказательством настоящей скелетной модели.
+    var skinned := false
+    for candidate in meshes:
+        var mesh_node := candidate as MeshInstance3D
+        if mesh_node.skin != null or not mesh_node.skeleton.is_empty():
+            skinned = true
+            break
+    if not skinned:
+        _visual.queue_free()
+        _visual = null
+        return false
     _player = players[0] as AnimationPlayer
     if _player.get_animation_list().is_empty():
         _visual.queue_free()
@@ -75,8 +87,14 @@ func configure(species_name: String, scene: PackedScene,
     # визуальный масштаб, не вмешиваясь в настоящий Skeleton3D.
     if source == "Gobkit":
         _visual.scale *= 0.013
-    # Gobkit уже предоставляет отдельные клипы idle/attack/dead/walk.\n    # Не перематываем idle как будто это единая длинная дорожка.\n    _packed = false
+    # Длинный единый клип допускает нарезку на действия.
+    # Отдельные idle/walk/attack/death нельзя перематывать
+    # по временным отрезкам от другой анимации.
     _master = str(_player.get_animation_list()[0])
+    var clips: PackedStringArray = _player.get_animation_list()
+    var master_animation: Animation = _player.get_animation(_master)
+    _packed = clips.size() == 1 and master_animation != null \
+        and master_animation.length >= 4.9
     _player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
     set_motion("покой")
     return true
