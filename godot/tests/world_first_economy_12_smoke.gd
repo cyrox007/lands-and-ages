@@ -70,7 +70,7 @@ func _test() -> bool:
     var original: Dictionary = deposits.source_at("глина", economy.clay_cell)
     var clay_before: int = int(original["remaining_units"])
     var wood_before: int = nature.wood_total()
-    var position_before := economy.worker
+    var position_before: Vector2i = economy.worker
     var phases := {}
     var finished := false
     for day in range(2, 90):
