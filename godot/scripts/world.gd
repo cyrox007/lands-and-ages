@@ -33,6 +33,7 @@ const WorldDayRunner = preload("res://scripts/world_day_runner.gd")
 const WorldAftermath = preload("res://scripts/world_aftermath.gd")
 const WorldShowcase = preload("res://scripts/world_showcase.gd")
 const WorldSave = preload("res://scripts/world_save.gd")
+const WorldFireDemo = preload("res://scripts/world_fire_demo.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
@@ -190,6 +191,11 @@ var _showcase_index := -1
 var _hud_timer := 0.0
 var _benchmark_running := false
 var _benchmark_status := ""
+# UI-сценарий сохраняет один ракурс для всех трёх кадров
+# и не касается стандартного пользовательского WorldSave.
+var _fire_demo: Dictionary = {}
+var _fire_demo_status: Label
+var _fire_demo_stable_frames := 0
 
 
 static func _generate_world_models() -> Dictionary:
@@ -483,6 +489,17 @@ func _setup_interface() -> void:
 	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_showcase_text.text = "Лес · река · горы · побережье"
 	column.add_child(_showcase_text)
+	var event_demo := Button.new()
+	event_demo.name = "Сквозной пожар"
+	event_demo.text = "Показать пожар: до → после → восстановление"
+	event_demo.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	event_demo.pressed.connect(_begin_fire_demo)
+	column.add_child(event_demo)
+	_fire_demo_status = Label.new()
+	_fire_demo_status.name = "Статус испытания пожара"
+	_fire_demo_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_fire_demo_status.text = "Кадры и сохранение испытания ещё не создавались"
+	column.add_child(_fire_demo_status)
 	# В режиме прогулки вместо большой панели останется только
 	# маленькое управление. Так почти весь экран занимает сам мир.
 	_showcase_overlay = PanelContainer.new()
@@ -609,7 +626,7 @@ func _next_showcase_view() -> void:
 	# Во время расчёта суток или фонового теста остаёмся в
 	# последней готовой позиции, избегая гонки с RefCounted-моделями.
 	if _benchmark_running or _day_task_id >= 0 or _days_pending > 0 \
-			or not _storage_request.is_empty():
+			or not _storage_request.is_empty() or _fire_demo_active():
 		if _showcase_text != null:
 			_showcase_text.text = "Сначала завершите расчёт мира"
 		return
@@ -686,7 +703,8 @@ func _process(delta: float) -> void:
 		movement.y -= 1.0
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		movement.y += 1.0
-	if not _benchmark_running and movement.length_squared() > 0.0 \
+	if not _benchmark_running and not _fire_demo_active() \
+			and movement.length_squared() > 0.0 \
 			and (_loading_layer == null or not _loading_layer.visible):
 		_move_center(movement.normalized() * CAMERA_SPEED * delta * _camera.size / 66.0)
 	# Год может считаться несколько секунд, но камера и UI работают.
@@ -777,6 +795,7 @@ func _process(delta: float) -> void:
 		else:
 			_build_chunks_synchronously()
 	_present_camera()
+	_advance_fire_demo()
 	_pan_pending = false
 	_hud_timer += delta
 	if _hud_timer > 0.3:
@@ -785,7 +804,8 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _benchmark_running or (_loading_layer != null and _loading_layer.visible):
+	if _benchmark_running or _fire_demo_active() \
+			or (_loading_layer != null and _loading_layer.visible):
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -1625,6 +1645,143 @@ func _on_tree_felled(previous: Dictionary) -> void:
 	NatureFelling.animate(visual)
 
 
+
+func _fire_demo_active() -> bool:
+	# Законченное или неудавшееся испытание не блокирует
+	# обычное управление камерой, дни и пользовательский сейв.
+	return str(_fire_demo.get("stage", "")) in [
+		"before", "running", "after", "restored"]
+
+
+func _fire_demo_report(message: String) -> void:
+	# Статус доступен в обычной панели, без входа в отладку.
+	if _fire_demo_status != null:
+		_fire_demo_status.text = message
+
+
+func _fire_demo_fail(message: String) -> void:
+	# Отказ после дождя, ошибки файла или неполного кадра
+	# не выдаём за завершённое физическое испытание.
+	_fire_demo["stage"] = "failed"
+	_fire_demo_report("Испытание не завершено: " + message)
+	_update_hud()
+
+
+func _begin_fire_demo() -> void:
+	# Мир, камера и реестр огня доступны только когда ни один
+	# физический или мешевый воркер не читает общие модели.
+	if _benchmark_running or _fire_demo_active() or _day_task_id >= 0 \
+			or _days_pending > 0 or not _storage_request.is_empty() \
+			or not _chunk_jobs.is_empty():
+		_fire_demo_report("Дождитесь завершения расчёта и загрузки карты")
+		return
+	if _nature == null or _fire == null or _view_mode != 0:
+		_fire_demo_report("Переключитесь на природную поверхность")
+		return
+	var tree: Dictionary = WorldFireDemo.choose_tree(
+		_nature, _fire, _active.keys(), _center)
+	if tree.is_empty():
+		_fire_demo_report("В видимых чанках нет достаточно сухого дерева")
+		return
+	var cell: Vector2i = tree["cell"]
+	_fire_demo = {"stage": "before", "cell": cell, "id": tree["id"],
+		"day": _climate.day}
+	_fire_demo_stable_frames = 0
+	# До, после и после загрузки используют именно этот ракурс:
+	# запрещаем перемещение, пока сценарий не завершён.
+	_center = _world_model.config.clamp_point(
+		Vector2(cell) + Vector2(0.5, 0.5))
+	_camera.size = 42.0
+	_pan_delta = Vector2.ZERO
+	_pan_pending = false
+	_update_camera()
+	_update_material_detail()
+	_refresh_visible(true)
+	_fire_demo_report("Подготавливаем исходный кадр у дерева %s" % cell)
+
+
+func _fire_demo_ready() -> bool:
+	# Снимки не делаем во время смены физической модели, а также
+	# когда кадр содержит старые или ещё не загруженные чанки.
+	return _day_task_id < 0 and _days_pending == 0 \
+		and _chunk_jobs.is_empty() and _pending.is_empty() \
+		and _rebuild_pending.is_empty() and not _active.is_empty() \
+		and _active.size() >= _wanted_chunks.size() \
+		and (_loading_layer == null or not _loading_layer.visible)
+
+
+func _fire_demo_picture(path: String) -> bool:
+	# Получаем фактический текущий viewport Godot, а не рисунок
+	# на основе данных теста. Рендер должен быть готов заранее.
+	var image: Image = get_viewport().get_texture().get_image()
+	if image == null or image.get_width() < 64 or image.get_height() < 64:
+		return false
+	return image.save_png(path) == OK
+
+
+func _advance_fire_demo() -> void:
+	var stage := str(_fire_demo.get("stage", ""))
+	if stage not in ["before", "after", "restored"]:
+		return
+	if not _fire_demo_ready():
+		_fire_demo_stable_frames = 0
+		return
+	# Два кадра после полной загрузки требуются для реального
+	# обновления GPU: не фотографируем предыдущую геометрию.
+	_fire_demo_stable_frames += 1
+	if _fire_demo_stable_frames < 3:
+		return
+	_fire_demo_stable_frames = 0
+	if stage == "before":
+		var initial: Dictionary = WorldSave.capture(_storage_models())
+		if initial.is_empty() or not _fire_demo_picture(WorldFireDemo.BEFORE_PNG):
+			_fire_demo_fail("Не удалось сохранить исходную физику или PNG")
+			return
+		_fire_demo["initial"] = initial
+		_ensure_day_runner()
+		_day_runner.test_fire_cell = _fire_demo["cell"]
+		_fire_demo["stage"] = "running"
+		# Только после настоящего кадра «до» запускаем один
+		# обычный день через WorkerThreadPool, не имитируем огонь.
+		_days_pending = 1
+		_fire_demo_report("Кадр «до» записан · запускаем физический пожар")
+	elif stage == "after":
+		var result: Dictionary = WorldSave.capture(_storage_models())
+		if result.is_empty() or result["fire"] == _fire_demo["initial"]["fire"] \
+				or not _fire_demo_picture(WorldFireDemo.AFTER_PNG):
+			_fire_demo_fail("Отсутствуют подтверждённые последствия или PNG")
+			return
+		# Отдельное сохранение не перезаписывает файл игрока.
+		if not WorldSave.write_file(_storage_models(), WorldFireDemo.SAVE_PATH):
+			_fire_demo_fail("Не удалось записать испытание в отдельный файл")
+			return
+		var restored: Dictionary = WorldSave.read_file(WorldFireDemo.SAVE_PATH)
+		var actual: Dictionary = WorldSave.capture(restored) \
+			if not restored.is_empty() else {}
+		if not WorldFireDemo.physical_equal(result, actual):
+			_fire_demo_fail("WorldSave не восстановил всё физическое состояние")
+			return
+		_fire_demo["after_snapshot"] = result
+		# Все воркеры уже завершены, поэтому установка новых
+		# реестров и сброс старых GPU-чанков безопасны.
+		_install_loaded_world(restored)
+		_fire_demo["stage"] = "restored"
+		_fire_demo_report("Кадр «после» записан · проверяем вид после загрузки")
+	elif stage == "restored":
+		var saved: Dictionary = _fire_demo["after_snapshot"]
+		if not WorldFireDemo.physical_equal(
+				saved, WorldSave.capture(_storage_models())) \
+				or not _fire_demo_picture(WorldFireDemo.RESTORED_PNG):
+			_fire_demo_fail("Повторная проверка восстановленного мира не прошла")
+			return
+		_fire_demo["stage"] = "complete"
+		# Игрок получает три настоящих кадра и отдельный JSON.
+		_fire_demo_report(
+			"Готово: пожар и WorldSave проверены. Файлы fire-demo-before.png, " +
+			"fire-demo-after.png, fire-demo-restored.png и fire-demo-world.json")
+		_update_hud()
+
+
 func _debug_test_fire() -> void:
 	# Испытание выбирает настоящий объект; сухость в следующем
 	# физическом дне проверяется тем же FireRegistry, что у молний.
@@ -1862,7 +2019,8 @@ func _storage_models() -> Dictionary:
 
 
 func _request_storage(action: String) -> void:
-	if _benchmark_running or action not in ["save", "load"]:
+	if _benchmark_running or _fire_demo_active() \
+			or action not in ["save", "load"]:
 		return
 	# Для ручной загрузки гарантируем отсутствие ссылок воркера на
 	# заменяемую физическую модель. Выполняется только по запросу.
@@ -2025,7 +2183,7 @@ func _apply_landscape_event(kind: String) -> void:
 
 
 func _queue_days(number: int) -> void:
-	if _benchmark_running:
+	if _benchmark_running or _fire_demo_active():
 		return
 	_days_pending = mini(96, _days_pending + number)
 
@@ -2065,6 +2223,16 @@ func _complete_day(result: Dictionary) -> void:
 			_atmosphere.show_lightning(strikes, _world_model,
 				visible_camera, visible_zoom, int(result["day"]), allow_fx)
 	var fire_events: Array[Dictionary] = result.get("fire_events", [])
+	# Не верим одной команде теста: нужны реальные события
+	# FireRegistry после завершения фонового физического дня.
+	if str(_fire_demo.get("stage", "")) == "running":
+		var target: Vector2i = _fire_demo["cell"]
+		if WorldFireDemo.ignition_confirmed(fire_events, target):
+			_fire_demo["stage"] = "after"
+			_fire_demo_stable_frames = 0
+			_fire_demo_report("Пожар подтверждён · собираем тот же вид «после»")
+		else:
+			_fire_demo_fail("Дерево не загорелось: изменились влажность или условия дня")
 	if not fire_events.is_empty():
 		var fire_last: Dictionary = fire_events[fire_events.size() - 1]
 		_storage_status = "Огонь: %s · %s · очагов %d" % [
@@ -2298,11 +2466,16 @@ func _update_hud() -> void:
 	if _summary == null:
 		return
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
-	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · пик физики %.1f мс\nВид: %s\n%s" % [
+	var slowest: Dictionary = WorldFireDemo.slowest_phase(_last_day_profile_us)
+	var slow_text := " · медленнее всего: %s %.1f мс" % [
+		slowest["name"], float(slowest["us"]) / 1000.0] \
+		if not str(slowest["name"]).is_empty() else ""
+	_summary.text = "День %d · FPS %d · чанки %d/%d%s\nОчередь дней %d · физика: последний %.1f мс / пик %.1f мс%s\nВид: %s\n%s" % [
 		_last_completed_day, Engine.get_frames_per_second(), _active.size(),
 		_active.size() + _pending.size(), phase, _days_pending,
-		float(_peak_day_step_us) / 1000.0, VIEW_NAMES[_view_mode],
-		_storage_status]
+		float(_last_day_step_us) / 1000.0,
+		float(_peak_day_step_us) / 1000.0, slow_text,
+		VIEW_NAMES[_view_mode], _storage_status]
 	# Даже диагностическая панель не читает модель одновременно
 	# с фоновым потоком, иначе возникнет гонка массивов.
 	if _day_task_id >= 0 or _debug_details == null \
