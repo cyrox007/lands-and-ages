@@ -30,8 +30,12 @@ func _reference_day(climate: RefCounted) -> Dictionary:
 	var rain := PackedFloat32Array()
 	var wind := PackedFloat32Array()
 	var storm := PackedFloat32Array()
-	for field in [temperature, rain, wind, storm]:
-		field.resize(count)
+	# Размер выделяем по каждому PackedFloat32Array напрямую:
+	# временная переменная цикла использовала бы копию Variant.
+	temperature.resize(count)
+	rain.resize(count)
+	wind.resize(count)
+	storm.resize(count)
 	var day: int = climate.day
 	var seed: int = climate.world.config.world_seed
 	for y in range(climate._height):
