@@ -9,6 +9,8 @@ on:
       - "godot/scripts/natural_processes.gd"
       - "godot/scripts/natural_disasters.gd"
       - "godot/scripts/climate.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/tests/climate_dirty_rows_11_smoke.gd"
       - "godot/tests/world_day_full_perf_11_smoke.gd"
       - "godot/tests/climate_day_legacy_reference.gd"
       - ".github/workflows/godot-day-performance.yml"
@@ -20,6 +22,8 @@ on:
       - "godot/scripts/natural_processes.gd"
       - "godot/scripts/natural_disasters.gd"
       - "godot/scripts/climate.gd"
+      - "godot/scripts/world_map.gd"
+      - "godot/tests/climate_dirty_rows_11_smoke.gd"
       - "godot/tests/world_day_full_perf_11_smoke.gd"
       - "godot/tests/climate_day_legacy_reference.gd"
       - ".github/workflows/godot-day-performance.yml"
@@ -54,6 +58,20 @@ jobs:
             exit 1
           fi
 
+      - name: "11/CLIMATE-DIRTY — частичные строки и очередь геометрии"
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 210s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/climate_dirty_rows_11_smoke.gd 2>&1 \
+            | tee /tmp/climate-dirty-rows.log
+          grep -q "CLIMATE-DIRTY:.*успешно" /tmp/climate-dirty-rows.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/climate-dirty-rows.log; then
+            exit 1
+          fi
+
       - name: "11/DAY-PERF — 256×192: четыре полных дня, WorldSave и стадии"
         timeout-minutes: 13
         run: |
@@ -78,3 +96,4 @@ jobs:
           path: |
             /tmp/full-day-import.log
             /tmp/world-day-256x192.log
+            /tmp/climate-dirty-rows.log
