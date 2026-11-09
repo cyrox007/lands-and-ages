@@ -200,14 +200,21 @@ func _rebuild_row(y: int) -> void:
 func _calculate_day(rows: Dictionary = {}) -> void:
 	# Волны медленно перемещаются в пространстве, а не выпадают из
 	# независимого генератора для каждой клетки.
+	# День одинаков для всех клеток. Прежде сезонные sin() и
+	# широтный множитель осадков пересчитывались десятки тысяч
+	# раз на большой карте, хотя на данной широте они неизменны.
+	# Убираем только повторы, сохраняя порядок формул каждой клетки.
+	var season := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
+	var wind_season := 2.5 * absf(sin(TAU * float(day % YEAR_DAYS) / YEAR_DAYS))
 	for y in range(_height):
 		if not rows.is_empty() and not rows.has(y):
 			continue
 		var latitude := (float(y) + 0.5) / float(_height)
+		# Фактор дождей общий для всех клеток одной широты.
+		# Отдельные фронты по-прежнему вычисляются для каждой.
+		var rain_factor := _seasonal_rain_factor(day, latitude)
 		for x in range(_width):
 			var i := y * _width + x
-			var season := sin(TAU * float(day % YEAR_DAYS) / float(YEAR_DAYS))
-			var rain_factor := _seasonal_rain_factor(day, latitude)
 			var amplitude := lerpf(13.0, 6.0, latitude) * \
 				(1.0 - _marine[i] * 0.28)
 			var front := _smooth_noise((float(x) + float(day) * 1.8) / 55.0,
@@ -231,7 +238,7 @@ func _calculate_day(rows: Dictionary = {}) -> void:
 			# Скорость условная: шкалу м/с откалибруем позже.
 			_wind[i] = clampf(5.0 + absf(front) * 10.0
 				+ _storm[i] * 5.0 + maxf(0.0, -local) * 3.0
-				+ 2.5 * absf(sin(TAU * float(day % YEAR_DAYS) / YEAR_DAYS))
+				+ wind_season
 				+ _marine[i] * 1.5, 0.0, 24.0)
 	revision += 1
 	weather_changed.emit(day)
