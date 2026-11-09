@@ -28,6 +28,9 @@ var last_day := 0
 var total_events := 0
 var last_events: Array[Dictionary] = []
 var airborne_dust: Array[Dictionary] = []
+# Физические показатели не изменяем: сохраняем только цену
+# поиска опасных регионов и обработки реальных событий.
+var last_profile_us: Dictionary = {}
 var _storms := PackedInt32Array()
 var _floods := PackedInt32Array()
 var _droughts := PackedInt32Array()
@@ -412,9 +415,12 @@ func advance_day(day: int) -> Array[Dictionary]:
 		return []
 	last_day = day
 	last_events.clear()
+	var started := Time.get_ticks_usec()
 	# Сначала переносим и осаждаем взвесь предыдущих суток.
 	# Новая пыль текущего бедствия оседать в тот же день не может.
 	_settle_airborne_day(day)
+	var settling_us := Time.get_ticks_usec() - started
+	var candidates_us := 0
 	var dimensions: Vector2i = world.config.region_count()
 	# Склоны проверяем только в дни возможного схода масс.
 	# День 13 обязателен для обвалов: без него выборка обнуляла
@@ -427,7 +433,9 @@ func advance_day(day: int) -> Array[Dictionary]:
 	for ry in range(dimensions.y):
 		for rx in range(dimensions.x):
 			var index := ry * dimensions.x + rx
+			var sample_started := Time.get_ticks_usec()
 			var found := _candidates(Vector2i(rx, ry), check_slopes)
+			candidates_us += Time.get_ticks_usec() - sample_started
 			var storm: Dictionary = found["шторм"]
 			var squall: Dictionary = found["шквал"]
 			var hurricane: Dictionary = found["ураган"]
@@ -516,6 +524,14 @@ func advance_day(day: int) -> Array[Dictionary]:
 				_strain[index] = 0.0
 			_record(hazard, at, risk, 1, impact)
 			terrain_changed = int(impact.get("vertices", 0)) > 0
+	# Сюда входят только измерения уже выполненных природных
+	# операций. Не пересчитываем события и не трогаем RNG.
+	var total_us := Time.get_ticks_usec() - started
+	last_profile_us = {
+		"пробы рисков": candidates_us,
+		"осаждение": settling_us,
+		"обработка событий": maxi(0, total_us - candidates_us - settling_us)
+	}
 	return last_events.duplicate(true)
 
 
