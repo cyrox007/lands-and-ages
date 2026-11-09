@@ -152,6 +152,20 @@ func _test() -> bool:
             or int(hunt.summary()["consumed_meat"]) != 2:
         push_error("Пища не списалась со склада при употреблении")
         return false
+    # Шкуры и кости получают практическое применение:
+    # сумка повышает вместимость следующего рейса, нож — выход мяса.
+    if not hunt.craft_tool("кожаная сумка") \
+            or not hunt.craft_tool("костяной нож") \
+            or hunt.craft_tool("кожаная сумка") \
+            or hunt.craft_tool("перьевая одежда"):
+        push_error("Материалы не превратились в реальные инструменты")
+        return false
+    var goods: Dictionary = hunt.summary()
+    if goods["products"] != {"мясо": 4} \
+            or not goods["equipment"].has("кожаная сумка") \
+            or not goods["equipment"].has("костяной нож"):
+        push_error("Разделка допустила дублирование шкур или костей")
+        return false
     var snapshot: Dictionary = Save.capture(state)
     if snapshot.is_empty() or not snapshot.has("harvest"):
         push_error("WorldSave не содержит последствия охоты")
