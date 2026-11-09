@@ -113,6 +113,23 @@ func total(kind: String = "") -> int:
     return sum
 
 
+func capture_predators(region: Vector2i, kind: String,
+        amount: int) -> bool:
+    # Отлов волков и диких кошек отнимает реальные особи из стаи.
+    # Пустой ареал не является бесплатным источником собак и кошек.
+    if not generated or not SPECIES.has(kind) or amount < 1 \
+            or count_at(region, kind) < amount:
+        return false
+    var key := _key(region, kind)
+    var remaining := count_at(region, kind) - amount
+    if remaining == 0:
+        _packs.erase(key)
+    else:
+        _packs[key] = remaining
+    revision += 1
+    return true
+
+
 func _feed(region: Vector2i, kind: String, amount: int) -> int:
     # Никакой добычи «по вероятности»: каждый съеденный зверь
     # действительно списывается из существующего травоядного стада.
