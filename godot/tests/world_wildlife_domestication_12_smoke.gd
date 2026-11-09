@@ -74,6 +74,7 @@ func _choose_site(state: Dictionary, kind: String) -> Vector2i:
             if count < 1:
                 continue
             var bounds: Rect2i = map.config.region_rect(region)
+            var inspected := 0
             for y in range(bounds.position.y, bounds.end.y, 4):
                 for x in range(bounds.position.x, bounds.end.x, 4):
                     var cell := Vector2i(x, y)
@@ -84,6 +85,11 @@ func _choose_site(state: Dictionary, kind: String) -> Vector2i:
                         if habitat.is_empty() or float(habitat["food"]) < 0.15 \
                                 or float(habitat["water"]) < 0.10:
                             continue
+                    # Повторные BFS по сотням клеток того же региона
+                    # не добавляют полезных фактов к приёмке модели.
+                    if inspected >= 4:
+                        continue
+                    inspected += 1
                     var available := 0
                     for sy in range(regions.y):
                         for sx in range(regions.x):
