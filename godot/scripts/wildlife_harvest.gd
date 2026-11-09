@@ -6,6 +6,11 @@ const Paths = preload("res://scripts/world_resource_path.gd")
 const Access = preload("res://scripts/wildlife_region_access.gd")
 const FORMAT_VERSION := 1
 const STEPS_PER_DAY := 8
+const GEAR := {
+    "кожаная сумка": {"шкура": 2},
+    "костяной нож": {"кости": 2},
+    "перьевая одежда": {"перо": 3}
+}
 const MAX_BATCH := 8
 const MAX_STOCK := 100000
 const YIELDS := {
@@ -26,6 +31,7 @@ var site := Vector2i(-1, -1)
 var last_day := 0
 var _carcasses: Dictionary = {}
 var _products: Dictionary = {}
+var _equipment: Dictionary = {}
 var _order: Dictionary = {}
 var eaten_meat := 0
 var last_event := "Охотничий участок не организован"
@@ -58,7 +64,9 @@ func order_hunt(region: Vector2i, species: String, amount: int) -> bool:
     # До фактического прихода охотника стадо остаётся неизменным.
     if site.x < 0 or not _order.is_empty() \
             or not YIELDS.has(species) or amount < 1 \
-            or amount > MAX_BATCH or not wildlife.generated \
+            or amount > MAX_BATCH \
+            or amount > (3 if _equipment.has("кожаная сумка") else 1) \
+            or not wildlife.generated \
             or wildlife.population_at(region, species) < amount:
         return false
     var route: Dictionary = Access.entry(world, hydro, surface, site, region)
@@ -96,7 +104,11 @@ func advance_day(day: int) -> bool:
         if path.is_empty():
             last_event = "Охота задержана: сухопутный путь перекрыт"
             return true
-        var steps := mini(STEPS_PER_DAY, path.size())
+        # Утеплённая одежда помогает идти быстрее, сохраняя
+        # все реальные географические ограничения маршрута.
+        var speed := STEPS_PER_DAY + (2 if _equipment.has(
+            "перьевая одежда") else 0)
+        var steps := mini(speed, path.size())
         current = path[steps - 1]
         _order["position"] = [current.x, current.y]
         if current != destination:
@@ -133,17 +145,40 @@ func butcher(species: String, amount: int) -> bool:
         return false
     var recipe: Dictionary = YIELDS[species]
     for material in recipe:
+        var bonus := amount if material == "мясо" \
+            and _equipment.has("костяной нож") else 0
         var new_amount := int(_products.get(material, 0)) \
-            + int(recipe[material]) * amount
+            + int(recipe[material]) * amount + bonus
         if new_amount > MAX_STOCK:
             return false
     _carcasses[species] = int(_carcasses[species]) - amount
     if _carcasses[species] == 0:
         _carcasses.erase(species)
-    for material in yield:
-        _products[material] = int(_products.get(material, 0)) \
-            + int(yield[material]) * amount
+    for material in recipe:
+        var units := int(recipe[material]) * amount
+        if material == "мясо" and _equipment.has("костяной нож"):
+            units += amount
+        _products[material] = int(_products.get(material, 0)) + units
     last_event = "Разделано туш: %d (%s)" % [amount, species]
+    return true
+
+
+func craft_tool(kind: String) -> bool:
+    # Шкура, кости и перья превращаются в снаряжение с конкретной
+    # пользой для новых охотничьих вылазок и разделки туш.
+    var ingredients: Dictionary = GEAR.get(kind, {})
+    if site.x < 0 or ingredients.is_empty() or _equipment.has(kind):
+        return false
+    for material in ingredients:
+        if int(_products.get(material, 0)) < int(ingredients[material]):
+            return false
+    for material in ingredients:
+        _products[material] = int(_products[material]) \
+            - int(ingredients[material])
+        if _products[material] == 0:
+            _products.erase(material)
+    _equipment[kind] = true
+    last_event = "Изготовлено снаряжение из животных материалов: " + kind
     return true
 
 
@@ -165,6 +200,7 @@ func summary() -> Dictionary:
     return {"day": last_day, "site": site,
         "carcasses": _carcasses.duplicate(true),
         "products": _products.duplicate(true),
+        "equipment": _equipment.duplicate(true),
         "order": _order.duplicate(true),
         "consumed_meat": eaten_meat, "event": last_event}
 
@@ -175,6 +211,7 @@ func to_data() -> Dictionary:
         "site": [site.x, site.y],
         "carcasses": _carcasses.duplicate(true),
         "products": _products.duplicate(true),
+        "equipment": _equipment.duplicate(true),
         "order": _order.duplicate(true),
         "consumed_meat": eaten_meat, "last_event": last_event}
 
@@ -187,6 +224,7 @@ func load_data(data: Dictionary) -> bool:
             or not (data.get("site") is Array) \
             or not (data.get("carcasses") is Dictionary) \
             or not (data.get("products") is Dictionary) \
+            or not (data.get("equipment") is Dictionary) \
             or not (data.get("order") is Dictionary) \
             or not (data.get("last_event") is String):
         return false
@@ -215,6 +253,12 @@ func load_data(data: Dictionary) -> bool:
                     or float(value) != float(int(value)) \
                     or value < 1 or value > MAX_STOCK:
                 return false
+    # Оборудование в сохранении допускается только из реальных
+    # известных рецептов и только в единичном экземпляре.
+    var equipment: Dictionary = data["equipment"]
+    for key in equipment:
+        if not GEAR.has(key) or equipment[key] != true:
+            return false
     var eaten: Variant = data.get("consumed_meat")
     if not (eaten is int or eaten is float) \
             or not is_finite(float(eaten)) \
@@ -259,6 +303,7 @@ func load_data(data: Dictionary) -> bool:
     site = cell
     _carcasses = data["carcasses"].duplicate(true)
     _products = data["products"].duplicate(true)
+    _equipment = data["equipment"].duplicate(true)
     _order = pending.duplicate(true)
     eaten_meat = int(eaten)
     last_day = climate.day
