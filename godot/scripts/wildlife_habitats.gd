@@ -62,7 +62,7 @@ func profile_at(cell: Vector2i) -> Dictionary:
     var index: int = hydro.cell_index(cell)
     if hydro.has_water(index) or hydro.flooded_at(index):
         return {}
-    var slope := 1.0 - world.normal_at(cell).y
+    var slope: float = 1.0 - float(world.normal_at(cell).y)
     if slope > 0.43:
         return {}
     var ground: Dictionary = surface.profile_at(cell)
