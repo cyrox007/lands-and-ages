@@ -5,6 +5,7 @@ extends RefCounted
 
 const SAVE_PATH := "user://fire-demo-world.json"
 const BEFORE_PNG := "user://fire-demo-before.png"
+const IGNITION_PNG := "user://fire-demo-ignition.png"
 const AFTER_PNG := "user://fire-demo-after.png"
 const RESTORED_PNG := "user://fire-demo-restored.png"
 
