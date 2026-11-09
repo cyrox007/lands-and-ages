@@ -645,6 +645,7 @@ func _setup_interface() -> void:
 	# мастерской. Выбираем сырьё, рецепт и потребителя из общего
 	# реестра; десятки однотипных кнопок не занимают игровую карту.
 	var resource_select := OptionButton.new()
+	_industry_kind = str(ResourceRecipes.RAW_MATERIALS[0])
 	for material in ResourceRecipes.RAW_MATERIALS:
 		resource_select.add_item(material)
 	resource_select.item_selected.connect(func(i: int):
