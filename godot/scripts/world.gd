@@ -744,6 +744,13 @@ func _setup_interface() -> void:
 	food_button.text = "Израсходовать 1 ед. мяса"
 	food_button.pressed.connect(_consume_animal_food)
 	_debug_details.add_child(food_button)
+	# Сырьё животного происхождения имеет действующие рецепты:
+	# без шкур, костей и перьев предметы не появляются.
+	for gear in WildlifeHarvest.GEAR:
+		var item_button := Button.new()
+		item_button.text = "Изготовить: " + str(gear)
+		item_button.pressed.connect(_craft_animal_gear.bind(str(gear)))
+		_debug_details.add_child(item_button)
 	var domestic_menu := OptionButton.new()
 	var domestic_options := WildlifeDomestic.LINEAGES.keys()
 	domestic_options.sort()
@@ -2350,6 +2357,16 @@ func _consume_animal_food() -> void:
 	_update_hud()
 
 
+func _craft_animal_gear(kind: String) -> void:
+	# Используем физические продукты из доставленных туш;
+	# готовое снаряжение затем меняет поведение охотников.
+	if not _animal_actions_allowed():
+		_storage_status = "Нужен действующий охотничий участок"
+	elif not _harvest.craft_tool(kind):
+		_storage_status = "Не хватает материалов или предмет уже готов: " + kind
+	_update_hud()
+
+
 func _order_capture() -> void:
 	# Отлов не создаёт домашнего животного мгновенно: сперва
 	# доставляются дикие основатели, затем требуются поколения.
@@ -2881,6 +2898,7 @@ func _update_hud() -> void:
 		_animal_status.text = "Охота: %s · туши: %s · продукты: %s\nПредки и потомство: %s" % [
 			str(hunt["event"]), JSON.stringify(hunt["carcasses"]),
 			JSON.stringify(hunt["products"]), JSON.stringify(farm["herds"])]
+		_animal_status.text += "\nСнаряжение: " + JSON.stringify(hunt["equipment"])
 	if _wildlife_status != null and _wildlife != null:
 		var fauna: Dictionary = _wildlife.summary()
 		_wildlife_status.text = "Дикие животные · %s · события %s" % [
