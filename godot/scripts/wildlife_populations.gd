@@ -213,6 +213,10 @@ func advance_day(day: int) -> bool:
             if neighbor.x < 0 or neighbor.y < 0 \
                     or neighbor.x >= bounds.x or neighbor.y >= bounds.y:
                 continue
+            # Соседние координаты ещё не доказывают возможность перехода:
+            # две области могут быть разделены непрерывной водой.
+            if not habitat.connected_regions(region, neighbor):
+                continue
             var target: Dictionary = habitat.zone(neighbor)[species]
             var target_cap: int = int(target["capacity"])
             var neighbor_id := _id(neighbor, species)
