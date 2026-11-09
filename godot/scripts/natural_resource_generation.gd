@@ -76,7 +76,7 @@ static func populate(world: RefCounted, hydro: RefCounted,
             var profile: Dictionary = surface.profile_at(cell)
             if profile.is_empty() or bool(profile.get("wetland", false)):
                 continue
-            var slope := 1.0 - world.normal_at(cell).y
+            var slope: float = 1.0 - world.normal_at(cell).y
             if slope > 0.48:
                 continue
             var region: Vector2i = world.config.region_of(cell)
