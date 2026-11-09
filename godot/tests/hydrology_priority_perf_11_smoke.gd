@@ -45,8 +45,16 @@ func _compare(old: RefCounted, current: RefCounted, stage: String) -> void:
 		_check(_bytes(a) == _bytes(b),
 			"Поле %s идентично: %s" % [field, stage])
 	_check(old._summary == current._summary, "Количество воды: " + stage)
-	_check(old.to_snapshot() == current.to_snapshot(),
-		"Снимок гидрологии одинаков: " + stage)
+	# У первоначального мира ещё нет карты локального дождя.
+	# Marshalls.raw_to_base64 выдаёт ERROR на пустом массиве;
+	# сравниваем снимок после установки настоящих осадков,
+	# а в начальном состоянии — исходное scalar-настройки.
+	if not old._local_rain.is_empty():
+		_check(old.to_snapshot() == current.to_snapshot(),
+			"Снимок гидрологии одинаков: " + stage)
+	else:
+		_check(old.to_data() == current.to_data(),
+			"Исходная гидрология одинакова: " + stage)
 	_check(old.last_ground_cells == current.last_ground_cells,
 		"Оба алгоритма прочитали одинаковый рельеф: " + stage)
 	_check(old.full_rebuilds == current.full_rebuilds,
@@ -117,6 +125,12 @@ func _run() -> void:
 	var rainfall := _rain_map()
 	for seed in SEEDS:
 		var world := Map.new(Config.new(WIDTH, HEIGHT, seed, 16, 32))
+		# WorldMap создаёт базовую геометрию по требованию.
+		# Прогреваем её вне таймера ДО обеих реализаций, чтобы
+		# первая не оплачивала генерацию шумов вместо Priority-Flood.
+		for y in range(HEIGHT):
+			for x in range(WIDTH):
+				world.height_at(Vector2(float(x) + 0.5, float(y) + 0.5))
 		var old := Legacy.new(world)
 		var current := Hydro.new(world)
 		_rebuild_pair(old, current, "исходная карта %d" % seed, seed != SEEDS[0])
