@@ -41,11 +41,11 @@ func _reference_day(climate: RefCounted) -> Dictionary:
 	for y in range(climate._height):
 		var latitude := (float(y) + 0.5) / float(climate._height)
 		for x in range(climate._width):
-			var i := y * climate._width + x
+			var i: int = y * int(climate._width) + x
 			var season := sin(TAU * float(day % Climate.YEAR_DAYS) /
 				float(Climate.YEAR_DAYS))
 			var rain_factor := Climate._seasonal_rain_factor(day, latitude)
-			var amplitude := lerpf(13.0, 6.0, latitude) * \
+			var amplitude: float = lerpf(13.0, 6.0, latitude) * \
 				(1.0 - climate._marine[i] * 0.28)
 			var front := Climate._smooth_noise(
 				(float(x) + float(day) * 1.8) / 55.0,
@@ -54,7 +54,7 @@ func _reference_day(climate: RefCounted) -> Dictionary:
 				(float(x) + float(day) * 0.7) / 38.0,
 				(float(y) + float(day) * 0.4) / 38.0, seed + 991)
 			temperature[i] = climate._mean[i] + season * amplitude + front * 3.1
-			var threshold := 0.11 - climate._humidity[i] * 0.20
+			var threshold: float = 0.11 - climate._humidity[i] * 0.20
 			var convection := clampf((temperature[i] - 7.0) / 17.0, 0.0, 1.0) * \
 				clampf((climate._humidity[i] - 0.24) / 0.52, 0.0, 1.0)
 			var frontal_lift := clampf(0.55 + front * 0.60 \
