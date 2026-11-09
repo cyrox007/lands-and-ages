@@ -17,6 +17,7 @@ const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
+const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -118,6 +119,14 @@ static func capture(state: Dictionary) -> Dictionary:
 		if wildlife.last_day != climate.day:
 			return {}
 		snapshot["wildlife"] = wildlife.to_data()
+	# Хищники хранят только собственные стаи; их жертвы уже
+	# списаны из того же реестра травоядных WildlifePopulations.
+	var food_web: RefCounted = state.get("food_web")
+	if food_web != null and food_web.generated:
+		if food_web.last_day != climate.day or wildlife == null \
+				or not wildlife.generated:
+			return {}
+		snapshot["food_web"] = food_web.to_data()
 	return snapshot
 
 
@@ -203,12 +212,19 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("wildlife") and (not (snapshot["wildlife"] is Dictionary)
 			or not wildlife.load_data(snapshot["wildlife"])):
 		return {}
+	# Старые миры сохраняют совместимость; стаи не появляются при
+	# загрузке, если новый раздел отсутствует в старом файле.
+	var food_web := FoodWeb.new(world, climate, wildlife)
+	if snapshot.has("food_web") and (not (snapshot["food_web"] is Dictionary)
+			or not food_web.load_data(snapshot["food_web"])):
+		return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
 		"economy": economy, "industry": industry, "wildlife": wildlife,
+		"food_web": food_web,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)
