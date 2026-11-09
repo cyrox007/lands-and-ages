@@ -2,6 +2,8 @@ extends RefCounted
 ## Первый физический хозяйственный цикл: глина → доставка → обжиг → постройка.
 ## Поставки расходуют реальные залежи и древесину, не создавая сырьё из команд.
 
+const SourceRegistry = preload("res://scripts/natural_resource_registry.gd")
+
 const CLAY_UNITS := 3
 const FUEL_UNITS := 3
 const BRICKS_REQUIRED := 3
@@ -329,7 +331,7 @@ func load_data(data: Dictionary, saved_day: int) -> bool:
             or int(data["stored_wood"]) != 0 or int(data["bricks"]) != 0):
         return false
     if data["phase"] != "ожидание" and str(data["clay_id"]) != \
-            str(resources.source_id("глина", cells["clay_cell"])):
+            SourceRegistry.source_id("глина", cells["clay_cell"]):
         return false
     if data["phase"] != "ожидание" and (int(data["tree_id"]) < 1 \
             or not str(data["clay_id"]).begins_with("глина:")):
