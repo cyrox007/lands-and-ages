@@ -176,6 +176,88 @@ func _border_open(a: Vector2i, b: Vector2i) -> bool:
     return false
 
 
+func consume_prey(region: Vector2i, species: String, amount: int) -> bool:
+    # Хищник обязан забрать существующих животных из исходного реестра.
+    # Если животных не хватает, никакой добычи не возникает.
+    if not generated or not SPECIES.has(species) or amount <= 0:
+        return false
+    var existing := population_at(region, species)
+    if amount > existing:
+        return false
+    var key := _key(region, species)
+    if amount == existing:
+        _counts.erase(key)
+    else:
+        _counts[key] = existing - amount
+    revision += 1
+    return true
+
+
+func can_cross(source: Vector2i, destination: Vector2i) -> bool:
+    # Все миграции и эвакуации используют один реальный переход:
+    # нельзя перемещать стада через затопленные границы.
+    return _border_open(source, destination)
+
+
+func react_hazards(hazards: Array) -> Dictionary:
+    # Стихийное событие берём только из настоящей физики.
+    # На сильную опасность стада уходят к свободной кормовой базе;
+    # если безопасного перехода нет, возможна потеря особей.
+    var moved := 0
+    var lost := 0
+    if not generated:
+        return {"moved": moved, "lost": lost}
+    for event in hazards:
+        if not (event is Dictionary) or not (event.get("cell") is Vector2i):
+            continue
+        var kind := str(event.get("kind", ""))
+        if kind not in ["шторм", "шквал", "ураган", "смерч",
+                "паводок", "лавина", "сель", "оползень", "обвал",
+                "землетрясение", "пожар"]:
+            continue
+        var power: float = float(event.get("severity", 0.0))
+        var cell: Vector2i = event["cell"]
+        if not is_finite(power) or power <= 0.0 \
+                or not world.config.contains_cell(cell):
+            continue
+        var region: Vector2i = world.config.region_of(cell)
+        for species in SPECIES:
+            var key := _key(region, species)
+            var count := population_at(region, species)
+            if count <= 0:
+                continue
+            var risk := clampf(power, 0.0, 1.0)
+            var fleeing := mini(count, maxi(1, roundi(float(count) * risk * 0.19)))
+            var best := Vector2i(-1, -1)
+            var available := 0
+            for direction in DIRECTIONS:
+                var neighbor: Vector2i = region + direction
+                var vacancy := capacity_at(neighbor, species) \
+                    - population_at(neighbor, species)
+                if vacancy <= available or not can_cross(region, neighbor):
+                    continue
+                best = neighbor
+                available = vacancy
+            if best.x >= 0:
+                var transferred := mini(fleeing, available)
+                _counts[key] = count - transferred
+                var dest := _key(best, species)
+                _counts[dest] = population_at(best, species) + transferred
+                moved += transferred
+            elif risk >= 0.80:
+                # Стихийное событие без безопасного выхода наносит урон,
+                # но не уничтожает целый регион по одному событию.
+                var casualties := mini(count, maxi(1,
+                    roundi(float(count) * 0.06 * risk)))
+                _counts[key] = count - casualties
+                lost += casualties
+    if moved > 0 or lost > 0:
+        revision += 1
+        last_events["migrated"] = int(last_events["migrated"]) + moved
+        last_events["died"] = int(last_events["died"]) + lost
+    return {"moved": moved, "lost": lost}
+
+
 func _change_population(day: int) -> Dictionary:
     # Рождение ограничено свободной кормовой ёмкостью. Смертность
     # растёт от перенаселения и исчезновения доступных биотопов.
@@ -214,7 +296,7 @@ func _change_population(day: int) -> Dictionary:
             var key := _key(region, species)
             var current: int = int(next_counts.get(key, 0))
             var limit: int = int(_capacity.get(key, 0))
-            if limit < 2 or current < maxi(2, ceili(float(limit) * 0.58)):
+            if current < 2 or (limit >= 2 and current < maxi(2, ceili(float(limit) * 0.58))):
                 continue
             var best := Vector2i(-1, -1)
             var best_space := 0
@@ -229,7 +311,7 @@ func _change_population(day: int) -> Dictionary:
                 # Не гоняем животных между одинаково заполненными
                 # территориями без экологического выигрыша.
                 if float(neighbor_count) / float(maxi(1, neighbor_limit)) \
-                        >= float(current) / float(limit) - 0.10:
+                        >= float(current) / float(maxi(1, limit)) - 0.10:
                     continue
                 if not _border_open(region, neighbor):
                     continue
