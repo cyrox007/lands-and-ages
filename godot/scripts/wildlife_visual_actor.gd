@@ -55,8 +55,13 @@ func configure(species_name: String, scene: PackedScene,
         if mesh_node.mesh == null:
             continue
         var box: AABB = mesh_node.mesh.get_aabb()
-        var local_to_root: Transform3D = _visual.global_transform.affine_inverse() \
-            * mesh_node.global_transform
+        # Вычисляем локальную цепочку костей и мешей без
+        # global_transform: актёр может ещё не быть в SceneTree.
+        var local_to_root := Transform3D.IDENTITY
+        var cursor: Node3D = mesh_node
+        while cursor != null and cursor != _visual:
+            local_to_root = cursor.transform * local_to_root
+            cursor = cursor.get_parent() as Node3D
         for y in [box.position.y, box.end.y]:
             var height: float = (local_to_root * Vector3(
                 box.get_center().x, y, box.get_center().z)).y
