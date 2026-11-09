@@ -198,11 +198,18 @@ func run_day() -> void:
 	test_dust_cell = Vector2i(-1, -1)
 	var disasters_us := Time.get_ticks_usec() - previous
 	previous = Time.get_ticks_usec()
+	# Учитываем согласование отдельно от растений и горения:
+	# прежний замер включал их время повторно и завышал
+	# сумму стадий. Это не замедляло физику, но портило диагноз.
 	var changed := synchronize_world()
+	var synchronization_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
 	# Суточный климат сначала лечит старые повреждения, а новые
 	# оползни/обвалы повреждают уже согласованный с рельефом грунт.
 	var nature_events: Array[Dictionary] = nature_hazards(hazards, erosion)
 	var scars_registered := register_geological_aftermath(surface, nature_events)
+	var geological_us := Time.get_ticks_usec() - previous
+	previous = Time.get_ticks_usec()
 	var vegetation_us := 0
 	if nature != null and nature.generated:
 		var plants_started := Time.get_ticks_usec()
@@ -213,6 +220,7 @@ func run_day() -> void:
 		# получает оба физически подтверждённых источника деформаций.
 		nature.advance_day(climate.day, nature_events, strikes, fire)
 		vegetation_us = Time.get_ticks_usec() - plants_started
+	previous = Time.get_ticks_usec()
 	# После природного шага огонь изменяет те же физические объекты.
 	# В старых тестовых сценариях без FireRegistry поле остаётся null.
 	var fire_events: Array[Dictionary] = []
@@ -221,7 +229,6 @@ func run_day() -> void:
 		fire_events = fire.advance_day(climate.day, strikes, test_fire_cell)
 	test_fire_cell = Vector2i(-1, -1)
 	var fire_us := Time.get_ticks_usec() - fire_started
-	var synchronization_us := Time.get_ticks_usec() - previous
 	last_duration_us = Time.get_ticks_usec() - start
 	last_statistics = {
 		"пересчёты водосборов": hydro.full_rebuilds - before_rebuilds,
@@ -236,7 +243,8 @@ func run_day() -> void:
 		"бедствия": disasters_us,
 		"растительность": vegetation_us,
 		"горение": fire_us,
-		"согласование": synchronization_us
+		"согласование": synchronization_us,
+		"геологические следы": geological_us
 	}
 	last_result = {
 		"day": climate.day,
