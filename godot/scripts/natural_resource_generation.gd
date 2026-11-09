@@ -13,6 +13,15 @@ const MATERIALS := [
     {"kind": "глина", "material": "глина", "quota": 2}
 ]
 
+# Минеральные проявления не гарантируются каждому региону.
+# Редкость и геологическая пригодность создают торговую специализацию.
+const MINERALS := [
+    {"kind": "железная руда", "material": "железная руда", "chance": 0.48},
+    {"kind": "медная руда", "material": "медная руда", "chance": 0.30},
+    {"kind": "оловянная руда", "material": "оловянная руда", "chance": 0.18},
+    {"kind": "каменный уголь", "material": "каменный уголь", "chance": 0.24}
+]
+
 static func _suitability(kind: String, substrate: String,
         depth: float, slope: float, wet: float) -> float:
     # Камень связан с выходами коренной породы и обломочным материалом.
@@ -110,6 +119,7 @@ static func populate(world: RefCounted, hydro: RefCounted,
         return a.y < b.y or (a.y == b.y and a.x < b.x)
     )
     for region in keys:
+        # Базовые материалы распределяются по природным условиям.
         for rule in MATERIALS:
             var kind: String = rule["kind"]
             var choices: Array = _pick(regions[region].get(kind, []),
@@ -122,6 +132,23 @@ static func populate(world: RefCounted, hydro: RefCounted,
                 if registry.add_source(kind, str(rule["material"]),
                         item["cell"], int(item["quantity"]),
                         int(item["quality"])):
+                    totals[kind] = int(totals.get(kind, 0)) + 1
+        # Более редкие залежи выбираются только на участках с коренной
+        # породой или щебнем. Это предварительная минеральная модель,
+        # а не промышленная карта доказанных рудных провинций.
+        var hard_rock: Array = regions[region].get("камень", [])
+        for mineral in MINERALS:
+            var kind: String = mineral["kind"]
+            var regional_seed := Terrain.hash2(region.x, region.y,
+                seed + 18000 + kind.hash())
+            if regional_seed >= float(mineral["chance"]) or hard_rock.is_empty():
+                continue
+            var selected: Array = _pick(hard_rock.duplicate(), 1)
+            for candidate in selected:
+                if registry.add_source(kind, str(mineral["material"]),
+                        candidate["cell"],
+                        maxi(20, int(candidate["quantity"]) / 3),
+                        int(candidate["quality"])):
                     totals[kind] = int(totals.get(kind, 0)) + 1
     return {"sources": totals, "missing_regions": missing,
         "sampled_regions": keys.size()}
