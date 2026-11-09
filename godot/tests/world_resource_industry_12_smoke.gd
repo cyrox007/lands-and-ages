@@ -198,7 +198,7 @@ func _check() -> bool:
         return false
     print("STAGE12-INDUSTRY-REPORT: ", JSON.stringify({
         "day": workshop.last_day, "site": [initial.site.x, initial.site.y],
-        "built": end["completed"], "remaining": end["stock"],
+        "built": workshop.completed, "remaining": workshop.stock,
         "technology": workshop.technology
     }))
     return true
