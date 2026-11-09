@@ -2587,7 +2587,9 @@ func _complete_day(result: Dictionary) -> void:
 		_food_web.advance_day(_last_completed_day, result["hazards"])
 	# Отлов и охота обновляются лишь после природного дня и охоты
 	# хищников. При постройке цеха животных не выдаём.
-	if _economy != null and _economy.built:
+	if _economy != null and _economy.built \
+			and _wildlife != null and _wildlife.generated \
+			and _food_web != null and _food_web.generated:
 		if _harvest != null and _harvest.site.x < 0:
 			_harvest.activate(_economy.site)
 		if _domestic != null and _domestic.site.x < 0:
