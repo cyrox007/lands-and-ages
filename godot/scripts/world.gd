@@ -1650,7 +1650,7 @@ func _fire_demo_active() -> bool:
 	# Законченное или неудавшееся испытание не блокирует
 	# обычное управление камерой, дни и пользовательский сейв.
 	return str(_fire_demo.get("stage", "")) in [
-		"before", "running", "after", "restored"]
+		"before", "running", "ignition_frame", "burning", "after", "restored"]
 
 
 func _fire_demo_report(message: String) -> void:
@@ -1685,7 +1685,7 @@ func _begin_fire_demo() -> void:
 		return
 	var cell: Vector2i = tree["cell"]
 	_fire_demo = {"stage": "before", "cell": cell, "id": tree["id"],
-		"day": _climate.day}
+		"day": _climate.day, "scorched_before": _fire.scorched_count()}
 	_fire_demo_stable_frames = 0
 	# До, после и после загрузки используют именно этот ракурс:
 	# запрещаем перемещение, пока сценарий не завершён.
@@ -1721,7 +1721,7 @@ func _fire_demo_picture(path: String) -> bool:
 
 func _advance_fire_demo() -> void:
 	var stage := str(_fire_demo.get("stage", ""))
-	if stage not in ["before", "after", "restored"]:
+	if stage not in ["before", "ignition_frame", "after", "restored"]:
 		return
 	if not _fire_demo_ready():
 		_fire_demo_stable_frames = 0
@@ -1745,9 +1745,20 @@ func _advance_fire_demo() -> void:
 		# обычный день через WorkerThreadPool, не имитируем огонь.
 		_days_pending = 1
 		_fire_demo_report("Кадр «до» записан · запускаем физический пожар")
+	elif stage == "ignition_frame":
+		# Само возгорание ещё не расходует топливо и не обжигает
+		# грунт: сохраняем отдельный кадр с видимым пламенем,
+		# затем считаем ещё один настоящий день для последствий.
+		if not _fire_demo_picture(WorldFireDemo.IGNITION_PNG):
+			_fire_demo_fail("Не удалось снять кадр реального возгорания")
+			return
+		_fire_demo["stage"] = "burning"
+		_days_pending = 1
+		_fire_demo_report("Возгорание снято · рассчитываем выгорание и следы почвы")
 	elif stage == "after":
 		var result: Dictionary = WorldSave.capture(_storage_models())
 		if result.is_empty() or result["fire"] == _fire_demo["initial"]["fire"] \
+				or _fire.scorched_count() <= int(_fire_demo["scorched_before"]) \
 				or not _fire_demo_picture(WorldFireDemo.AFTER_PNG):
 			_fire_demo_fail("Отсутствуют подтверждённые последствия или PNG")
 			return
@@ -1777,7 +1788,8 @@ func _advance_fire_demo() -> void:
 		_fire_demo["stage"] = "complete"
 		# Игрок получает три настоящих кадра и отдельный JSON.
 		_fire_demo_report(
-			"Готово: пожар и WorldSave проверены. Файлы fire-demo-before.png, " +
+			"Готово: пожар, выгорание и WorldSave проверены. Файлы " +
+			"fire-demo-before.png, fire-demo-ignition.png, " +
 			"fire-demo-after.png, fire-demo-restored.png и fire-demo-world.json")
 		_update_hud()
 
@@ -2228,11 +2240,21 @@ func _complete_day(result: Dictionary) -> void:
 	if str(_fire_demo.get("stage", "")) == "running":
 		var target: Vector2i = _fire_demo["cell"]
 		if WorldFireDemo.ignition_confirmed(fire_events, target):
-			_fire_demo["stage"] = "after"
+			_fire_demo["stage"] = "ignition_frame"
 			_fire_demo_stable_frames = 0
-			_fire_demo_report("Пожар подтверждён · собираем тот же вид «после»")
+			_fire_demo_report("Пожар подтверждён · снимаем пламя, затем следы")
 		else:
 			_fire_demo_fail("Дерево не загорелось: изменились влажность или условия дня")
+	elif str(_fire_demo.get("stage", "")) == "burning":
+		# Второй день не считаем успехом, пока настоящий огонь
+		# не повредил землю. Просто появившаяся FX-анимация
+		# не является долговременным последствием пожара.
+		if _fire.scorched_count() > int(_fire_demo["scorched_before"]):
+			_fire_demo["stage"] = "after"
+			_fire_demo_stable_frames = 0
+			_fire_demo_report("Грунт обожжён · снимаем последствия и сохраняем")
+		else:
+			_fire_demo_fail("Пожар потух без обжига грунта; условия были слишком влажными")
 	if not fire_events.is_empty():
 		var fire_last: Dictionary = fire_events[fire_events.size() - 1]
 		_storage_status = "Огонь: %s · %s · очагов %d" % [
