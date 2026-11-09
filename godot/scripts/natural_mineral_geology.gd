@@ -10,7 +10,7 @@ const RULES := [
     {"kind": "медная руда", "material": "медная руда",
         "rocks": ["магматическая", "метаморфическая"], "threshold": 0.62},
     {"kind": "оловянная руда", "material": "оловянная руда",
-        "rocks": ["магматическая"], "threshold": 0.70},
+        "rocks": ["магматическая", "метаморфическая"], "threshold": 0.59},
     {"kind": "каменный уголь", "material": "каменный уголь",
         "rocks": ["осадочная"], "threshold": 0.60}
 ]
@@ -63,6 +63,8 @@ static func prospect(world: RefCounted, surface: RefCounted,
         if soil not in ["глина", "суглинок", "песок"] or depth < 0.10:
             return {}
     elif str(rule["kind"]) == "оловянная руда":
+        # Оловянная минерализация возможна также в контактных
+        # метаморфических зонах, но требует выхода плотных пород.
         if soil not in ["скала", "щебень"] or depth > 0.45:
             return {}
     elif depth > 0.85:
