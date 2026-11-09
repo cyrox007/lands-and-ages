@@ -53,6 +53,24 @@ func _supply(workshop: RefCounted, deposits: RefCounted,
     return true
 
 
+func _wood(workshop: RefCounted, nature: RefCounted, count: int) -> bool:
+    # Древесина берётся из исходного NatureRegistry, а не пополняется
+    # автоматически из названия лесной профессии или рецепта.
+    var before: int = nature.wood_total()
+    if not workshop.order_wood(count):
+        push_error("Нет физической древесины для металлургии")
+        return false
+    var distance: int = workshop.delivery["length"]
+    var days := ceili(float(distance) / float(Industry.STEPS_PER_DAY)) * 2 + 2
+    workshop.advance_day(workshop.last_day + days)
+    if not workshop.delivery.is_empty() \
+            or int(workshop.stock.get("древесина", 0)) != count \
+            or nature.wood_total() != before - count:
+        push_error("Древесина доставлена без физического списания")
+        return false
+    return true
+
+
 func _check() -> bool:
     # Генерируем одну и ту же живую карту, которой пользуется игра.
     var world = Map.new(Config.new(256, 192, 1729))
@@ -139,6 +157,31 @@ func _check() -> bool:
     # Новые технологические ступени нельзя открывать бесплатно.
     if workshop.technology != 0 or workshop.research_next():
         push_error("Технология открылась без материальных затрат")
+        return false
+
+    # Вторая, независимая цепочка: настоящий лес и железная руда
+    # открывают производство креплений через материальное исследование.
+    if not _supply(workshop, deposits, "камень", 2) \
+            or not workshop.produce("тесать камень"):
+        return false
+    if not _supply(workshop, deposits, "глина", 3) \
+            or not _wood(workshop, nature, 3):
+        return false
+    if not workshop.produce("обжиг кирпича") \
+            or not workshop.research_next() or workshop.technology != 1:
+        push_error("Технология не потребовала настоящий кирпич и камень")
+        return false
+    if not _supply(workshop, deposits, "железная руда", 3) \
+            or not _wood(workshop, nature, 3):
+        return false
+    if not workshop.produce("выжиг древесного угля") \
+            or not workshop.produce("плавка железа") \
+            or not workshop.construct("железные крепления"):
+        push_error("Не удалось использовать добытое железо")
+        return false
+    if not workshop.stock.is_empty() \
+            or int(workshop.completed.get("железные крепления", 0)) != 1:
+        push_error("Металл или топливо продублированы после потребления")
         return false
     var saved: Dictionary = workshop.to_data()
     var clone = Industry.new(world, hydro, ground, nature, deposits,
