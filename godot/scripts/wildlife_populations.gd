@@ -169,6 +169,9 @@ func advance_day(day: int) -> bool:
     # Миграцию рассчитываем по исходному снимку дня и потом
     # применяем отдельно: нельзя переселить одну особь дважды.
     var movements: Array = []
+    # Резервируем свободные места до переселения: несколько соседей
+    # не могут независимо заполнить один и тот же регион сверх лимита.
+    var incoming := {}
     var bounds: Vector2i = world.config.region_count()
     for id in ids:
         var group: Dictionary = updated[id]
@@ -193,6 +196,7 @@ func advance_day(day: int) -> bool:
             var used := _count(updated.get(neighbor_id, {
                 "young": 0, "adult": 0, "senior": 0
             }))
+            used += int(incoming.get(neighbor_id, 0))
             if target_cap <= 0 or int(target["water_sites"]) == 0 \
                     or used >= target_cap:
                 continue
@@ -214,8 +218,10 @@ func advance_day(day: int) -> bool:
         var existing: int = _count(updated.get(target_id, {
             "young": 0, "adult": 0, "senior": 0
         }))
-        count = mini(count, int(target_zone["capacity"]) - existing)
+        count = mini(count, int(target_zone["capacity"]) - existing
+            - int(incoming.get(target_id, 0)))
         if count > 0:
+            incoming[target_id] = int(incoming.get(target_id, 0)) + count
             movements.append({"from": id, "to": target_id, "count": count,
                 "region": [destination.x, destination.y], "species": species})
     for movement in movements:
