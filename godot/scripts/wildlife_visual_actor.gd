@@ -86,7 +86,7 @@ func set_motion(next: String) -> void:
         _player.play(_master)
         _player.pause()
         return
-    var target := {"покой": ["idle"], "ходьба": ["walk", "gallop"],
+    var target: Array = {"покой": ["idle"], "ходьба": ["walk", "gallop"],
         "атака": ["attack", "bite"], "смерть": ["death", "die"]}[action]
     var selection := ""
     for name in _player.get_animation_list():
