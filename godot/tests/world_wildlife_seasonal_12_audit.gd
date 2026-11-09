@@ -127,8 +127,8 @@ func _check() -> bool:
     var fled_total := 0
     var lost_total := 0
     var predator_births := 0
-    var peak_prey := wildlife.total()
-    var peak_predators := predators.total()
+    var peak_prey: int = wildlife.total()
+    var peak_predators: int = predators.total()
     var days_with_hunting := 0
     for day in range(2, DAYS + 1):
         if day == 50:
