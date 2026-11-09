@@ -74,7 +74,7 @@ func configure(species_name: String, scene: PackedScene,
     # дополнительно усиливает перемещения костей; ограничиваем
     # визуальный масштаб, не вмешиваясь в настоящий Skeleton3D.
     if source == "Gobkit":
-        _visual.scale *= 0.04
+        _visual.scale *= 0.013
     # Gobkit уже предоставляет отдельные клипы idle/attack/dead/walk.\n    # Не перематываем idle как будто это единая длинная дорожка.\n    _packed = false
     _master = str(_player.get_animation_list()[0])
     _player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
