@@ -137,6 +137,15 @@ func _run() -> void:
 			old["runner"].run_day()
 			_record_day(old, old_total, old_stages)
 		_verify_physics(old, current, int(current["climate"].day))
+		# Для поиска остаточного фриза печатаем отдельные сутки.
+		# Агрегированные четыре дня скрывают краткий геологический
+		# перерасчёт, который пользователь ощущает как остановку.
+		print("DAY-PERF/STEP: день=", current["climate"].day,
+			", старый=", old["runner"].last_duration_us,
+			" мкс, новый=", current["runner"].last_duration_us,
+			" мкс, стадии=", current["runner"].last_profile_us,
+			", события=", current["runner"].last_result["hazards"].size(),
+			", статистика=", current["runner"].last_statistics)
 
 	_verify_snapshot(old, current)
 	var old_us: int = old_total.get("us", 0)
