@@ -14,6 +14,7 @@ const Runner = preload("res://scripts/world_day_runner.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
+const Economy = preload("res://scripts/world_first_economy.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -94,6 +95,13 @@ static func capture(state: Dictionary) -> Dictionary:
 			return {}
 		if not sources["sources"].is_empty():
 			snapshot["resources"] = sources
+	# Пустой цикл не меняет старый формат; активный заказ сохраняется
+	# только вместе с днём, исходниками и физическим состоянием мира.
+	var economy: RefCounted = state.get("economy")
+	if economy != null and economy.phase != "ожидание":
+		if economy.last_day != climate.day:
+			return {}
+		snapshot["economy"] = economy.to_data()
 	return snapshot
 
 
@@ -159,11 +167,19 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 		if not (snapshot["resources"] is Dictionary) \
 				or not resources.load_data(snapshot["resources"]):
 			return {}
+	# Хозяйство восстанавливается после природы и залежей, чтобы
+	# работать с теми же деревьями, а не копиями запасов.
+	var economy := Economy.new(world, hydro, surface, nature,
+		resources, int(saved_day))
+	if snapshot.has("economy") and (not (snapshot["economy"] is Dictionary)
+			or not economy.load_data(snapshot["economy"], int(saved_day))):
+		return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
+		"economy": economy,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)
