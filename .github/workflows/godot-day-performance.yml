@@ -6,6 +6,8 @@ on:
     paths:
       - "godot/scripts/world_day_runner.gd"
       - "godot/scripts/surface.gd"
+      - "godot/scripts/natural_processes.gd"
+      - "godot/scripts/natural_disasters.gd"
       - "godot/scripts/climate.gd"
       - "godot/tests/world_day_full_perf_11_smoke.gd"
       - "godot/tests/climate_day_legacy_reference.gd"
@@ -15,6 +17,8 @@ on:
     paths:
       - "godot/scripts/world_day_runner.gd"
       - "godot/scripts/surface.gd"
+      - "godot/scripts/natural_processes.gd"
+      - "godot/scripts/natural_disasters.gd"
       - "godot/scripts/climate.gd"
       - "godot/tests/world_day_full_perf_11_smoke.gd"
       - "godot/tests/climate_day_legacy_reference.gd"
