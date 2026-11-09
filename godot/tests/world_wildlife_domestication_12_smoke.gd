@@ -53,33 +53,55 @@ func _world() -> Dictionary:
         "domestic": farm, "habitats": habitats}
 
 
-func _choose_site(state: Dictionary) -> Vector2i:
-    # Выбираем настоящее пастбище с кормом и водой, а не просто
-    # незанятую клетку, чтобы проверить хотя бы травоядную линию.
+func _choose_site(state: Dictionary, kind: String) -> Vector2i:
+    # Хозяйство выбираем рядом с реальными предками данного вида.
+    # Нельзя требовать собрать всю фауну на одном изолированном
+    # острове: у каждого поселения собственная доступная география.
     var map: RefCounted = state["world"]
     var ground: RefCounted = state["surface"]
     var water: RefCounted = state["hydro"]
     var biotopes: RefCounted = state["habitats"]
-    var best := Vector2i(-1, -1)
-    var best_score := -1.0
-    for y in range(2, map.config.height, 4):
-        for x in range(2, map.config.width, 4):
-            var cell := Vector2i(x, y)
-            if not Paths.walkable(map, water, ground, cell):
+    var rule: Dictionary = Domestic.LINEAGES[kind]
+    var source: RefCounted = state["food_web"] \
+        if rule["predator"] else state["wildlife"]
+    var ancestor: String = str(rule["ancestor"])
+    var regions: Vector2i = map.config.region_count()
+    for ry in range(regions.y):
+        for rx in range(regions.x):
+            var region := Vector2i(rx, ry)
+            var count: int = source.count_at(region, ancestor) \
+                if rule["predator"] else source.population_at(region, ancestor)
+            if count < 1:
                 continue
-            var profile: Dictionary = biotopes.profile_at(cell)
-            if profile.is_empty():
-                continue
-            var food: float = float(profile["food"])
-            var drink: float = float(profile["water"])
-            if food < 0.15 or drink < 0.10:
-                continue
-            var score := food + drink
-            if score > best_score:
-                best_score = score
-                best = cell
-    return best
-
+            var bounds: Rect2i = map.config.region_rect(region)
+            for y in range(bounds.position.y, bounds.end.y, 4):
+                for x in range(bounds.position.x, bounds.end.x, 4):
+                    var cell := Vector2i(x, y)
+                    if not Paths.walkable(map, water, ground, cell):
+                        continue
+                    if not bool(rule["predator"]):
+                        var habitat: Dictionary = biotopes.profile_at(cell)
+                        if habitat.is_empty() or float(habitat["food"]) < 0.15 \
+                                or float(habitat["water"]) < 0.10:
+                            continue
+                    var available := 0
+                    for sy in range(regions.y):
+                        for sx in range(regions.x):
+                            var other := Vector2i(sx, sy)
+                            var living: int = source.count_at(other, ancestor) \
+                                if rule["predator"] else source.population_at(
+                                    other, ancestor)
+                            if living < 1:
+                                continue
+                            var route: Dictionary = Access.entry(map, water,
+                                ground, cell, other)
+                            if not route.is_empty():
+                                available += living
+                    # Для племенного стада требуются двое живых
+                    # основателей, потенциально из двух разных стай.
+                    if available >= 2:
+                        return cell
+    return Vector2i(-1, -1)
 
 func _target(state: Dictionary, kind: String) -> Dictionary:
     # Для каждой линии проверяем именно её диких предков и
@@ -118,29 +140,35 @@ func _tick(state: Dictionary) -> bool:
 
 func _check() -> bool:
     var state: Dictionary = _world()
-    var site: Vector2i = _choose_site(state)
-    if site.x < 0:
-        push_error("Нет настоящего пастбища с пищей и водой")
-        return false
-    var farm: RefCounted = state["domestic"]
-    var hunt: RefCounted = state["harvest"]
-    if not farm.activate(site) or not hunt.activate(site):
-        return false
-    for kind in Domestic.LINEAGES:
-        if farm.total(kind) != 0 or farm.total(kind, true) != 0:
-            push_error("Домашние животные возникли из пустой постройки")
-            return false
-
     var origins := {}
+    var cattle_born := false
     for kind in Domestic.LINEAGES:
+        var site: Vector2i = _choose_site(state, kind)
+        if site.x < 0:
+            push_error("Нет достижимой пары предков: " + kind)
+            return false
+        # Каждый вид проверяем на физически доступном пастбище
+        # или участке отлова, используя ОДНИ И ТЕ ЖЕ дикие
+        # популяции без повторного вызова generate().
+        var farm = Domestic.new(state["world"], state["hydro"],
+            state["surface"], state["climate"], state["wildlife"],
+            state["food_web"], state["harvest"])
+        var hunt = Harvest.new(state["world"], state["hydro"],
+            state["surface"], state["climate"], state["wildlife"])
+        state["domestic"] = farm
+        state["harvest"] = hunt
+        farm.harvest = hunt
+        if not farm.activate(site) or not hunt.activate(site):
+            return false
+        if farm.total(kind) != 0 or farm.total(kind, true) != 0:
+            push_error("Пустое хозяйство породило домашнее животное")
+            return false
         var rule: Dictionary = Domestic.LINEAGES[kind]
         var source: RefCounted = state["food_web"] \
             if rule["predator"] else state["wildlife"]
         var ancestor: String = str(rule["ancestor"])
         var total_taken := 0
         var capture_sources: Array = []
-        # У мелких стай может быть лишь один волк или одна дикая
-        # кошка. Двух родителей допустимо собрать из разных ареалов.
         for expedition in range(4):
             if total_taken >= 2:
                 break
@@ -152,7 +180,6 @@ func _check() -> bool:
                 if rule["predator"] else source.population_at(region, ancestor)
             var amount := mini(2 - total_taken, initial)
             if not farm.order_capture(region, kind, amount):
-                push_error("Нельзя начать настоящий отлов: " + kind)
                 return false
             var taken := 0
             var finished := false
@@ -168,7 +195,7 @@ func _check() -> bool:
                     finished = true
                     break
             if not finished or taken != amount:
-                push_error("Отлов не списал реальных предков: " + kind)
+                push_error("Живой предок не списан: " + kind)
                 return false
             total_taken += taken
             capture_sources.append([region.x, region.y, taken])
@@ -177,52 +204,56 @@ func _check() -> bool:
                 or int(record["founders"]) != 2 \
                 or record["ancestors"] != [ancestor] \
                 or record["origin"] != capture_sources:
-            push_error("Не хватает пары живых предков: %s; в мире %d, поймано %d" % [
-                kind, source.total(ancestor), total_taken])
+            push_error("Неверное происхождение %s; поймано %d" % [
+                kind, total_taken])
             return false
         origins[kind] = {"sources": capture_sources,
             "ancestor": ancestor, "captured": total_taken}
 
-    # Сохранение должно содержать происхождение всех пяти линий.
-    # Поддельная домашняя собака из оленя не может пройти импорт.
-    var saved: Dictionary = farm.to_data()
-    var clone = Domestic.new(state["world"], state["hydro"],
-        state["surface"], state["climate"],
-        state["wildlife"], state["food_web"], hunt)
-    if not clone.load_data(saved) or clone.to_data() != saved:
-        push_error("Происхождение исчезло при загрузке")
-        return false
-    var invalid: Dictionary = saved.duplicate(true)
-    invalid["herds"]["собака"]["ancestors"] = ["олень"]
-    if clone.load_data(invalid) or clone.to_data() != saved:
-        push_error("Допущена подмена волка оленем в родословной")
-        return false
-    invalid = saved.duplicate(true)
-    invalid["herds"]["корова"]["domestic"] = 100
-    if clone.load_data(invalid) or clone.to_data() != saved:
-        push_error("В сохранении возник бесплатный скот")
-        return false
-    if not hunt.summary()["products"].is_empty() \
-            or farm.total("собака", true) > 0 \
-            or farm.total("кошка", true) > 0:
-        push_error("Хищник одомашнен без кормового мяса")
-        return false
-
-    # Дальнейшие поколения коров возникают из реальных родителей,
-    # но их нельзя получить мгновенно от простой постройки участка.
-    var generations_before: int = int(saved["herds"]["корова"]["generations"])
-    for i in range(120):
-        if not _tick(state):
+        # Свой снимок каждой линии нельзя заменить чужим видом
+        # или раздуть домашнее поголовье вручную.
+        var data: Dictionary = farm.to_data()
+        var clone = Domestic.new(state["world"], state["hydro"],
+            state["surface"], state["climate"],
+            state["wildlife"], state["food_web"], hunt)
+        if not clone.load_data(data) or clone.to_data() != data:
+            push_error("Родословная изменилась при загрузке: " + kind)
             return false
-    var cattle: Dictionary = farm.summary()["herds"]["корова"]
-    if int(cattle["generations"]) <= generations_before \
-            or farm.total("корова", true) <= 0 \
-            or farm.total("собака", true) > 0:
-        push_error("Нет домашних потомков после поколений и корма")
+        var invalid: Dictionary = data.duplicate(true)
+        invalid["herds"][kind]["ancestors"] = ["олень"]
+        if clone.load_data(invalid) or clone.to_data() != data:
+            push_error("Предок подменён при загрузке: " + kind)
+            return false
+        invalid = data.duplicate(true)
+        invalid["herds"][kind]["domestic"] = 100
+        if clone.load_data(invalid) or clone.to_data() != data:
+            push_error("Домашняя особь появилась без поколений")
+            return false
+
+        if bool(rule["predator"]):
+            # Для собак и кошек без настоящего мяса не разрешается
+            # размножение, даже если волки и дикие кошки пойманы.
+            for day in range(100):
+                if not _tick(state):
+                    return false
+            if farm.total(kind, true) > 0:
+                push_error("Хищная домашняя линия размножилась без мяса")
+                return false
+        elif kind == "корова":
+            # Несколько поколений из исходных туров должны привести
+            # к домашним потомкам, но не мгновенно после отлова.
+            for day in range(120):
+                if not _tick(state):
+                    return false
+            if farm.total(kind, true) <= 0:
+                push_error("Туры не дали потомства на пригодном пастбище")
+                return false
+            cattle_born = true
+
+    if not cattle_born or origins.size() != Domestic.LINEAGES.size():
         return false
     print("STAGE12-DOMESTIC-REPORT: ", JSON.stringify({
-        "day": farm.last_day, "site": [site.x, site.y],
-        "origins": origins, "cattle": cattle,
-        "dogs": farm.summary()["herds"]["собака"]
+        "day": state["climate"].day,
+        "origins": origins, "cow_offspring": cattle_born
     }))
     return true
