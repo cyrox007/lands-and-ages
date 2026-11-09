@@ -20,6 +20,9 @@ var fire: RefCounted
 var last_day := 0
 var revision := 0
 var last_event: Dictionary = {}
+# Диагностика не сохраняется в WorldSave: она измеряет цену
+# конкретного дня, не является частью законов физики.
+var last_profile_us: Dictionary = {}
 
 
 func _init(map: RefCounted, water: RefCounted,
@@ -119,8 +122,10 @@ func advance_day(day: int) -> Dictionary:
 	if day <= last_day or day != climate.day or day != surface.day:
 		return {}
 	last_day = day
+	last_profile_us = {"поиск": 0, "перенос": 0}
 	if day % STEP_DAYS != 0:
 		return {}
+	var started := Time.get_ticks_usec()
 	var count: int = world.config.width * world.config.height
 	var offset := posmod(day * 997 + world.config.world_seed * 31, count)
 	var best_score := 0.0
@@ -142,8 +147,10 @@ func advance_day(day: int) -> Dictionary:
 			if score > best_score:
 				best_score = score
 				best = {"kind": kind, "cell": sample_cell, "risk": risk}
+	last_profile_us["поиск"] = Time.get_ticks_usec() - started
 	if best_score < 0.045:
 		return {}
+	var transfer_started := Time.get_ticks_usec()
 	var kind: String = best["kind"]
 	var cell: Vector2i = best["cell"]
 	var result := {}
@@ -153,6 +160,7 @@ func advance_day(day: int) -> Dictionary:
 			clampf(best_score * 0.18, 0.03, 0.18))
 	else:
 		result = _move_sediment(best)
+	last_profile_us["перенос"] = Time.get_ticks_usec() - transfer_started
 	if result.is_empty():
 		return {}
 	# Только реальная геологическая деформация передаёт силу в
