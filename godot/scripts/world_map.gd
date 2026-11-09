@@ -150,12 +150,23 @@ func apply_vertex_changes(changes: Dictionary) -> bool:
 	return true
 
 
-func take_dirty_chunks() -> Array[Vector2i]:
+func peek_dirty_chunks() -> Array[Vector2i]:
+	# Климат может понадобиться прямо в ходе геологического дня,
+	# до окончательного обновления сцены. Возвращаем список
+	# затронутых чанков без извлечения: WorldDayRunner должен
+	# всё ещё получить их через take_dirty_chunks().
 	var result: Array[Vector2i] = []
 	for key in _dirty.keys():
 		result.append(key)
 	result.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return a.y < b.y or (a.y == b.y and a.x < b.x))
+	return result
+
+
+func take_dirty_chunks() -> Array[Vector2i]:
+	# Чтение без очистки отделено от окончательного изъятия:
+	# список ревизий для рендера и гидрологии не теряется.
+	var result := peek_dirty_chunks()
 	_dirty.clear()
 	return result
 

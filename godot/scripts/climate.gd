@@ -82,7 +82,15 @@ func _index(cell: Vector2i) -> int:
 func ensure_ready() -> void:
 	if _terrain_revision != world.revision or _width != world.config.width \
 			or _height != world.config.height:
-		rebuild()
+		# Во время геологического дня высоты отдельных вершин уже
+		# изменились, но WorldDayRunner ещё не забрал список
+		# чанков для визуализации. Используем эти же координаты
+		# для частичного климата: физические формулы не меняются.
+		# При изменении моря rebuild() сам выберет полный обход.
+		var dirty: Array[Vector2i] = []
+		if world.has_method("peek_dirty_chunks"):
+			dirty = world.peek_dirty_chunks()
+		rebuild(dirty)
 
 
 func rebuild_if_stale(affected_chunks: Array[Vector2i] = []) -> bool:
