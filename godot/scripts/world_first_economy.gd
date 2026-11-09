@@ -96,7 +96,7 @@ func _route(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
         var x: int = current % width
         var y: int = current / width
         for direction in DIRECTIONS:
-            var next_cell := Vector2i(x, y) + direction
+            var next_cell: Vector2i = Vector2i(x, y) + direction
             if not _walkable(next_cell):
                 continue
             var next: int = next_cell.y * width + next_cell.x
