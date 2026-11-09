@@ -36,6 +36,14 @@ SOURCES = {
     "Quaternius": "https://quaternius.com/packs/ultimateanimatedanimals.html",
     "Gobkit": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
 }
+PINNED_GIT_BLOBS = {
+    "Deer.gltf": "7c8abdd5018ea0869a85d6eb8056c0d4f673fd0e",
+    "Bull.gltf": "2c501bc7f6d6237322206db027e4b7fb41eace37",
+    "Wolf.gltf": "36f718eabfc65c25c971acfd3ef73b5fcc3fc7b9",
+    "Fox.gltf": "fded2c7ed91ef52729d6fe7c1345d8438620f33d",
+    "Cow.gltf": "f90a67b34818693e418c1cf6ae5c9565ec1d90fc",
+    "Husky.gltf": "cece6d1fc74ad0c0e37ac59cb766274838e938c3",
+}
 MAX_BYTES = 40 * 1024 * 1024
 
 
@@ -116,6 +124,12 @@ def install(check_only: bool) -> None:
         if check_only and not target.exists():
             raise FileNotFoundError("Не установлен вид: " + kind)
         data = target.read_bytes() if target.exists() else fetch(url)
+        # Фиксированный Git-blob хеш основного glTF обнаруживает
+        # замену файла на зеркале, в том числе при повторной сборке.
+        if filename in PINNED_GIT_BLOBS:
+            header = f"blob {len(data)}\\0".encode("utf-8")
+            if hashlib.sha1(header + data).hexdigest() != PINNED_GIT_BLOBS[filename]:
+                raise ValueError("Изменился проверенный исходный ассет: " + filename)
         gltf = document(data, filename)
         if not target.exists():
             target.write_bytes(data)
