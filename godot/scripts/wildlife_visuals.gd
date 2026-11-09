@@ -12,7 +12,7 @@ const MAX_RENDER_RANGE := 42.0
 const UPDATE_INTERVAL := 0.60
 const MODELS := {
     "олень": {"file": "Deer.gltf", "source": "Quaternius", "height": 1.6},
-    "тур": {"file": "Stag.gltf", "source": "Quaternius", "height": 1.8},
+    "тур": {"file": "Bull.gltf", "source": "Quaternius", "height": 1.8},
     "волк": {"file": "Wolf.gltf", "source": "Quaternius", "height": 0.9},
     "лиса": {"file": "Fox.gltf", "source": "Quaternius", "height": 0.48},
     "корова": {"file": "Cow.gltf", "source": "Quaternius", "height": 1.4},
