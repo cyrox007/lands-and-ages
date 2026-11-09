@@ -127,7 +127,7 @@ def install(check_only: bool) -> None:
         # Фиксированный Git-blob хеш основного glTF обнаруживает
         # замену файла на зеркале, в том числе при повторной сборке.
         if filename in PINNED_GIT_BLOBS:
-            header = f"blob {len(data)}\\0".encode("utf-8")
+            header = f"blob {len(data)}".encode("utf-8") + bytes([0])
             if hashlib.sha1(header + data).hexdigest() != PINNED_GIT_BLOBS[filename]:
                 raise ValueError("Изменился проверенный исходный ассет: " + filename)
         gltf = document(data, filename)
