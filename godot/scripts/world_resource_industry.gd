@@ -65,6 +65,7 @@ func _schedule(kind: String, source_id: String,
         "kind": kind, "source_id": source_id,
         "tree_id": tree_id, "amount": amount,
         "target": [target.x, target.y],
+        "position": [site.x, site.y],
         "length": length, "left": length, "phase": "туда"
     }
     last_event = "Перевозчик отправился за ресурсом: " + kind
@@ -171,33 +172,49 @@ func _collect() -> bool:
 
 
 func advance_day(day: int) -> void:
-    # Ускоренная перемотка проходит каждый промежуточный день;
-    # нельзя мгновенно перевезти груз одним большим шагом времени.
+    # Положение перевозчика пересчитывается каждый день. Паводок,
+    # оползень и смена проходимости способны задержать доставку,
+    # но не телепортировать товар через новую преграду.
     if day <= last_day:
         return
     for current_day in range(last_day + 1, day + 1):
         if delivery.is_empty():
             continue
-        delivery["left"] = maxi(0, int(delivery["left"]) - STEPS_PER_DAY)
-        if int(delivery["left"]) > 0:
-            continue
+        var point: Array = delivery["position"]
+        var current := Vector2i(int(point[0]), int(point[1]))
+        var target: Vector2i = site
+        if delivery["phase"] == "туда":
+            var pair: Array = delivery["target"]
+            target = Vector2i(int(pair[0]), int(pair[1]))
+        if current != target:
+            var path: Array[Vector2i] = Paths.find(
+                world, hydro, surface, current, target)
+            if path.is_empty():
+                last_event = "Перевозчик задержан: природный маршрут перекрыт"
+                continue
+            var steps := mini(STEPS_PER_DAY, path.size())
+            current = path[steps - 1]
+            delivery["position"] = [current.x, current.y]
+            delivery["left"] = maxi(0, path.size() - steps)
+            if current != target:
+                continue
         if delivery["phase"] == "туда":
             if not _collect():
                 last_event = "Источник исчез или запас исчерпан"
                 delivery.clear()
                 continue
             delivery["phase"] = "обратно"
+            # После добычи груз существует в перевозке, но ещё
+            # не попал на склад мастерской и не может перерабатываться.
             delivery["left"] = int(delivery["length"])
             last_event = "Сырьё добыто; перевозчик возвращается"
             continue
-        # Только по возвращении в мастерскую груз становится складским.
         var kind: String = delivery["kind"]
         var amount: int = delivery["amount"]
         stock[kind] = int(stock.get(kind, 0)) + amount
         last_event = "Доставлено %d ед.: %s" % [amount, kind]
         delivery.clear()
     last_day = day
-
 
 func _consume(inputs: Dictionary) -> bool:
     # Проверка всех компонентов ДО первого списания гарантирует
@@ -328,7 +345,7 @@ func load_data(data: Dictionary, saved_day: int) -> bool:
     var incoming: Dictionary = data["delivery"]
     if not incoming.is_empty():
         for key in ["kind", "source_id", "tree_id", "amount",
-                "target", "length", "left", "phase"]:
+                "target", "position", "length", "left", "phase"]:
             if not incoming.has(key):
                 return false
         if str(incoming["kind"]) not in Recipes.RAW_MATERIALS \
@@ -348,13 +365,21 @@ func load_data(data: Dictionary, saved_day: int) -> bool:
                 or incoming["left"] < 0 \
                 or incoming["left"] > incoming["length"]:
             return false
-        for v in incoming["target"]:
-            if not (v is int or v is float) \
-                    or not is_finite(float(v)) or float(v) != float(int(v)):
-                return false
+        if not (incoming["position"] is Array) \
+                or incoming["position"].size() != 2:
+            return false
+        for pair in [incoming["target"], incoming["position"]]:
+            for v in pair:
+                if not (v is int or v is float) \
+                        or not is_finite(float(v)) \
+                        or float(v) != float(int(v)):
+                    return false
         var target := Vector2i(int(incoming["target"][0]),
             int(incoming["target"][1]))
-        if not world.config.contains_cell(target):
+        var worker := Vector2i(int(incoming["position"][0]),
+            int(incoming["position"][1]))
+        if not world.config.contains_cell(target) \
+                or not world.config.contains_cell(worker):
             return false
         if incoming["kind"] == "древесина":
             if incoming["tree_id"] < 1 or str(incoming["source_id"]) != "":
