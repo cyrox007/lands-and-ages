@@ -177,7 +177,8 @@ func _check() -> bool:
                 or int(record["founders"]) != 2 \
                 or record["ancestors"] != [ancestor] \
                 or record["origin"] != capture_sources:
-            push_error("Не хватает пары живых предков: " + kind)
+            push_error("Не хватает пары живых предков: %s; в мире %d, поймано %d" % [
+                kind, source.total(ancestor), total_taken])
             return false
         origins[kind] = {"sources": capture_sources,
             "ancestor": ancestor, "captured": total_taken}
