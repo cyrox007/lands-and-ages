@@ -145,7 +145,9 @@ func _run() -> void:
 			" мкс, новый=", current["runner"].last_duration_us,
 			" мкс, стадии=", current["runner"].last_profile_us,
 			", события=", current["runner"].last_result["hazards"].size(),
-			", статистика=", current["runner"].last_statistics)
+			", статистика=", current["runner"].last_statistics,
+			", эрозия_поэтапно=", current["natural"].last_profile_us,
+			", бедствия_поэтапно=", current["disasters"].last_profile_us)
 
 	_verify_snapshot(old, current)
 	var old_us: int = old_total.get("us", 0)
