@@ -277,11 +277,19 @@ func load_data(data: Dictionary) -> bool:
                     or int(source[2]) < 1 or int(source[2]) > MAX_CAPTURE:
                 return false
             captured += int(source[2])
+        # В текущей модели каждый подтверждённый племенной цикл
+        # даёт ровно одного потомка; произвольные дополнительные
+        # домашние животные в чужом снимке недопустимы.
+        var generations: int = int(record["generations"])
+        var young: int = int(record["young"])
+        var domesticated: int = int(record["domestic"])
         if captured != int(record["founders"]) \
-                or int(record["founders"]) + int(record["young"]) \
-                + int(record["domestic"]) > MAX_HERD \
-                or (int(record["generations"]) < REQUIRED_GENERATIONS \
-                and int(record["domestic"]) > 0):
+                or int(record["founders"]) + young \
+                + domesticated > MAX_HERD \
+                or young + domesticated != generations \
+                or (generations < REQUIRED_GENERATIONS \
+                and domesticated > 0) \
+                or (generations >= REQUIRED_GENERATIONS and young > 0):
             return false
     var order: Dictionary = data["order"]
     if not order.is_empty():
