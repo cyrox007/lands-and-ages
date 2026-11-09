@@ -108,8 +108,25 @@ func _daily_change(group: Dictionary, day: int,
     var young: int = result["young"]
     var adult: int = result["adult"]
     var senior: int = result["senior"]
-    var mature := young / 96
-    var aging := adult / (9 * 96)
+    # В возрастных когортах нет сотен отдельных Node3D. Для малых
+    # групп детерминированная вероятность переносит отдельных особей,
+    # не обнуляя взросление и старение из-за целочисленного деления.
+    var coords: Array = group["region"]
+    var rx: int = int(coords[0])
+    var ry: int = int(coords[1])
+    var seed: int = world.config.world_seed + str(group["species"]).hash()
+    var maturation_rate := float(young) / 96.0
+    var mature := floori(maturation_rate)
+    if Terrain.hash2(rx + day * 11, ry + day * 7, seed + 304) \
+            < maturation_rate - float(mature):
+        mature += 1
+    var aging_rate := float(adult) / float(9 * 96)
+    var aging := floori(aging_rate)
+    if Terrain.hash2(rx + day * 13, ry + day * 19, seed + 508) \
+            < aging_rate - float(aging):
+        aging += 1
+    mature = mini(mature, young)
+    aging = mini(aging, adult)
     young -= mature
     adult += mature - aging
     senior += aging
@@ -130,12 +147,18 @@ func _daily_change(group: Dictionary, day: int,
     deaths += young_deaths + adult_deaths
     var births := 0
     if day % 96 < 48 and adult > 1 and capacity > existing \
-            and food >= 0.18:
-        # Сезонный прирост ограничен доступной ёмкостью, а скорость
-        # воспроизводства различается для птиц, мелких зверей и оленей.
+            and food >= 0.13:
+        # Вероятность привязана к числу взрослых, корму и виду.
+        # Даже малые группы способны дать молодняк, но только при
+        # наличии свободной кормовой ёмкости и сезонного окна.
         var denominator := 22 if group["species"] == "куропатка" else (
             32 if group["species"] == "заяц" else 65)
-        births = mini(maxi(0, capacity - existing), adult / denominator)
+        var potential := float(adult) * food / float(denominator)
+        births = floori(potential)
+        if Terrain.hash2(rx + day * 17, ry + day * 31, seed + 822) \
+                < potential - float(births):
+            births += 1
+        births = mini(births, maxi(0, capacity - existing))
     young += births
     result["young"] = young
     result["adult"] = adult
