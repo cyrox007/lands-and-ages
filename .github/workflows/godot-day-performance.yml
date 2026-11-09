@@ -1,0 +1,76 @@
+name: "11/DAY-PERF — полный физический день и сохранение"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/surface.gd"
+      - "godot/scripts/climate.gd"
+      - "godot/tests/world_day_full_perf_11_smoke.gd"
+      - "godot/tests/climate_day_legacy_reference.gd"
+      - ".github/workflows/godot-day-performance.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "godot/scripts/world_day_runner.gd"
+      - "godot/scripts/surface.gd"
+      - "godot/scripts/climate.gd"
+      - "godot/tests/world_day_full_perf_11_smoke.gd"
+      - "godot/tests/climate_day_legacy_reference.gd"
+      - ".github/workflows/godot-day-performance.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: full-day-perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-day:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot-day-perf.zip
+          unzip -q /tmp/godot-day-perf.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+
+      - name: "Проверить компиляцию скриптов"
+        run: |
+          set -o pipefail
+          timeout 150s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 \
+            | tee /tmp/full-day-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" \
+              /tmp/full-day-import.log; then
+            exit 1
+          fi
+
+      - name: "11/DAY-PERF — 256×192: четыре полных дня, WorldSave и стадии"
+        timeout-minutes: 13
+        run: |
+          set -o pipefail
+          timeout 720s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --audio-driver Dummy --path godot \
+            --script res://tests/world_day_full_perf_11_smoke.gd 2>&1 \
+            | tee /tmp/world-day-256x192.log
+          grep -q "DAY-PERF:.*успешно" /tmp/world-day-256x192.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" \
+              /tmp/world-day-256x192.log; then
+            exit 1
+          fi
+
+      - name: "Сохранить метрики суточной физики"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-day-256x192-performance
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            /tmp/full-day-import.log
+            /tmp/world-day-256x192.log
