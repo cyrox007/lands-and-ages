@@ -18,6 +18,8 @@ const Economy = preload("res://scripts/world_first_economy.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
+const Harvest = preload("res://scripts/wildlife_harvest.gd")
+const Domestic = preload("res://scripts/wildlife_domestication.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -127,6 +129,23 @@ static func capture(state: Dictionary) -> Dictionary:
 				or not wildlife.generated:
 			return {}
 		snapshot["food_web"] = food_web.to_data()
+	# Туши и материалы хранятся отдельно от исходных живых стад.
+	# Если хозяйство ведёт охоту, нужно сохранить весь путь до склада.
+	var harvest: RefCounted = state.get("harvest")
+	if harvest != null and harvest.site.x >= 0:
+		if wildlife == null or not wildlife.generated \
+				or harvest.last_day != climate.day:
+			return {}
+		snapshot["harvest"] = harvest.to_data()
+	# Отловленные предки и их потомки никогда не генерируются
+	# заново из построек при восстановлении сохранения.
+	var domestic: RefCounted = state.get("domestic")
+	if domestic != null and domestic.site.x >= 0:
+		if wildlife == null or not wildlife.generated \
+				or food_web == null or not food_web.generated \
+				or harvest == null or domestic.last_day != climate.day:
+			return {}
+		snapshot["domestic"] = domestic.to_data()
 	return snapshot
 
 
@@ -218,13 +237,30 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("food_web") and (not (snapshot["food_web"] is Dictionary)
 			or not food_web.load_data(snapshot["food_web"])):
 		return {}
+	# Реестр продукции не может существовать без живой фауны,
+	# от которой могла произойти учтённая добыча.
+	var harvest := Harvest.new(world, hydro, surface, climate, wildlife)
+	if snapshot.has("harvest"):
+		if not snapshot.has("wildlife") \
+				or not (snapshot["harvest"] is Dictionary) \
+				or not harvest.load_data(snapshot["harvest"]):
+			return {}
+	# Источник предков должен быть восстановлен раньше домашних линий.
+	var domestic := Domestic.new(world, hydro, surface, climate,
+		wildlife, food_web, harvest)
+	if snapshot.has("domestic"):
+		if not snapshot.has("wildlife") or not snapshot.has("food_web") \
+				or not snapshot.has("harvest") \
+				or not (snapshot["domestic"] is Dictionary) \
+				or not domestic.load_data(snapshot["domestic"]):
+			return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
 		"economy": economy, "industry": industry, "wildlife": wildlife,
-		"food_web": food_web,
+		"food_web": food_web, "harvest": harvest, "domestic": domestic,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)
