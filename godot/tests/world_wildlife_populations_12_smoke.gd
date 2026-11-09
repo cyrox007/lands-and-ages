@@ -103,6 +103,9 @@ func _check() -> bool:
     var moved := 0
     var previous_total := wildlife.total()
     for day in range(2, DAYS + 1):
+        # Двадцатый день проверен отдельно после загрузки снимка.
+        if day == 20:
+            continue
         if not _step(state):
             return false
         var events: Dictionary = wildlife.last_events
@@ -136,9 +139,6 @@ func _check() -> bool:
             born += int(wildlife.last_events["born"])
             died += int(wildlife.last_events["died"])
             moved += int(wildlife.last_events["migrated"])
-            continue
-        if day == 20:
-            # День 20 уже пройден в сравнительном сценарии.
             continue
     if wildlife.total() != previous_total + born - died:
         push_error("Суммарная численность не соответствует рождаемости")
