@@ -232,6 +232,80 @@ func _check() -> void:
         push_error("Бегство изменило физическую фауну или не завершилось")
         quit(1)
         return
+    # Реальная охота хищника должна порождать визуальный удар,
+    # но только если неподалёку есть живая стая и нужный клип.
+    # Берём подтверждённое списание через _feed, а не придумываем
+    # численность или событие для декоративной сцены.
+    var attack_checked := false
+    var regions: Vector2i = world.config.region_count()
+    for ry in range(regions.y):
+        if attack_checked:
+            break
+        for rx in range(regions.x):
+            if attack_checked:
+                break
+            var region := Vector2i(rx, ry)
+            for predator_kind in ["волк", "лиса"]:
+                if predators.count_at(region, predator_kind) <= 0:
+                    continue
+                var can_hunt := false
+                for prey_kind in FoodWeb.SPECIES[predator_kind]["prey"]:
+                    if predators._huntable(region, str(prey_kind)) > 0:
+                        can_hunt = true
+                        break
+                if not can_hunt:
+                    continue
+                var actor_cell: Vector2i = visuals._position(
+                    region, predator_kind, Vector2.ZERO)
+                if actor_cell.x < 0:
+                    continue
+                visuals.refresh(Vector2(actor_cell) + Vector2(0.5, 0.5),
+                    66.0, 1.0)
+                var hunter_key := "%s:%d:%d" % [predator_kind, rx, ry]
+                if not visuals._visible.has(hunter_key):
+                    continue
+                var hunter := visuals._visible[hunter_key] as Node3D
+                if not hunter.has_attack_animation():
+                    continue
+                # Сначала завершаем прежний шаг, чтобы тест
+                # измерял именно анимацию атаки без телепортации.
+                for frame in range(30):
+                    if not bool(visuals._movement[hunter_key]["walking"]) \
+                            and not bool(visuals._movement[hunter_key]["flee"]):
+                        break
+                    visuals._process(0.10)
+                if bool(visuals._movement[hunter_key]["walking"]) \
+                        or bool(visuals._movement[hunter_key]["flee"]):
+                    continue
+                var captured: Array[Dictionary] = []
+                if predators._feed(region, predator_kind, 1, captured) != 1 \
+                        or captured.size() != 1:
+                    continue
+                predators.last_hunts = captured
+                var after_capture: Dictionary = fauna.to_data()
+                var hunters_after: Dictionary = predators.to_data()
+                var position_before: Vector3 = hunter.position
+                if visuals.react_hunts() != 1 \
+                        or hunter.get("state") != "атака" \
+                        or visuals.react_hunts() != 0:
+                    push_error("Настоящее поедание не вызвало единственную атаку")
+                    quit(1)
+                    return
+                for frame in range(10):
+                    visuals._process(0.10)
+                if hunter.get("state") != "покой" \
+                        or hunter.position != position_before \
+                        or fauna.to_data() != after_capture \
+                        or predators.to_data() != hunters_after:
+                    push_error("Атака сдвинула хищника или повторно списала добычу")
+                    quit(1)
+                    return
+                attack_checked = true
+                break
+    if not attack_checked:
+        push_error("Не найдена реальная охота с доступной анимацией атаки")
+        quit(1)
+        return
     print("STAGE12-VISUAL-REPORT: ", JSON.stringify({
         "models": models, "visible": visuals.active_count(),
         "max_visible": Visuals.MAX_VISIBLE,
@@ -239,6 +313,7 @@ func _check() -> void:
         "camera_checks": camera_checks,
         "walked": moved, "walk_animation": animated,
         "hazard_flee": fled, "flee_actors": reacted,
+        "confirmed_hunt_attack": attack_checked,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
