@@ -167,6 +167,23 @@ func has_attack_animation() -> bool:
     return false
 
 
+func attack_duration() -> float:
+    # Упакованный Gobkit проигрывает только диапазон реальных
+    # кадров атаки, отдельные GLTF — собственный исходный клип.
+    if not has_attack_animation():
+        return 0.0
+    if _packed:
+        var frames: Array = PACKED_ACTIONS["атака"]
+        return float(frames[1] - frames[0] + 1) / PACKED_FPS
+    for name in _player.get_animation_list():
+        var label := str(name).to_lower()
+        if label.contains("attack") or label.contains("bite"):
+            var animation: Animation = _player.get_animation(str(name))
+            if animation != null and is_finite(animation.length):
+                return maxf(0.1, animation.length)
+    return 0.0
+
+
 func motion_time() -> float:
     # Тест приёмки читает фактический ход клипа, а не надпись
     # состояния «ходьба», которая может не двигать ни одну кость.
