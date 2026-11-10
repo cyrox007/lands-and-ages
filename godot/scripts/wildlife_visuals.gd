@@ -12,7 +12,7 @@ const MAX_RENDER_RANGE := 42.0
 const UPDATE_INTERVAL := 0.60
 const LOCAL_WALK_SPEED := 0.85
 const FLEE_SPEED := 2.40
-const ATTACK_DURATION := 0.80
+const HUNT_SCARE_RADIUS := 10.0
 const HAZARD_RADIUS := 12.0
 const DANGERS := [
     "шторм", "шквал", "ураган", "смерч",
@@ -231,6 +231,35 @@ func _flee_target(movement: Dictionary, danger: Vector2i) -> Vector2i:
     return best
 
 
+func _start_flee(key: String, danger: Vector2i) -> bool:
+    # Природное бедствие и реальная охота используют одну
+    # физическую проверку соседней суши и одного скелетного актёра.
+    if not _visible.has(key) or not _movement.has(key):
+        return false
+    var movement: Dictionary = _movement[key]
+    if bool(movement.get("flee", false)):
+        return false
+    var cell: Vector2i = movement["cell"]
+    var next: Vector2i = _flee_target(movement, danger)
+    if next == cell:
+        return false
+    var actor := _visible[key] as Node3D
+    var flat := Vector2(float(next.x) + 0.5, float(next.y) + 0.5)
+    var target: Vector3 = world.config.to_scene(flat, world.height_at(flat))
+    var direction := target - actor.position
+    actor.rotation.y = atan2(-direction.x, -direction.z)
+    movement["target"] = target
+    movement["next"] = next
+    movement["walking"] = true
+    movement["flee"] = true
+    # Бегство от реальной угрозы прекращает жест атаки,
+    # но не меняет численность и не создаёт новых особей.
+    movement["attack"] = 0.0
+    movement["rest"] = 0.0
+    actor.set_motion("бег")
+    return true
+
+
 func react_hazards(hazards: Array) -> int:
     # Получаем только завершённые события WorldDayRunner, уже
     # применённые к живым стадам. Здесь нет вызова consume_prey,
@@ -263,24 +292,8 @@ func react_hazards(hazards: Array) -> int:
             if _population(world.config.region_of(cell),
                     str(actor.get("species"))) <= 0:
                 continue
-            var next: Vector2i = _flee_target(movement, danger)
-            if next == cell:
-                continue
-            var flat := Vector2(float(next.x) + 0.5,
-                float(next.y) + 0.5)
-            var target: Vector3 = world.config.to_scene(
-                flat, world.height_at(flat))
-            var direction: Vector3 = target - actor.position
-            actor.rotation.y = atan2(-direction.x, -direction.z)
-            movement["target"] = target
-            movement["next"] = next
-            movement["walking"] = true
-            movement["flee"] = true
-            # Реальная опасность приоритетнее сценического удара.
-            movement["attack"] = 0.0
-            movement["rest"] = 0.0
-            actor.set_motion("бег")
-            reacted += 1
+            if _start_flee(str(key), danger):
+                reacted += 1
     return reacted
 
 
@@ -318,9 +331,27 @@ func react_hunts() -> int:
             continue
         # До полноценной сцены охоты не телепортируем актёра к
         # условному месту добычи и не имитируем физический удар.
-        movement["attack"] = ATTACK_DURATION
+        movement["attack"] = actor.attack_duration()
+        if float(movement["attack"]) <= 0.0:
+            continue
         actor.set_motion("атака")
         reacted += 1
+        # Реальная добыча после захвата могла остаться живой в
+        # регионе: близкие видимые представители стада убегают.
+        # Далёкого зверя не притягиваем к сцене и не изображаем
+        # смерть конкретной особи без её индивидуального учёта.
+        var prey_kind := str(hunt.get("prey", ""))
+        var prey_key := "%s:%d:%d" % [prey_kind, region.x, region.y]
+        if not _visible.has(prey_key) or not _movement.has(prey_key) \
+                or wildlife.population_at(region, prey_kind) <= 0:
+            continue
+        var prey_movement: Dictionary = _movement[prey_key]
+        var hunter_cell: Vector2i = movement["cell"]
+        var prey_cell: Vector2i = prey_movement["cell"]
+        if Vector2(prey_cell - hunter_cell).length_squared() \
+                > HUNT_SCARE_RADIUS * HUNT_SCARE_RADIUS:
+            continue
+        _start_flee(prey_key, hunter_cell)
     return reacted
 
 
