@@ -364,6 +364,27 @@ func _check() -> void:
                     push_error("Реальная охота не запустила погоню и бегство")
                     quit(1)
                     return
+                # После события подтверждаем привязку к
+                # текущему дню, живой добыче и видимой сцене.
+                var chase: Dictionary = visuals._movement[hunter_key]
+                if not visuals._chase_target_valid(hunter_key, chase):
+                    push_error("Цель подтверждённой погони не распознана")
+                    quit(1)
+                    return
+                var visible_prey: Node3D = visuals._visible[prey_key]
+                visuals._visible.erase(prey_key)
+                var target_gone := not visuals._chase_target_valid(
+                    hunter_key, chase)
+                visuals._visible[prey_key] = visible_prey
+                chase["chase_day"] = predators.last_day + 1
+                var old_day_rejected := not visuals._chase_target_valid(
+                    hunter_key, chase)
+                chase["chase_day"] = predators.last_day
+                if not target_gone or not old_day_rejected \
+                        or not visuals._chase_target_valid(hunter_key, chase):
+                    push_error("Исчезновение добычи или смена дня не отменяют погоню")
+                    quit(1)
+                    return
                 var pursuit_start: Vector3 = hunter.position
                 var approach_reached := false
                 for frame in range(30):
@@ -420,6 +441,7 @@ func _check() -> void:
         "confirmed_hunt_attack": attack_checked,
         "nearby_prey_fled": prey_flee_checked,
         "one_cell_pursuit": chase_checked,
+        "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
