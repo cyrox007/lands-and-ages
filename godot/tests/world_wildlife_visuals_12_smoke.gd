@@ -184,12 +184,61 @@ func _check() -> void:
         push_error("Графическая прогулка изменила число животных")
         quit(1)
         return
+    # Настоящее событие дня подаётся через world.gd, а здесь
+    # проверяем обработчик: слабая опасность игнорируется, сильная
+    # запускает именно анимированный бег по соседней сухой клетке.
+    var fleeing_key := ""
+    for key in visuals._visible:
+        var motion: Dictionary = visuals._movement[key]
+        if visuals._flee_target(motion, motion["cell"]) != motion["cell"]:
+            fleeing_key = str(key)
+            break
+    if fleeing_key.is_empty():
+        push_error("Не найдено живое животное с безопасным путём бегства")
+        quit(1)
+        return
+    var flee_actor := visuals._visible[fleeing_key] as Node3D
+    var flee_cell: Vector2i = visuals._movement[fleeing_key]["cell"]
+    if visuals.react_hazards([{
+            "kind": "шторм", "cell": flee_cell, "severity": 0.2
+            }]) != 0:
+        push_error("Слабый ветер ошибочно вызвал паническое бегство")
+        quit(1)
+        return
+    var reacted: int = visuals.react_hazards([{
+        "kind": "шторм", "cell": flee_cell, "severity": 0.90
+    }])
+    if reacted < 1 or reacted > Visuals.MAX_VISIBLE \
+            or flee_actor.get("state") != "бег":
+        push_error("Реальная опасность не запустила скелетный бег")
+        quit(1)
+        return
+    var fled := false
+    var flee_origin: Vector3 = flee_actor.position
+    for i in range(24):
+        var prior: Vector3 = flee_actor.position
+        visuals._process(0.10)
+        if flee_actor.position.distance_to(prior) \
+                > Visuals.FLEE_SPEED * 0.10 + 0.001:
+            push_error("Бегство телепортировало животное")
+            quit(1)
+            return
+        if not bool(visuals._movement[fleeing_key]["flee"]):
+            fled = flee_actor.position.distance_to(flee_origin) > 0.1
+            break
+    if not fled or flee_actor.get("state") != "покой" \
+            or fauna.to_data() != prey_before \
+            or predators.to_data() != predators_before:
+        push_error("Бегство изменило физическую фауну или не завершилось")
+        quit(1)
+        return
     print("STAGE12-VISUAL-REPORT: ", JSON.stringify({
         "models": models, "visible": visuals.active_count(),
         "max_visible": Visuals.MAX_VISIBLE,
         "nearest_candidates": candidates.size(),
         "camera_checks": camera_checks,
         "walked": moved, "walk_animation": animated,
+        "hazard_flee": fled, "flee_actors": reacted,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
