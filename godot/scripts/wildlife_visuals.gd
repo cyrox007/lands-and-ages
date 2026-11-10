@@ -13,6 +13,7 @@ const UPDATE_INTERVAL := 0.60
 const LOCAL_WALK_SPEED := 0.85
 const FLEE_SPEED := 2.40
 const CHASE_SPEED := 1.80
+const MAX_CHASE_STEPS := 3
 const HUNT_SCARE_RADIUS := 10.0
 const HAZARD_RADIUS := 12.0
 const DANGERS := [
@@ -233,9 +234,9 @@ func _flee_target(movement: Dictionary, danger: Vector2i) -> Vector2i:
 
 
 func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
-    # Визуальное сближение после подтверждённой охоты —
-    # максимум одна соседняя клетка, без поиска несуществующей
-    # позиции убитой особи. До живой добычи не доходим вплотную.
+    # За каждый шаг сокращаем расстояние только по соседней
+    # проходимой клетке, не заходя в клетку уцелевшей добычи.
+    # Одна погоня ограничена отдельным счётчиком шагов.
     var cell: Vector2i = movement["cell"]
     var home: Vector2i = movement["home"]
     var region: Vector2i = world.config.region_of(home)
@@ -254,6 +255,32 @@ func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
             nearest = distance
             best = candidate
     return best
+
+
+func _begin_chase_step(key: String, movement: Dictionary) -> bool:
+    # На каждом новом шаге используем положение именно видимой
+    # живой добычи. Физический реестр охоты уже завершил работу:
+    # этот метод меняет только координаты и клип 3D-актёра.
+    if not _chase_target_valid(key, movement):
+        return false
+    var prey_key := str(movement["chase_prey"])
+    var prey_cell: Vector2i = _movement[prey_key]["cell"]
+    var next := _chase_step(movement, prey_cell)
+    if next == movement["cell"]:
+        return false
+    var flat := Vector2(next) + Vector2(0.5, 0.5)
+    var actor := _visible[key] as Node3D
+    var destination: Vector3 = world.config.to_scene(
+        flat, world.height_at(flat))
+    var direction: Vector3 = destination - actor.position
+    actor.rotation.y = atan2(-direction.x, -direction.z)
+    movement["target"] = destination
+    movement["next"] = next
+    movement["walking"] = true
+    movement["chase"] = true
+    movement["rest"] = 0.0
+    actor.set_motion("бег")
+    return true
 
 
 func _chase_target_valid(key: String, movement: Dictionary) -> bool:
@@ -312,6 +339,7 @@ func _start_flee(key: String, danger: Vector2i) -> bool:
     movement["chase"] = false
     movement["chase_prey"] = ""
     movement["chase_day"] = -1
+    movement["chase_steps"] = 0
     movement["rest"] = 0.0
     actor.set_motion("бег")
     return true
@@ -404,27 +432,18 @@ func react_hunts() -> int:
                 # Представитель уцелевшего стада реагирует на
                 # угрозу независимо от будущего шага хищника.
                 _start_flee(prey_key, hunter_cell)
-        # Один физически проходимый шаг визуальной погони
-        # заканчивается атакой, если не прерван настоящим бедствием.
-        var next := _chase_step(movement, prey_cell) \
-            if prey_cell.x >= 0 else hunter_cell
-        if next != hunter_cell:
-            var flat := Vector2(next) + Vector2(0.5, 0.5)
-            var destination: Vector3 = world.config.to_scene(
-                flat, world.height_at(flat))
-            var direction: Vector3 = destination - actor.position
-            actor.rotation.y = atan2(-direction.x, -direction.z)
-            movement["target"] = destination
-            movement["next"] = next
-            movement["walking"] = true
-            movement["chase"] = true
-            movement["chase_prey"] = prey_key
-            movement["chase_day"] = predators.last_day
-            movement["rest"] = 0.0
-            actor.set_motion("бег")
-        else:
-            # Нет безопасного пути или видимой добычи — поведение
-            # предыдущего этапа остаётся работоспособным.
+        # Не больше MAX_CHASE_STEPS проверяемых шагов по суше.
+        # В последующих кадрах цель может уйти: новый шаг всегда
+        # перечитывает её положение, а не старые координаты.
+        movement["chase_prey"] = prey_key
+        movement["chase_day"] = predators.last_day
+        movement["chase_steps"] = MAX_CHASE_STEPS
+        if prey_cell.x < 0 or not _begin_chase_step(key, movement):
+            # Нет безопасного пути или видимой добычи — оставляем
+            # прежний жест атаки, не перемещая животное силой.
+            movement["chase_prey"] = ""
+            movement["chase_day"] = -1
+            movement["chase_steps"] = 0
             movement["attack"] = actor.attack_duration()
             actor.set_motion("атака")
         reacted += 1
@@ -469,12 +488,19 @@ func _process(delta: float) -> void:
                 movement["walking"] = false
                 movement["flee"] = false
                 if bool(movement.get("chase", false)):
-                    # Не обрываем шаг посередине клетки, но и не
-                    # показываем удар по исчезнувшей добыче.
+                    # Сначала фиксируем прибытие в реальную клетку.
+                    # Продолжать можно лишь до лимита и пока виден
+                    # живой представитель добычи тех же суток.
+                    movement["chase_steps"] = maxi(0,
+                        int(movement.get("chase_steps", 0)) - 1)
                     var can_attack := _chase_target_valid(str(key), movement)
                     movement["chase"] = false
+                    if can_attack and int(movement["chase_steps"]) > 0 \
+                            and _begin_chase_step(str(key), movement):
+                        continue
                     movement["chase_prey"] = ""
                     movement["chase_day"] = -1
+                    movement["chase_steps"] = 0
                     if can_attack:
                         movement["attack"] = actor.attack_duration()
                         actor.set_motion("атака")
@@ -560,7 +586,8 @@ func refresh(center: Vector2, camera_width: float,
             "cell": cell, "home": cell, "step": 0,
             "rest": 1.5, "walking": false, "flee": false,
             "attack": 0.0, "chase": false,
-            "chase_prey": "", "chase_day": -1
+            "chase_prey": "", "chase_day": -1,
+            "chase_steps": 0
         }
 
 
