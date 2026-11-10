@@ -137,11 +137,59 @@ func _check() -> void:
                 quit(1)
                 return
         camera_checks += 1
+    # Наблюдаем реальную локальную прогулку уже существующего
+    # животного: соседние клетки обязаны быть сухопутными, а
+    # скелетная ходьба включается только в момент перемещения.
+    visuals.refresh(center, 66.0, 1.0)
+    var prey_before: Dictionary = fauna.to_data()
+    var predators_before: Dictionary = predators.to_data()
+    var sample_key := ""
+    for key in visuals._visible:
+        var motion: Dictionary = visuals._movement[key]
+        if visuals._walk_target(str(key), motion) != motion["cell"]:
+            sample_key = str(key)
+            break
+    if sample_key.is_empty():
+        push_error("На реальной карте нет проходимой клетки для прогулки")
+        quit(1)
+        return
+    var sample := visuals._visible[sample_key] as Node3D
+    var initial: Vector3 = sample.position
+    var moved := false
+    var animated := false
+    for step in range(120):
+        var prior: Vector3 = sample.position
+        visuals._process(0.10)
+        if sample.position.distance_to(prior) \
+                > Visuals.LOCAL_WALK_SPEED * 0.10 + 0.001:
+            push_error("Животное телепортировалось за один кадр")
+            quit(1)
+            return
+        if bool(visuals._movement[sample_key]["walking"]):
+            animated = true
+            if sample.get("state") != "ходьба":
+                push_error("Анимация ходьбы не включилась при движении")
+                quit(1)
+                return
+        if sample.position.distance_to(initial) > 0.1:
+            moved = true
+    if not animated or not moved \
+            or sample.position.distance_to(initial) \
+                > Visuals.MAX_WANDER_CELLS + 2.0:
+        push_error("Нет достоверной локальной прогулки по суше")
+        quit(1)
+        return
+    if fauna.to_data() != prey_before \
+            or predators.to_data() != predators_before:
+        push_error("Графическая прогулка изменила число животных")
+        quit(1)
+        return
     print("STAGE12-VISUAL-REPORT: ", JSON.stringify({
         "models": models, "visible": visuals.active_count(),
         "max_visible": Visuals.MAX_VISIBLE,
         "nearest_candidates": candidates.size(),
         "camera_checks": camera_checks,
+        "walked": moved, "walk_animation": animated,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
