@@ -129,6 +129,8 @@ func _farm_site(state: Dictionary) -> Dictionary:
     var soil: RefCounted = state["surface"]
     var animals: RefCounted = state["wildlife"]
     var habitat: RefCounted = state["domestic"].habitats
+    var best: Dictionary = {}
+    var best_score := -1.0
     var regions: Vector2i = map.config.region_count()
     for ry in range(regions.y):
         for rx in range(regions.x):
@@ -145,8 +147,22 @@ func _farm_site(state: Dictionary) -> Dictionary:
                     if profile.is_empty() or float(profile["food"]) < 0.15 \
                             or float(profile["water"]) < 0.10:
                         continue
-                    return {"site": cell, "region": region}
-    return {}
+                    # Настоящее хозяйство выгодно размещать на лучшем
+                    # пастбище с кормом и водой, рядом с доступной
+                    # дичью. Первая попавшаяся бедная клетка могла
+                    # сорвать разведение даже при наличии лучших лугов.
+                    var food: float = float(profile["food"])
+                    var drink: float = float(profile["water"])
+                    var local_game: int = animals.population_at(
+                        region, "олень") + animals.population_at(
+                        region, "заяц")
+                    var score := food * 2.0 + drink \
+                        + minf(1.0, float(local_game) / 12.0)
+                    if score <= best_score:
+                        continue
+                    best_score = score
+                    best = {"site": cell, "region": region}
+    return best
 
 
 func _hunt_source(state: Dictionary, amount: int = 5) -> Dictionary:
