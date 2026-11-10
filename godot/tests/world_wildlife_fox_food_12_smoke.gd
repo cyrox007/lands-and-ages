@@ -97,7 +97,7 @@ func _check() -> bool:
             # Изолируем птицу как источник волчьей добычи:
             # убираем только охотничий избыток других видов,
             # защищённое ядро травоядных остаётся на месте.
-            for species in ["олень", "кабан", "заяц"]:
+            for species in ["олень", "кабан", "заяц", "тур"]:
                 var surplus: int = predators._huntable(region, species)
                 if surplus > 0 and not prey.consume_prey(
                         region, species, surplus):
