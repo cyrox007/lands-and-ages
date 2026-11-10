@@ -359,9 +359,9 @@ func _check() -> void:
                 # Проигрываем весь клип, а не фиксированные 0,8 с.
                 var attack_frames := ceili(hunter.attack_duration() / 0.10) + 1
                 for frame in range(attack_frames):
-                    var previous: Vector3 = prey_actor.position
+                    var prey_frame_start: Vector3 = prey_actor.position
                     visuals._process(0.10)
-                    if prey_actor.position.distance_to(previous) \
+                    if prey_actor.position.distance_to(prey_frame_start) \
                             > Visuals.FLEE_SPEED * 0.10 + 0.001:
                         push_error("Добыча телепортировалась при бегстве")
                         quit(1)
