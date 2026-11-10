@@ -52,6 +52,13 @@ GOBKIT_SPECIES = {
     "дикий гусь": ("Goose.glb", "Goose"),
     "курица": ("Rooster.glb", "Rooster"),
 }
+# Хеши взяты из реально импортированных GLB Godot CI.
+# Любая замена файла требует новой графической и лицензионной приёмки.
+PINNED_SHA256 = {
+    "Hare.glb": "3342949e3b124441d4ac8a7bdffd93835c90752bfe0f3b7785a6cdd8f5b99cfb",
+    "Goose.glb": "a49f32e0b987776d4c4d953e853e435eb1574c173595da71b79ae716a56bcadc",
+    "Rooster.glb": "9c8a1c07418653dc0f1ede704934c9ef89a0735c1ed44ec755a97aae0c15e9a6",
+}
 GOBKIT_MANIFEST = "https://gobkit.com/api/free"
 MAX_BYTES = 40 * 1024 * 1024
 
@@ -195,6 +202,11 @@ def install(check_only: bool) -> None:
             previous_hash = existing.get(kind, {}).get("sha256")
             if previous_hash and hashlib.sha256(data).hexdigest() != previous_hash:
                 raise ValueError("Изменён ранее проверенный файл: " + filename)
+        # Зафиксированная SHA-256 не даёт внешнему источнику
+        # незаметно сменить художника, модель или набор анимаций.
+        if filename in PINNED_SHA256 and hashlib.sha256(data).hexdigest() \
+                != PINNED_SHA256[filename]:
+            raise ValueError("Изменена проверенная CC0-модель: " + filename)
         gltf = document(data, filename)
         if not target.exists():
             target.write_bytes(data)
