@@ -155,7 +155,7 @@ def resolve_gobkit(check_only: bool) -> dict[str, tuple[str, str, str]]:
                     continue
                 address = str(model.get("url", ""))
                 parsed = urllib.parse.urlparse(address)
-                if parsed.scheme != "https" or parsed.hostname != "gobkit.com" \\
+                if parsed.scheme != "https" or parsed.hostname != "gobkit.com" \
                         or not address.endswith("/" + filename):
                     continue
                 located[kind] = (filename, address, "Gobkit")
