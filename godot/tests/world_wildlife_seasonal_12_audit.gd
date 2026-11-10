@@ -127,6 +127,8 @@ func _check() -> bool:
     var fled_total := 0
     var lost_total := 0
     var predator_births := 0
+    var initial_deer: int = wildlife.total("олень")
+    var minimum_deer := maxi(2, ceili(float(initial_deer) * 0.16))
     var peak_prey: int = wildlife.total()
     var peak_predators: int = predators.total()
     var days_with_hunting := 0
@@ -190,6 +192,14 @@ func _check() -> bool:
             fled_total += int(event["prey_fled"])
             lost_total += int(event["prey_lost"])
             predator_births += int(event["born"])
+    # Если в начале действительно было воспроизводящее стадо,
+    # в конце сезона нельзя объявлять нормой единственного оленя.
+    # Порог относителен к исходному ресурсу, а не захардкожен
+    # как «нарисовать дополнительных оленей».
+    if initial_deer >= 2 and wildlife.total("олень") < minimum_deer:
+        push_error("Олени истощены хищниками: было %d, осталось %d" % [
+            initial_deer, wildlife.total("олень")])
+        return false
     if days_with_hunting < 3:
         push_error("Пищевая цепочка прекратилась слишком рано")
         return false
@@ -202,6 +212,7 @@ func _check() -> bool:
         "eaten": eaten_total, "fled": fled_total,
         "lost_to_hazards": lost_total, "predator_births": predator_births,
         "peak_prey": peak_prey, "peak_predators": peak_predators,
-        "hunting_days": days_with_hunting, "days": DAYS
+        "hunting_days": days_with_hunting, "days": DAYS,
+        "initial_deer": initial_deer, "minimum_deer": minimum_deer
     }))
     return true
