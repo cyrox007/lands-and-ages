@@ -167,7 +167,7 @@ func _check() -> void:
             return
         if bool(visuals._movement[sample_key]["walking"]):
             animated = true
-            if sample.state != "ходьба":
+            if sample.get("state") != "ходьба":
                 push_error("Анимация ходьбы не включилась при движении")
                 quit(1)
                 return
