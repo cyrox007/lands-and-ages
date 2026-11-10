@@ -11,6 +11,13 @@ const MAX_VISIBLE := 16
 const MAX_RENDER_RANGE := 42.0
 const UPDATE_INTERVAL := 0.60
 const LOCAL_WALK_SPEED := 0.85
+const FLEE_SPEED := 2.40
+const HAZARD_RADIUS := 12.0
+const DANGERS := [
+    "шторм", "шквал", "ураган", "смерч",
+    "паводок", "пожар", "лавина", "сель", "оползень",
+    "землетрясение", "обвал"
+]
 const MAX_WANDER_CELLS := 6.0
 const WALK_DIRECTIONS := [
     Vector2i(1, 0), Vector2i(0, 1),
@@ -198,6 +205,80 @@ func _walk_target(key: String, movement: Dictionary) -> Vector2i:
     return cell
 
 
+func _flee_target(movement: Dictionary, danger: Vector2i) -> Vector2i:
+    # Физическая опасность задаёт направление, но зверь может
+    # убежать только по реальной проходимой суше своего ареала.
+    var cell: Vector2i = movement["cell"]
+    var home: Vector2i = movement["home"]
+    var region: Vector2i = world.config.region_of(home)
+    var best := cell
+    var distance := Vector2(cell - danger).length_squared()
+    for direction in WALK_DIRECTIONS:
+        var candidate: Vector2i = cell + direction
+        if world.config.region_of(candidate) != region \
+                or Vector2(candidate - home).length_squared() \
+                    > MAX_WANDER_CELLS * MAX_WANDER_CELLS:
+            continue
+        if not Paths.walkable(world, hydro, surface, candidate):
+            continue
+        var candidate_distance := Vector2(candidate - danger).length_squared()
+        if candidate_distance > distance:
+            distance = candidate_distance
+            best = candidate
+    return best
+
+
+func react_hazards(hazards: Array) -> int:
+    # Получаем только завершённые события WorldDayRunner, уже
+    # применённые к живым стадам. Здесь нет вызова consume_prey,
+    # рождения животных или самостоятельной симуляции бедствий.
+    if world == null or wildlife == null or predators == null:
+        return 0
+    var reacted := 0
+    for hazard in hazards:
+        if not (hazard is Dictionary) \
+                or not (hazard.get("cell") is Vector2i):
+            continue
+        if str(hazard.get("kind", "")) not in DANGERS:
+            continue
+        var strength: float = float(hazard.get("severity", 0.0))
+        var danger: Vector2i = hazard["cell"]
+        if not is_finite(strength) or strength < 0.50 \
+                or not world.config.contains_cell(danger):
+            continue
+        for key in _visible:
+            var movement: Dictionary = _movement.get(key, {})
+            if movement.is_empty() or bool(movement.get("flee", false)):
+                continue
+            var actor := _visible[key] as Node3D
+            var cell: Vector2i = movement["cell"]
+            if Vector2(cell - danger).length_squared() \
+                    > HAZARD_RADIUS * HAZARD_RADIUS:
+                continue
+            # Если физическая особь уже погибла или переселилась,
+            # её старую графическую копию не заставляем убегать.
+            if _population(world.config.region_of(cell),
+                    str(actor.get("species"))) <= 0:
+                continue
+            var next: Vector2i = _flee_target(movement, danger)
+            if next == cell:
+                continue
+            var flat := Vector2(float(next.x) + 0.5,
+                float(next.y) + 0.5)
+            var target: Vector3 = world.config.to_scene(
+                flat, world.height_at(flat))
+            var direction: Vector3 = target - actor.position
+            actor.rotation.y = atan2(-direction.x, -direction.z)
+            movement["target"] = target
+            movement["next"] = next
+            movement["walking"] = true
+            movement["flee"] = true
+            movement["rest"] = 0.0
+            actor.set_motion("бег")
+            reacted += 1
+    return reacted
+
+
 func _process(delta: float) -> void:
     # Покадровое движение обрабатывает не более MAX_VISIBLE актёров.
     # Скелетная ходьба синхронна с перемещением, а вне экрана
@@ -212,14 +293,19 @@ func _process(delta: float) -> void:
         var movement: Dictionary = _movement[key]
         if bool(movement["walking"]):
             var destination: Vector3 = movement["target"]
+            # Убегает быстрее обычной прогулки, но каждый кадр
+            # проходит только допустимое расстояние по суше.
+            var speed := FLEE_SPEED if bool(movement.get("flee", false)) \
+                else LOCAL_WALK_SPEED
             actor.position = actor.position.move_toward(
-                destination, frame_time * LOCAL_WALK_SPEED)
+                destination, frame_time * speed)
             if actor.position.distance_to(destination) < 0.0001:
                 # move_toward сам доводит актёра до цели. Второй
                 # принудительный скачок меша нарушал лимит пути
                 # за кадр и выглядел бы как микротелепортация.
                 movement["cell"] = movement["next"]
                 movement["walking"] = false
+                movement["flee"] = false
                 movement["rest"] = 1.4
                 actor.set_motion("покой")
             continue
@@ -296,7 +382,7 @@ func refresh(center: Vector2, camera_width: float,
         # новых зверей это состояние не создаёт.
         _movement[key] = {
             "cell": cell, "home": cell, "step": 0,
-            "rest": 1.5, "walking": false
+            "rest": 1.5, "walking": false, "flee": false
         }
 
 

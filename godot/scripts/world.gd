@@ -2623,6 +2623,11 @@ func _complete_day(result: Dictionary) -> void:
 	# после размножения и миграции травоядных в этом же дне.
 	if _food_web != null and _food_web.generated:
 		_food_web.advance_day(_last_completed_day, result["hazards"])
+	# Только законченная физика суток может запустить бегство
+	# видимых моделей. Это графическая реакция без повторного
+	# пересчёта численности и без запуска фальшивой охоты.
+	if _wildlife_visuals != null and _day_task_id < 0:
+		_wildlife_visuals.react_hazards(result["hazards"])
 	# Отлов и охота обновляются лишь после природного дня и охоты
 	# хищников. При постройке цеха животных не выдаём.
 	if _economy != null and _economy.built \
