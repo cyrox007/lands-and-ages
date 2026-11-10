@@ -14,6 +14,17 @@ python3 tools/install_fauna_assets.py
 Источники:
 - [Quaternius Ultimate Animated Animals (CC0)](https://quaternius.com/packs/ultimateanimatedanimals.html)
 - [Gobkit Free Animal Pack Vol.2 (CC0)](https://gobkit.itch.io/gobkit-free-animal-pack-vol-2)
+- [Официальный CC0-манифест Gobkit](https://gobkit.com/api/free) — для
+  Hare (заяц), Goose (дикий/домашний гусь) и Rooster (курица)
+  используются только проверенные анимированные GLB с Skin и скелетом.
+
+Гусь и дикий гусь разделяют один визуальный меш, но **две отдельные
+реальные популяции**; домашний гусь видим только у действующего хозяйства
+после поколений. Rooster — настоящий петух, а не специально
+смоделированная дикая курица: это временный видовой вариант для
+графической реализации, а не окончательное утверждение художественного
+качества. Пока отсутствуют утверждённые модель кошки и полные звуки,
+анимации кормления и охоты, 12.9 не может считаться закрытым.
 - [Зеркало файлов Quaternius](https://github.com/agentkaerf/FreeModels/tree/main/Ultimate%20Animated%20Animals%20-%20July%202021)
 
 **Важно:** пока это стилизованные проверяемые 3D-ассеты, а не
