@@ -129,15 +129,27 @@ func set_motion(next: String) -> void:
 
 
 func _process(delta: float) -> void:
-    # При проигрывании упакованных клипов обновляем только
-    # видимый скелет. Логика питания и размножения здесь не живёт.
-    if not _packed or _player == null or not is_visible_in_tree():
+    # Отдельные импортированные клипы тоже обрабатываются
+    # в ручном режиме: без advance() была бы статичная поза,
+    # несмотря на успешный импорт и вызов play().
+    if _player == null or not is_visible_in_tree():
         return
+    if not _packed:
+        _player.advance(delta)
+        return
+    # Упакованный единый клип выбирает свой реальный диапазон
+    # ключевых кадров, не проигрывая все действия подряд.
     var frames: Array = PACKED_ACTIONS[state]
     var start: float = float(frames[0]) / PACKED_FPS
     var length: float = float(frames[1] - frames[0] + 1) / PACKED_FPS
     _elapsed = fmod(_elapsed + delta, length)
     _player.seek(start + _elapsed, true)
+
+
+func motion_time() -> float:
+    # Тест приёмки читает фактический ход клипа, а не надпись
+    # состояния «ходьба», которая может не двигать ни одну кость.
+    return _player.current_animation_position if _player != null else 0.0
 
 
 func bone_count() -> int:

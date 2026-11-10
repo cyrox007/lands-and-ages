@@ -42,6 +42,15 @@ func _check() -> void:
         # Скелет и анимации должны работать не только на этапе
         # импорта: проверяем переходы между реальными клипами.
         actor.set_motion("ходьба")
+        # Реальный ход анимации требует обработки кадров, а не
+        # простого изменения имени текущего состояния.
+        var started: float = actor.motion_time()
+        actor._process(0.25)
+        if actor.motion_time() <= started + 0.001:
+            push_error("Анимация не продвинулась по времени: " + kind)
+            actor.queue_free()
+            quit(1)
+            return
         await process_frame
         if actor.state != "ходьба":
             push_error("Не удалось включить анимацию ходьбы: " + kind)
