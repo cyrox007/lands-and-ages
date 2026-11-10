@@ -56,6 +56,14 @@ func _check() -> void:
             push_error("Не удалось включить анимацию ходьбы: " + kind)
             quit(1)
             return
+        # Время атаки должно соответствовать импортированному
+        # клипу, иначе скелет прерывается на середине движения.
+        if actor.has_attack_animation():
+            var duration: float = actor.attack_duration()
+            if not is_finite(duration) or duration <= 0.0:
+                push_error("Некорректная длительность атаки: " + kind)
+                quit(1)
+                return
         actor.set_motion("покой")
         if actor.state != "покой":
             push_error("Не удалось вернуть анимацию покоя: " + kind)
@@ -287,11 +295,15 @@ func _check() -> void:
                 var position_before: Vector3 = hunter.position
                 if visuals.react_hunts() != 1 \
                         or hunter.get("state") != "атака" \
+                        or absf(float(visuals._movement[hunter_key]["attack"]) \
+                            - hunter.attack_duration()) > 0.001 \
                         or visuals.react_hunts() != 0:
                     push_error("Настоящее поедание не вызвало единственную атаку")
                     quit(1)
                     return
-                for frame in range(10):
+                # Проигрываем весь клип, а не фиксированные 0,8 с.
+                var attack_frames := ceili(hunter.attack_duration() / 0.10) + 1
+                for frame in range(attack_frames):
                     visuals._process(0.10)
                 if hunter.get("state") != "покой" \
                         or hunter.position != position_before \
