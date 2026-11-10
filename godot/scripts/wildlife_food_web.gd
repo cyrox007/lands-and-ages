@@ -130,19 +130,45 @@ func capture_predators(region: Vector2i, kind: String,
     return true
 
 
-func _feed(region: Vector2i, kind: String, amount: int) -> int:
-    # Никакой добычи «по вероятности»: каждый съеденный зверь
-    # действительно списывается из существующего травоядного стада.
-    var taken := 0
-    for species in SPECIES[kind]["prey"]:
-        var possible := mini(amount - taken,
-            prey.population_at(region, species))
-        if possible > 0 and prey.consume_prey(region, species, possible):
-            taken += possible
-        if taken >= amount:
-            break
-    return taken
+func _huntable(region: Vector2i, species: String) -> int:
+    # Минимальное воспроизводящее ядро остаётся в природе.
+    # Хищники не могут систематически съедать последних
+    # оленей из ареала, если есть более массовая добыча.
+    var count: int = prey.population_at(region, species)
+    var capacity: int = prey.capacity_at(region, species)
+    var minimum := 3 if species == "заяц" else 2
+    var refuge := maxi(minimum, ceili(float(capacity) * 0.30))
+    return maxi(0, count - refuge)
 
+
+func _feed(region: Vector2i, kind: String, amount: int) -> int:
+    # Выбираем действительную доступную добычу, а не первый вид
+    # из постоянного списка. Давление охоты распределяется по
+    # экологическому избытку разных видов в одном ареале.
+    var taken := 0
+    var options: Array = SPECIES[kind]["prey"]
+    while taken < amount:
+        var chosen := ""
+        var best := -1.0
+        for species in options:
+            var available := _huntable(region, str(species))
+            if available <= 0:
+                continue
+            # Сравнение с вместимостью учитывает разную плотность
+            # животных, не превращая один вид в вечную добычу.
+            var capacity: int = prey.capacity_at(region, str(species))
+            var pressure := float(available) / float(maxi(1, capacity))
+            if pressure > best:
+                chosen = str(species)
+                best = pressure
+        if chosen.is_empty():
+            break
+        # Списываем конкретную живую особь; никакого условного
+        # «мяса» при пустом ареале не появляется.
+        if not prey.consume_prey(region, chosen, 1):
+            break
+        taken += 1
+    return taken
 
 func _advance_packs(day: int) -> Dictionary:
     # Сначала охота, затем рождаемость и смертность, затем миграция.
