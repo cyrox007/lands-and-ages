@@ -12,6 +12,7 @@ const MAX_RENDER_RANGE := 42.0
 const UPDATE_INTERVAL := 0.60
 const LOCAL_WALK_SPEED := 0.85
 const FLEE_SPEED := 2.40
+const CHASE_SPEED := 1.80
 const HUNT_SCARE_RADIUS := 10.0
 const HAZARD_RADIUS := 12.0
 const DANGERS := [
@@ -231,6 +232,30 @@ func _flee_target(movement: Dictionary, danger: Vector2i) -> Vector2i:
     return best
 
 
+func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
+    # Визуальное сближение после подтверждённой охоты —
+    # максимум одна соседняя клетка, без поиска несуществующей
+    # позиции убитой особи. До живой добычи не доходим вплотную.
+    var cell: Vector2i = movement["cell"]
+    var home: Vector2i = movement["home"]
+    var region: Vector2i = world.config.region_of(home)
+    var nearest: float = Vector2(cell - prey_cell).length_squared()
+    var best := cell
+    for direction in WALK_DIRECTIONS:
+        var candidate: Vector2i = cell + direction
+        if candidate == prey_cell or world.config.region_of(candidate) != region \
+                or Vector2(candidate - home).length_squared() \
+                    > MAX_WANDER_CELLS * MAX_WANDER_CELLS:
+            continue
+        if not Paths.walkable(world, hydro, surface, candidate):
+            continue
+        var distance: float = Vector2(candidate - prey_cell).length_squared()
+        if distance < nearest:
+            nearest = distance
+            best = candidate
+    return best
+
+
 func _start_flee(key: String, danger: Vector2i) -> bool:
     # Природное бедствие и реальная охота используют одну
     # физическую проверку соседней суши и одного скелетного актёра.
@@ -255,6 +280,7 @@ func _start_flee(key: String, danger: Vector2i) -> bool:
     # Бегство от реальной угрозы прекращает жест атаки,
     # но не меняет численность и не создаёт новых особей.
     movement["attack"] = 0.0
+    movement["chase"] = false
     movement["rest"] = 0.0
     actor.set_motion("бег")
     return true
@@ -329,29 +355,46 @@ func react_hunts() -> int:
         var actor := _visible[key] as Node3D
         if not actor.has_attack_animation():
             continue
-        # До полноценной сцены охоты не телепортируем актёра к
-        # условному месту добычи и не имитируем физический удар.
-        movement["attack"] = actor.attack_duration()
-        if float(movement["attack"]) <= 0.0:
+        if actor.attack_duration() <= 0.0:
             continue
-        actor.set_motion("атака")
-        reacted += 1
-        # Реальная добыча после захвата могла остаться живой в
-        # регионе: близкие видимые представители стада убегают.
-        # Далёкого зверя не притягиваем к сцене и не изображаем
-        # смерть конкретной особи без её индивидуального учёта.
+        # Пространственный ориентир — только уже видимый живой
+        # представитель группы, не координата съеденной особи.
+        # Никаких телепортаций, новых убийств и фиктивных трупов.
         var prey_kind := str(hunt.get("prey", ""))
         var prey_key := "%s:%d:%d" % [prey_kind, region.x, region.y]
-        if not _visible.has(prey_key) or not _movement.has(prey_key) \
-                or wildlife.population_at(region, prey_kind) <= 0:
-            continue
-        var prey_movement: Dictionary = _movement[prey_key]
+        var prey_cell := Vector2i(-1, -1)
         var hunter_cell: Vector2i = movement["cell"]
-        var prey_cell: Vector2i = prey_movement["cell"]
-        if Vector2(prey_cell - hunter_cell).length_squared() \
-                > HUNT_SCARE_RADIUS * HUNT_SCARE_RADIUS:
-            continue
-        _start_flee(prey_key, hunter_cell)
+        if _visible.has(prey_key) and _movement.has(prey_key) \
+                and wildlife.population_at(region, prey_kind) > 0:
+            var visible_cell: Vector2i = _movement[prey_key]["cell"]
+            if Vector2(visible_cell - hunter_cell).length_squared() \
+                    <= HUNT_SCARE_RADIUS * HUNT_SCARE_RADIUS:
+                prey_cell = visible_cell
+                # Представитель уцелевшего стада реагирует на
+                # угрозу независимо от будущего шага хищника.
+                _start_flee(prey_key, hunter_cell)
+        # Один физически проходимый шаг визуальной погони
+        # заканчивается атакой, если не прерван настоящим бедствием.
+        var next := _chase_step(movement, prey_cell) \
+            if prey_cell.x >= 0 else hunter_cell
+        if next != hunter_cell:
+            var flat := Vector2(next) + Vector2(0.5, 0.5)
+            var destination: Vector3 = world.config.to_scene(
+                flat, world.height_at(flat))
+            var direction: Vector3 = destination - actor.position
+            actor.rotation.y = atan2(-direction.x, -direction.z)
+            movement["target"] = destination
+            movement["next"] = next
+            movement["walking"] = true
+            movement["chase"] = true
+            movement["rest"] = 0.0
+            actor.set_motion("бег")
+        else:
+            # Нет безопасного пути или видимой добычи — поведение
+            # предыдущего этапа остаётся работоспособным.
+            movement["attack"] = actor.attack_duration()
+            actor.set_motion("атака")
+        reacted += 1
     return reacted
 
 
@@ -381,6 +424,7 @@ func _process(delta: float) -> void:
             # Убегает быстрее обычной прогулки, но каждый кадр
             # проходит только допустимое расстояние по суше.
             var speed := FLEE_SPEED if bool(movement.get("flee", false)) \
+                else CHASE_SPEED if bool(movement.get("chase", false)) \
                 else LOCAL_WALK_SPEED
             actor.position = actor.position.move_toward(
                 destination, frame_time * speed)
@@ -391,8 +435,15 @@ func _process(delta: float) -> void:
                 movement["cell"] = movement["next"]
                 movement["walking"] = false
                 movement["flee"] = false
-                movement["rest"] = 1.4
-                actor.set_motion("покой")
+                if bool(movement.get("chase", false)):
+                    # Только завершённый шаг погони включает
+                    # действительный скелетный клип атаки.
+                    movement["chase"] = false
+                    movement["attack"] = actor.attack_duration()
+                    actor.set_motion("атака")
+                else:
+                    movement["rest"] = 1.4
+                    actor.set_motion("покой")
             continue
         movement["rest"] = maxf(0.0, float(movement["rest"]) - frame_time)
         if float(movement["rest"]) > 0.0:
@@ -468,7 +519,7 @@ func refresh(center: Vector2, camera_width: float,
         _movement[key] = {
             "cell": cell, "home": cell, "step": 0,
             "rest": 1.5, "walking": false, "flee": false,
-            "attack": 0.0
+            "attack": 0.0, "chase": false
         }
 
 
