@@ -323,7 +323,7 @@ func _ready() -> void:
 	_wildlife_visuals.name = "Видимые настоящие животные"
 	add_child(_wildlife_visuals)
 	_wildlife_visuals.configure(_world_model, _hydro, _surface,
-		_wildlife, _food_web)
+		_wildlife, _food_web, _domestic)
 	_update_material_detail()
 	_update_camera()
 	if stream_camera:
@@ -2479,7 +2479,7 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_domestic = models["domestic"]
 	if _wildlife_visuals != null:
 		_wildlife_visuals.configure(_world_model, _hydro, _surface,
-			_wildlife, _food_web)
+			_wildlife, _food_web, _domestic)
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
