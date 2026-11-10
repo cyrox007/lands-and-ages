@@ -80,8 +80,50 @@ func _check() -> bool:
     if verified < 1:
         push_error("На реальной карте не найден ареал птицы без зайцев")
         return false
+    # Проверяем и волка: когда копытные и зайцы остались
+    # внутри воспроизводящего резерва, он может добыть птицу,
+    # но обязан списать именно существующую живую особь.
+    var wolf_bird_hunt := false
+    for y in range(region_count.y):
+        if wolf_bird_hunt:
+            break
+        for x in range(region_count.x):
+            var region := Vector2i(x, y)
+            var bird_available := predators._huntable(
+                region, "дикий гусь") + predators._huntable(
+                region, "дикая курица")
+            if bird_available <= 0:
+                continue
+            # Изолируем птицу как источник волчьей добычи:
+            # убираем только охотничий избыток других видов,
+            # защищённое ядро травоядных остаётся на месте.
+            for species in ["олень", "кабан", "заяц", "тур"]:
+                var surplus: int = predators._huntable(region, species)
+                if surplus > 0 and not prey.consume_prey(
+                        region, species, surplus):
+                    return false
+            var birds_before: int = prey.population_at(
+                region, "дикий гусь") + prey.population_at(
+                region, "дикая курица")
+            var wolves_before: int = predators.total("волк")
+            if predators._feed(region, "волк", 1) != 1:
+                push_error("Волк не может добыть доступную живую птицу")
+                return false
+            var birds_after: int = prey.population_at(
+                region, "дикий гусь") + prey.population_at(
+                region, "дикая курица")
+            if birds_after != birds_before - 1 \
+                    or predators.total("волк") != wolves_before:
+                push_error("Волчья охота создала бесплатную добычу")
+                return false
+            wolf_bird_hunt = true
+            break
+    if not wolf_bird_hunt:
+        push_error("Нет действительного птичьего ареала для волка")
+        return false
     print("STAGE12-FOX-FOOD-REPORT: ", JSON.stringify({
-        "regions": verified, "birds_remaining": prey.total("дикая курица")
+        "regions": verified, "wolf_bird_hunt": wolf_bird_hunt,
+        "birds_remaining": prey.total("дикая курица")
             + prey.total("дикий гусь"), "foxes": predators.total("лиса")
     }))
     return true

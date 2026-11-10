@@ -132,6 +132,7 @@ func _check() -> bool:
     var fled_total := 0
     var lost_total := 0
     var predator_births := 0
+    var initial_wolf: int = predators.total("волк")
     var initial_fox: int = predators.total("лиса")
     var initial_deer: int = wildlife.total("олень")
     var minimum_deer := maxi(2, ceili(float(initial_deer) * 0.16))
@@ -225,6 +226,12 @@ func _check() -> bool:
     if initial_fox >= 2 and predators.total("лиса") <= 0:
         push_error("Лисы вымерли при доступной добыче: исходно %d" % initial_fox)
         return false
+    # После двух лет проверяем сохранение изначально
+    # существовавших волков на обоих тестовых ландшафтах.
+    # Этот тест запрещает маскировать голод искусственным спавном.
+    if initial_wolf > 0 and predators.total("волк") <= 0:
+        push_error("Волки исчезли за второй год: исходно %d" % initial_wolf)
+        return false
     # Второй год нельзя засчитать, если охота остановилась ещё
     # в первом. Это проверяет пищевую цепочку после зимовки.
     if days_with_hunting < 10:
@@ -242,6 +249,7 @@ func _check() -> bool:
         "hunting_days": days_with_hunting, "days": DAYS,
         "seed": _seed, "seasons": season_markers,
         "initial_deer": initial_deer, "minimum_deer": minimum_deer,
+        "initial_wolf": initial_wolf, "remaining_wolf": predators.total("волк"),
         "initial_fox": initial_fox, "remaining_fox": predators.total("лиса")
     }))
     return true
