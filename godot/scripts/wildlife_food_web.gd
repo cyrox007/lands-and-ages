@@ -67,7 +67,7 @@ func _limit(region: Vector2i, kind: String) -> int:
     if kind == "волк":
         return mini(MAX_PER_REGION, (deer * 2 + boar * 2 + hare) / 14)
     if kind == "лиса":
-        return mini(MAX_PER_REGION, hare / 7)
+        return mini(MAX_PER_REGION, hare / 5)
     if kind == "дикая кошка":
         return mini(MAX_PER_REGION, hare / 9)
     return 0
@@ -170,13 +170,68 @@ func _feed(region: Vector2i, kind: String, amount: int) -> int:
         taken += 1
     return taken
 
+func _forage(region: Vector2i, kind: String) -> int:
+    # Кормовой резерв учитывает лишь настоящих живых особей,
+    # доступных сверх минимума размножающегося стада.
+    var amount := 0
+    for species in SPECIES[kind]["prey"]:
+        amount += _huntable(region, str(species))
+    return amount
+
+
+func _seek_food() -> int:
+    # Уход от голода предшествует охоте и естественной смертности.
+    # Маленькая стая не должна погибать мгновенно лишь потому,
+    # что её текущие зайцы ушли в соседний пригодный регион.
+    var before: Dictionary = _packs.duplicate()
+    var next: Dictionary = before.duplicate()
+    var moved := 0
+    for region in _regions():
+        for kind in SPECIES:
+            var key := _key(region, kind)
+            var count: int = int(before.get(key, 0))
+            if count <= 0:
+                continue
+            var needed := maxi(1, ceili(float(count) /
+                float(SPECIES[kind]["need"])))
+            var local_food := _forage(region, kind)
+            if local_food >= needed:
+                continue
+            var best := Vector2i(-1, -1)
+            var best_surplus := local_food
+            for direction in DIRECTIONS:
+                var neighbor: Vector2i = region + direction
+                var vacancy := _limit(neighbor, kind) \
+                    - int(next.get(_key(neighbor, kind), 0))
+                if vacancy <= 0 or not prey.can_cross(region, neighbor):
+                    continue
+                var food := _forage(neighbor, kind)
+                var already: int = int(next.get(_key(neighbor, kind), 0))
+                var demand := ceili(float(already) /
+                    float(SPECIES[kind]["need"]))
+                var surplus := food - demand
+                if surplus <= best_surplus:
+                    continue
+                best = neighbor
+                best_surplus = surplus
+            if best.x < 0 or int(next.get(key, 0)) <= 0:
+                continue
+            var target := _key(best, kind)
+            next[key] = int(next[key]) - 1
+            next[target] = int(next.get(target, 0)) + 1
+            moved += 1
+    if moved > 0:
+        _packs = next
+    return moved
+
+
 func _advance_packs(day: int) -> Dictionary:
     # Сначала охота, затем рождаемость и смертность, затем миграция.
     # Итог по каждому виду остаётся в проверяемых числовых пределах.
     var eaten := 0
     var born := 0
     var died := 0
-    var migrated := 0
+    var migrated := _seek_food()
     var next_packs: Dictionary = _packs.duplicate()
     for region in _regions():
         for kind in SPECIES:
@@ -193,7 +248,15 @@ func _advance_packs(day: int) -> Dictionary:
             eaten += consumed
             var supported := mini(current, consumed * int(rule["need"]))
             var shortage := current - supported
-            var starvation := ceili(float(shortage) * 0.45)
+            # Неудачная охота повышает риск смерти, но для
+            # одиночной лисы не означает гарантированную гибель
+            # после первого голодного восьмидневного цикла.
+            var expected_starvation := float(shortage) * 0.32
+            var starvation := floori(expected_starvation)
+            var risk := Terrain.hash2(region.x + day, region.y,
+                world.config.world_seed + 63179 + kind.hash())
+            if risk < expected_starvation - float(starvation):
+                starvation += 1
             var natural := floori(float(current) * float(rule["death"]))
             var losses := mini(current, starvation + natural)
             var space := maxf(0.0, 1.0 - float(current) /
