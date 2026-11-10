@@ -9,6 +9,7 @@ on:
       - "godot/scripts/world.gd"
       - "godot/scripts/world_save.gd"
       - "godot/tests/world_wildlife_food_web_12_smoke.gd"
+      - "godot/tests/world_wildlife_fox_food_12_smoke.gd"
       - ".github/workflows/godot-stage12-food-web.yml"
   workflow_dispatch:
 
@@ -31,6 +32,14 @@ jobs:
           timeout 160s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "12.10 — рацион лис: только существующая дикая птица"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_fox_food_12_smoke.gd \
+            2>&1 | tee /tmp/fox-food.log
+          grep -q "STAGE12-FOX-FOOD: успешно" /tmp/fox-food.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fox-food.log; then exit 1; fi
       - name: "12.6 — хищники и настоящий шторм"
         run: |
           set -o pipefail
