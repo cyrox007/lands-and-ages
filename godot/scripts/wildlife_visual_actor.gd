@@ -153,6 +153,20 @@ func _process(delta: float) -> void:
     _player.seek(start + _elapsed, true)
 
 
+func has_attack_animation() -> bool:
+    # Показываем атаку только при наличии настоящего клипа.
+    # Обычный idle-файл не может выдавать себя за охоту.
+    if _player == null:
+        return false
+    if _packed:
+        return true
+    for name in _player.get_animation_list():
+        var title := str(name).to_lower()
+        if title.contains("attack") or title.contains("bite"):
+            return true
+    return false
+
+
 func motion_time() -> float:
     # Тест приёмки читает фактический ход клипа, а не надпись
     # состояния «ходьба», которая может не двигать ни одну кость.

@@ -12,6 +12,7 @@ const MAX_RENDER_RANGE := 42.0
 const UPDATE_INTERVAL := 0.60
 const LOCAL_WALK_SPEED := 0.85
 const FLEE_SPEED := 2.40
+const ATTACK_DURATION := 0.80
 const HAZARD_RADIUS := 12.0
 const DANGERS := [
     "шторм", "шквал", "ураган", "смерч",
@@ -50,6 +51,7 @@ var _visible: Dictionary = {}
 var _movement: Dictionary = {}
 var _elapsed := 0.0
 var _last_population_day := -1
+var _last_hunt_day := -1
 
 
 func configure(map: RefCounted, water: RefCounted,
@@ -71,6 +73,7 @@ func configure(map: RefCounted, water: RefCounted,
     domestic = farm
     _elapsed = UPDATE_INTERVAL
     _last_population_day = -1
+    _last_hunt_day = -1
 
 
 func available_models() -> int:
@@ -273,9 +276,51 @@ func react_hazards(hazards: Array) -> int:
             movement["next"] = next
             movement["walking"] = true
             movement["flee"] = true
+            # Реальная опасность приоритетнее сценического удара.
+            movement["attack"] = 0.0
             movement["rest"] = 0.0
             actor.set_motion("бег")
             reacted += 1
+    return reacted
+
+
+func react_hunts() -> int:
+    # Только завершённые физические поедания FoodWeb могут
+    # вызвать жест атаки. Ни добычу, ни само преследование
+    # графика не создаёт; далёкие хищники не получают Node3D.
+    if world == null or wildlife == null or predators == null:
+        return 0
+    if predators.last_day != wildlife.last_day \
+            or predators.last_day <= _last_hunt_day:
+        return 0
+    _last_hunt_day = predators.last_day
+    var reacted := 0
+    for hunt in predators.last_hunts:
+        if not (hunt is Dictionary) \
+                or not (hunt.get("region") is Vector2i) \
+                or int(hunt.get("count", 0)) <= 0:
+            continue
+        var region: Vector2i = hunt["region"]
+        var kind := str(hunt.get("predator", ""))
+        var key := "%s:%d:%d" % [kind, region.x, region.y]
+        # Стаю могли уничтожить или камера уже ушла: показывать
+        # удар несуществующего хищника в таком случае нельзя.
+        if not _visible.has(key) or not _movement.has(key) \
+                or predators.count_at(region, kind) <= 0:
+            continue
+        var movement: Dictionary = _movement[key]
+        if bool(movement.get("walking", false)) \
+                or bool(movement.get("flee", false)) \
+                or float(movement.get("attack", 0.0)) > 0.0:
+            continue
+        var actor := _visible[key] as Node3D
+        if not actor.has_attack_animation():
+            continue
+        # До полноценной сцены охоты не телепортируем актёра к
+        # условному месту добычи и не имитируем физический удар.
+        movement["attack"] = ATTACK_DURATION
+        actor.set_motion("атака")
+        reacted += 1
     return reacted
 
 
@@ -291,6 +336,15 @@ func _process(delta: float) -> void:
             continue
         var actor := _visible[key] as Node3D
         var movement: Dictionary = _movement[key]
+        # Короткая скелетная атака не сдвигает животное с клетки.
+        # После проигрывания возвращаем штатные отдых и прогулку.
+        if float(movement.get("attack", 0.0)) > 0.0:
+            movement["attack"] = maxf(0.0,
+                float(movement["attack"]) - frame_time)
+            if float(movement["attack"]) <= 0.0:
+                actor.set_motion("покой")
+                movement["rest"] = 1.4
+            continue
         if bool(movement["walking"]):
             var destination: Vector3 = movement["target"]
             # Убегает быстрее обычной прогулки, но каждый кадр
@@ -382,7 +436,8 @@ func refresh(center: Vector2, camera_width: float,
         # новых зверей это состояние не создаёт.
         _movement[key] = {
             "cell": cell, "home": cell, "step": 0,
-            "rest": 1.5, "walking": false, "flee": false
+            "rest": 1.5, "walking": false, "flee": false,
+            "attack": 0.0
         }
 
 
