@@ -198,7 +198,7 @@ func _seek_food() -> int:
             if local_food >= needed:
                 continue
             var best := Vector2i(-1, -1)
-            var best_surplus := local_food
+            var best_surplus := local_food - needed
             for direction in DIRECTIONS:
                 var neighbor: Vector2i = region + direction
                 var vacancy := _limit(neighbor, kind) \
