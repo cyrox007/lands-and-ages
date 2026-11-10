@@ -10,6 +10,12 @@ const ROOT := "res://assets/fauna/"
 const MAX_VISIBLE := 16
 const MAX_RENDER_RANGE := 42.0
 const UPDATE_INTERVAL := 0.60
+const LOCAL_WALK_SPEED := 0.85
+const MAX_WANDER_CELLS := 6.0
+const WALK_DIRECTIONS := [
+    Vector2i(1, 0), Vector2i(0, 1),
+    Vector2i(-1, 0), Vector2i(0, -1)
+]
 const MODELS := {
     "олень": {"file": "Deer.gltf", "source": "Quaternius", "height": 1.6},
     "тур": {"file": "Bull.gltf", "source": "Quaternius", "height": 1.8},
@@ -34,6 +40,7 @@ var predators: RefCounted
 var domestic: RefCounted
 var _models: Dictionary = {}
 var _visible: Dictionary = {}
+var _movement: Dictionary = {}
 var _elapsed := 0.0
 var _last_population_day := -1
 
@@ -46,6 +53,9 @@ func configure(map: RefCounted, water: RefCounted,
     for actor in _visible.values():
         (actor as Node3D).queue_free()
     _visible.clear()
+    # Состояния прогулок относятся только к показанным 3D-актёрам:
+    # при загрузке чужого мира не переносим старые маршруты.
+    _movement.clear()
     world = map
     hydro = water
     surface = ground
@@ -168,6 +178,71 @@ func _nearest_candidates(center: Vector2,
     return candidates
 
 
+func _walk_target(key: String, movement: Dictionary) -> Vector2i:
+    # Животное перемещается только между соседними реальными
+    # сухопутными клетками своего ареала, не переходит через
+    # реки и не уходит за пределы локального участка прогулки.
+    var cell: Vector2i = movement["cell"]
+    var origin: Vector2i = movement["home"]
+    var region: Vector2i = world.config.region_of(origin)
+    var step: int = int(movement["step"])
+    var offset := floori(Terrain.hash2(cell.x + step, cell.y,
+        world.config.world_seed + key.hash()) * 4.0) % 4
+    for index in range(4):
+        var candidate: Vector2i = cell + WALK_DIRECTIONS[(offset + index) % 4]
+        if world.config.region_of(candidate) != region \
+                or Vector2(candidate - origin).length() > MAX_WANDER_CELLS:
+            continue
+        if Paths.walkable(world, hydro, surface, candidate):
+            return candidate
+    return cell
+
+
+func _process(delta: float) -> void:
+    # Покадровое движение обрабатывает не более MAX_VISIBLE актёров.
+    # Скелетная ходьба синхронна с перемещением, а вне экрана
+    # остаётся только числовая популяция без фоновой анимации.
+    if world == null or not is_visible_in_tree():
+        return
+    var frame_time := minf(maxf(delta, 0.0), 0.10)
+    for key in _visible:
+        if not _movement.has(key):
+            continue
+        var actor := _visible[key] as Node3D
+        var movement: Dictionary = _movement[key]
+        if bool(movement["walking"]):
+            var destination: Vector3 = movement["target"]
+            actor.position = actor.position.move_toward(
+                destination, frame_time * LOCAL_WALK_SPEED)
+            if actor.position.distance_to(destination) < 0.015:
+                actor.position = destination
+                movement["cell"] = movement["next"]
+                movement["walking"] = false
+                movement["rest"] = 1.4
+                actor.set_motion("покой")
+            continue
+        movement["rest"] = maxf(0.0, float(movement["rest"]) - frame_time)
+        if float(movement["rest"]) > 0.0:
+            continue
+        var next: Vector2i = _walk_target(str(key), movement)
+        movement["step"] = int(movement["step"]) + 1
+        if next == movement["cell"]:
+            movement["rest"] = 2.5
+            continue
+        var flat := Vector2(float(next.x) + 0.5, float(next.y) + 0.5)
+        var target: Vector3 = world.config.to_scene(
+            flat, world.height_at(flat))
+        var direction: Vector3 = target - actor.position
+        if direction.length_squared() < 0.0001:
+            movement["rest"] = 1.4
+            continue
+        actor.rotation.y = atan2(-direction.x, -direction.z)
+        movement["target"] = target
+        movement["next"] = next
+        movement["walking"] = true
+        actor.set_motion("ходьба")
+
+
 func refresh(center: Vector2, camera_width: float,
         delta: float = UPDATE_INTERVAL) -> void:
     # Пересоздание не допускается каждый кадр. Число узлов строго
@@ -193,6 +268,7 @@ func refresh(center: Vector2, camera_width: float,
             continue
         (_visible[key] as Node3D).queue_free()
         _visible.erase(key)
+        _movement.erase(key)
     for key in desired:
         if _visible.has(key):
             continue
@@ -213,6 +289,13 @@ func refresh(center: Vector2, camera_width: float,
         actor.set_motion("покой")
         add_child(actor)
         _visible[key] = actor
+        # Начальная клетка остаётся центром небольшой локальной
+        # прогулки. Ключ берётся из существующего вида и ареала;
+        # новых зверей это состояние не создаёт.
+        _movement[key] = {
+            "cell": cell, "home": cell, "step": 0,
+            "rest": 1.5, "walking": false
+        }
 
 
 func active_count() -> int:
