@@ -17,7 +17,13 @@ const MODELS := {
     "лиса": {"file": "Fox.gltf", "source": "Quaternius", "height": 0.48},
     "корова": {"file": "Cow.gltf", "source": "Quaternius", "height": 1.4},
     "собака": {"file": "Husky.gltf", "source": "Quaternius", "height": 0.7},
-    "кабан": {"file": "Boar.glb", "source": "Gobkit", "height": 0.9}
+    "кабан": {"file": "Boar.glb", "source": "Gobkit", "height": 0.9},
+    # Подлинные скелетные GLB, а не примитивные заменители.
+    "заяц": {"file": "Hare.glb", "source": "Gobkit", "height": 0.48},
+    "дикий гусь": {"file": "Goose.glb", "source": "Gobkit", "height": 0.72},
+    "гусь": {"file": "Goose.glb", "source": "Gobkit", "height": 0.72},
+    "курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46},
+    "дикая курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46}
 }
 
 var world: RefCounted
@@ -25,6 +31,7 @@ var hydro: RefCounted
 var surface: RefCounted
 var wildlife: RefCounted
 var predators: RefCounted
+var domestic: RefCounted
 var _models: Dictionary = {}
 var _visible: Dictionary = {}
 var _elapsed := 0.0
@@ -33,7 +40,7 @@ var _last_population_day := -1
 
 func configure(map: RefCounted, water: RefCounted,
         ground: RefCounted, fauna: RefCounted,
-        food: RefCounted) -> void:
+        food: RefCounted, farm: RefCounted = null) -> void:
     # При загрузке другого мира выбрасываем только графические
     # узлы. Данные популяций и охотничьи запасы остаются нетронуты.
     for actor in _visible.values():
@@ -44,6 +51,7 @@ func configure(map: RefCounted, water: RefCounted,
     surface = ground
     wildlife = fauna
     predators = food
+    domestic = farm
     _elapsed = UPDATE_INTERVAL
     _last_population_day = -1
 
@@ -77,8 +85,15 @@ func _scene(species: String) -> PackedScene:
 func _population(region: Vector2i, kind: String) -> int:
     # Показать зверя можно только при наличии хотя бы одной
     # живой особи в соответствующем природном реестре.
-    if kind in ["волк", "лиса"]:
+    if kind in ["волк", "лиса", "дикая кошка"]:
         return predators.count_at(region, kind)
+    # Домашняя особь должна действительно пройти племенные
+    # поколения и находиться на существующем хозяйственном дворе.
+    if kind in ["корова", "собака", "курица", "гусь"]:
+        if domestic == null or domestic.site.x < 0 \
+                or region != world.config.region_of(domestic.site):
+            return 0
+        return domestic.total(kind, true)
     return wildlife.population_at(region, kind)
 
 
@@ -90,6 +105,11 @@ func _position(region: Vector2i, kind: String,
     var anchor := Vector2i(
         clampi(roundi(center.x), bounds.position.x, bounds.end.x - 1),
         clampi(roundi(center.y), bounds.position.y, bounds.end.y - 1))
+    # Домашних животных показываем у хозяйства, а не в точке
+    # камеры на другом конце региона. Родословная остаётся
+    # в модели фермы, визуальный объект её не меняет.
+    if kind in ["корова", "собака", "курица", "гусь"] and domestic != null:
+        anchor = domestic.site
     var seed: int = world.config.world_seed + kind.hash()
     for i in range(24):
         var dx := roundi((Terrain.hash2(i, region.x, seed) - 0.5) * 24.0)

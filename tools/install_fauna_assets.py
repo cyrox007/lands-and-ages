@@ -44,6 +44,22 @@ PINNED_GIT_BLOBS = {
     "Cow.gltf": "f90a67b34818693e418c1cf6ae5c9565ec1d90fc",
     "Husky.gltf": "cece6d1fc74ad0c0e37ac59cb766274838e938c3",
 }
+# Следующие виды доступны только как настоящие скелетные GLB.
+# Их точные адреса берём из официального CC0-манифеста, а не
+# угадываем по имени файла и не подменяем чужим животным.
+GOBKIT_SPECIES = {
+    "заяц": ("Hare.glb", "Hare"),
+    "дикий гусь": ("Goose.glb", "Goose"),
+    "курица": ("Rooster.glb", "Rooster"),
+}
+# Хеши взяты из реально импортированных GLB Godot CI.
+# Любая замена файла требует новой графической и лицензионной приёмки.
+PINNED_SHA256 = {
+    "Hare.glb": "3342949e3b124441d4ac8a7bdffd93835c90752bfe0f3b7785a6cdd8f5b99cfb",
+    "Goose.glb": "a49f32e0b987776d4c4d953e853e435eb1574c173595da71b79ae716a56bcadc",
+    "Rooster.glb": "9c8a1c07418653dc0f1ede704934c9ef89a0735c1ed44ec755a97aae0c15e9a6",
+}
+GOBKIT_MANIFEST = "https://gobkit.com/api/free"
 MAX_BYTES = 40 * 1024 * 1024
 
 
@@ -111,6 +127,52 @@ def dependencies(model: dict) -> list[str]:
     return sorted(result)
 
 
+def resolve_gobkit(check_only: bool) -> dict[str, tuple[str, str, str]]:
+    """Проверяет происхождение новых скелетных животных.
+
+    При установке читаем живой официальный каталог CC0; при повторной
+    локальной проверке используем уже сохранённый проверенный адрес,
+    чтобы проверка не зависела от работающего интернета.
+    """
+    located = {}
+    if check_only:
+        manifest_file = DESTINATION / "asset_provenance.json"
+        if not manifest_file.exists():
+            raise FileNotFoundError("Нет списка происхождения GLB-моделей")
+        previous = json.loads(manifest_file.read_text(encoding="utf-8"))
+        for kind, (filename, _) in GOBKIT_SPECIES.items():
+            record = previous.get("models", {}).get(kind, {})
+            if record.get("file") != filename or not record.get("download_url"):
+                raise ValueError("Нет подтверждённого первоисточника: " + kind)
+            located[kind] = (filename, record["download_url"], "Gobkit")
+        return located
+
+    catalogue = json.loads(fetch(GOBKIT_MANIFEST).decode("utf-8"))
+    for pack in catalogue.get("packs", []):
+        if "CC0" not in str(pack.get("license", "")):
+            continue
+        for model in pack.get("models", []):
+            name = str(model.get("name", "")).casefold()
+            if not model.get("rigged") or not model.get("animations"):
+                continue
+            if "CC0" not in str(model.get("license", "")):
+                continue
+            for kind, (filename, expected) in GOBKIT_SPECIES.items():
+                if name != expected.casefold() or kind in located:
+                    continue
+                address = str(model.get("url", ""))
+                parsed = urllib.parse.urlparse(address)
+                if parsed.scheme != "https" or parsed.hostname != "gobkit.com" \
+                        or not address.endswith("/" + filename):
+                    continue
+                located[kind] = (filename, address, "Gobkit")
+    absent = sorted(set(GOBKIT_SPECIES) - set(located))
+    if absent:
+        raise ValueError("В официальном CC0-каталоге нет видов: "
+                         + ", ".join(absent))
+    return located
+
+
 def install(check_only: bool) -> None:
     """Устанавливает модели и фиксирует происхождение каждого файла.
 
@@ -118,8 +180,14 @@ def install(check_only: bool) -> None:
     сохраняются хеши и метаданные лицензии для воспроизводимой сборки.
     """
     DESTINATION.mkdir(parents=True, exist_ok=True)
+    existing = {}
+    provenance = DESTINATION / "asset_provenance.json"
+    if check_only and provenance.exists():
+        existing = json.loads(provenance.read_text(encoding="utf-8")).get(
+            "models", {})
+    models = {**ASSETS, **resolve_gobkit(check_only)}
     manifest = {"license": "CC0-1.0", "models": {}}
-    for kind, (filename, url, author) in ASSETS.items():
+    for kind, (filename, url, author) in models.items():
         target = DESTINATION / filename
         if check_only and not target.exists():
             raise FileNotFoundError("Не установлен вид: " + kind)
@@ -130,6 +198,15 @@ def install(check_only: bool) -> None:
             header = f"blob {len(data)}".encode("utf-8") + bytes([0])
             if hashlib.sha1(header + data).hexdigest() != PINNED_GIT_BLOBS[filename]:
                 raise ValueError("Изменился проверенный исходный ассет: " + filename)
+        if check_only:
+            previous_hash = existing.get(kind, {}).get("sha256")
+            if previous_hash and hashlib.sha256(data).hexdigest() != previous_hash:
+                raise ValueError("Изменён ранее проверенный файл: " + filename)
+        # Зафиксированная SHA-256 не даёт внешнему источнику
+        # незаметно сменить художника, модель или набор анимаций.
+        if filename in PINNED_SHA256 and hashlib.sha256(data).hexdigest() \
+                != PINNED_SHA256[filename]:
+            raise ValueError("Изменена проверенная CC0-модель: " + filename)
         gltf = document(data, filename)
         if not target.exists():
             target.write_bytes(data)
@@ -144,6 +221,7 @@ def install(check_only: bool) -> None:
             files.append(name)
         manifest["models"][kind] = {
             "file": filename, "author": author,
+            "download_url": url,
             "source": SOURCES[author], "license": "CC0-1.0",
             "skins": len(gltf["skins"]),
             "joints": max(len(s["joints"]) for s in gltf["skins"]),
