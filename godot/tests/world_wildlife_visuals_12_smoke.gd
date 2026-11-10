@@ -117,10 +117,31 @@ func _check() -> void:
         push_error("Превышен бюджет или отсутствуют модели")
         quit(1)
         return
+    # Многократное перемещение камеры по карте не должно
+    # вытеснять ближайшие 3D-модели и создавать лишние узлы.
+    var camera_checks := 0
+    for next_center in [
+            Vector2(55.0, 40.0), Vector2(180.0, 80.0),
+            Vector2(120.0, 160.0), Vector2(240.0, 180.0)]:
+        var expected: Array[Dictionary] = visuals._nearest_candidates(
+            next_center, radius)
+        visuals.refresh(next_center, 66.0, 1.0)
+        if visuals.active_count() != mini(
+                Visuals.MAX_VISIBLE, expected.size()):
+            push_error("Камера создала слишком много скелетных животных")
+            quit(1)
+            return
+        for i in range(mini(Visuals.MAX_VISIBLE, expected.size())):
+            if not visuals._visible.has(expected[i]["key"]):
+                push_error("При перемещении камеры показан не ближайший зверь")
+                quit(1)
+                return
+        camera_checks += 1
     print("STAGE12-VISUAL-REPORT: ", JSON.stringify({
         "models": models, "visible": visuals.active_count(),
         "max_visible": Visuals.MAX_VISIBLE,
         "nearest_candidates": candidates.size(),
+        "camera_checks": camera_checks,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
