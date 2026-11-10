@@ -256,6 +256,35 @@ func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
     return best
 
 
+func _chase_target_valid(key: String, movement: Dictionary) -> bool:
+    # Событие охоты относится к прошедшим физическим суткам.
+    # Перед показом удара проверяем: видимые участники и живые
+    # стада ещё существуют, а календарь не сменил контекст.
+    if world == null or wildlife == null or predators == null \
+            or not _visible.has(key) or not _movement.has(key):
+        return false
+    var prey_key := str(movement.get("chase_prey", ""))
+    if prey_key.is_empty() or not _visible.has(prey_key) \
+            or not _movement.has(prey_key):
+        return false
+    if int(movement.get("chase_day", -1)) != predators.last_day \
+            or predators.last_day != wildlife.last_day:
+        return false
+    var hunter_cell: Vector2i = movement["cell"]
+    var prey_cell: Vector2i = _movement[prey_key]["cell"]
+    var region: Vector2i = world.config.region_of(hunter_cell)
+    if world.config.region_of(prey_cell) != region \
+            or Vector2(hunter_cell - prey_cell).length_squared() \
+                > HUNT_SCARE_RADIUS * HUNT_SCARE_RADIUS:
+        return false
+    var hunter := _visible[key] as Node3D
+    var prey_actor := _visible[prey_key] as Node3D
+    # Проверка реестров не изменяет добычу, численность или
+    # маршруты. Удалённую стаю нельзя заменить картинкой.
+    return predators.count_at(region, str(hunter.get("species"))) > 0 \
+        and wildlife.population_at(region, str(prey_actor.get("species"))) > 0
+
+
 func _start_flee(key: String, danger: Vector2i) -> bool:
     # Природное бедствие и реальная охота используют одну
     # физическую проверку соседней суши и одного скелетного актёра.
@@ -281,6 +310,8 @@ func _start_flee(key: String, danger: Vector2i) -> bool:
     # но не меняет численность и не создаёт новых особей.
     movement["attack"] = 0.0
     movement["chase"] = false
+    movement["chase_prey"] = ""
+    movement["chase_day"] = -1
     movement["rest"] = 0.0
     actor.set_motion("бег")
     return true
@@ -387,6 +418,8 @@ func react_hunts() -> int:
             movement["next"] = next
             movement["walking"] = true
             movement["chase"] = true
+            movement["chase_prey"] = prey_key
+            movement["chase_day"] = predators.last_day
             movement["rest"] = 0.0
             actor.set_motion("бег")
         else:
@@ -436,11 +469,18 @@ func _process(delta: float) -> void:
                 movement["walking"] = false
                 movement["flee"] = false
                 if bool(movement.get("chase", false)):
-                    # Только завершённый шаг погони включает
-                    # действительный скелетный клип атаки.
+                    # Не обрываем шаг посередине клетки, но и не
+                    # показываем удар по исчезнувшей добыче.
+                    var can_attack := _chase_target_valid(str(key), movement)
                     movement["chase"] = false
-                    movement["attack"] = actor.attack_duration()
-                    actor.set_motion("атака")
+                    movement["chase_prey"] = ""
+                    movement["chase_day"] = -1
+                    if can_attack:
+                        movement["attack"] = actor.attack_duration()
+                        actor.set_motion("атака")
+                    else:
+                        movement["rest"] = 1.4
+                        actor.set_motion("покой")
                 else:
                     movement["rest"] = 1.4
                     actor.set_motion("покой")
@@ -519,7 +559,8 @@ func refresh(center: Vector2, camera_width: float,
         _movement[key] = {
             "cell": cell, "home": cell, "step": 0,
             "rest": 1.5, "walking": false, "flee": false,
-            "attack": 0.0, "chase": false
+            "attack": 0.0, "chase": false,
+            "chase_prey": "", "chase_day": -1
         }
 
 
