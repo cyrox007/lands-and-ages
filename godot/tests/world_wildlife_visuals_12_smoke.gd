@@ -12,6 +12,7 @@ const Climate = preload("res://scripts/climate.gd")
 const Nature = preload("res://scripts/nature_registry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
+const Paths = preload("res://scripts/world_resource_path.gd")
 
 
 func _initialize() -> void:
@@ -245,6 +246,7 @@ func _check() -> void:
     # Берём подтверждённое списание через _feed, а не придумываем
     # численность или событие для декоративной сцены.
     var attack_checked := false
+    var prey_flee_checked := false
     var regions: Vector2i = world.config.region_count()
     for ry in range(regions.y):
         if attack_checked:
@@ -267,8 +269,12 @@ func _check() -> void:
                     region, predator_kind, Vector2.ZERO)
                 if actor_cell.x < 0:
                     continue
-                visuals.refresh(Vector2(actor_cell) + Vector2(0.5, 0.5),
-                    66.0, 1.0)
+                # Региональный центр позволяет одновременно видеть
+                # настоящего хищника и настоящую группу его добычи.
+                var bounds: Rect2i = world.config.region_rect(region)
+                var regional_center := Vector2(bounds.position) \
+                    + Vector2(bounds.size) * 0.5
+                visuals.refresh(regional_center, 66.0, 1.0)
                 var hunter_key := "%s:%d:%d" % [predator_kind, rx, ry]
                 if not visuals._visible.has(hunter_key):
                     continue
@@ -285,10 +291,57 @@ func _check() -> void:
                 if bool(visuals._movement[hunter_key]["walking"]) \
                         or bool(visuals._movement[hunter_key]["flee"]):
                     continue
+                # Выбираем вид, который FoodWeb действительно сможет
+                # списать. Без живой добычи сцену не создаём.
+                var hunted_kind := ""
+                var best_pressure := -1.0
+                for species in FoodWeb.SPECIES[predator_kind]["prey"]:
+                    var available := predators._huntable(region, str(species))
+                    if available <= 0:
+                        continue
+                    var cap := maxi(1, fauna.capacity_at(region, str(species)))
+                    var pressure := float(available) / float(cap)
+                    if pressure > best_pressure:
+                        hunted_kind = str(species)
+                        best_pressure = pressure
+                var prey_key := "%s:%d:%d" % [hunted_kind, rx, ry]
+                if hunted_kind.is_empty() or not visuals._visible.has(prey_key):
+                    continue
+                var prey_actor := visuals._visible[prey_key] as Node3D
+                var prey_movement: Dictionary = visuals._movement[prey_key]
+                var hunter_cell: Vector2i = visuals._movement[hunter_key]["cell"]
+                # Создаём только контролируемую позицию изображения
+                # уже существующей живой группы на настоящей суше.
+                # Это тест траектории, не генерация новых животных.
+                var suitable := Vector2i(-1, -1)
+                for direction in Visuals.WALK_DIRECTIONS:
+                    var candidate: Vector2i = hunter_cell + direction
+                    if world.config.region_of(candidate) != region \
+                            or not Paths.walkable(world, hydro, ground, candidate):
+                        continue
+                    var probe := {"cell": candidate, "home": candidate}
+                    if visuals._flee_target(probe, hunter_cell) != candidate:
+                        suitable = candidate
+                        break
+                if suitable.x < 0:
+                    continue
+                var prey_flat := Vector2(suitable) + Vector2(0.5, 0.5)
+                prey_actor.position = world.config.to_scene(
+                    prey_flat, world.height_at(prey_flat))
+                prey_movement["cell"] = suitable
+                prey_movement["home"] = suitable
+                prey_movement["walking"] = false
+                prey_movement["flee"] = false
+                prey_movement["attack"] = 0.0
+                prey_movement["rest"] = 1.5
+                var prey_before_position: Vector3 = prey_actor.position
                 var captured: Array[Dictionary] = []
                 if predators._feed(region, predator_kind, 1, captured) != 1 \
-                        or captured.size() != 1:
-                    continue
+                        or captured.size() != 1 \
+                        or str(captured[0]["prey"]) != hunted_kind:
+                    push_error("Выбранная живая добыча не совпала с результатом охоты")
+                    quit(1)
+                    return
                 predators.last_hunts = captured
                 var after_capture: Dictionary = fauna.to_data()
                 var hunters_after: Dictionary = predators.to_data()
@@ -297,24 +350,34 @@ func _check() -> void:
                         or hunter.get("state") != "атака" \
                         or absf(float(visuals._movement[hunter_key]["attack"]) \
                             - hunter.attack_duration()) > 0.001 \
+                        or prey_actor.get("state") != "бег" \
+                        or not bool(visuals._movement[prey_key]["flee"]) \
                         or visuals.react_hunts() != 0:
-                    push_error("Настоящее поедание не вызвало единственную атаку")
+                    push_error("Охота не вызвала атаку и бегство близкой живой добычи")
                     quit(1)
                     return
                 # Проигрываем весь клип, а не фиксированные 0,8 с.
                 var attack_frames := ceili(hunter.attack_duration() / 0.10) + 1
                 for frame in range(attack_frames):
+                    var previous: Vector3 = prey_actor.position
                     visuals._process(0.10)
+                    if prey_actor.position.distance_to(previous) \
+                            > Visuals.FLEE_SPEED * 0.10 + 0.001:
+                        push_error("Добыча телепортировалась при бегстве")
+                        quit(1)
+                        return
                 if hunter.get("state") != "покой" \
                         or hunter.position != position_before \
+                        or prey_actor.position.distance_to(prey_before_position) <= 0.1 \
                         or fauna.to_data() != after_capture \
                         or predators.to_data() != hunters_after:
                     push_error("Атака сдвинула хищника или повторно списала добычу")
                     quit(1)
                     return
                 attack_checked = true
+                prey_flee_checked = true
                 break
-    if not attack_checked:
+    if not attack_checked or not prey_flee_checked:
         push_error("Не найдена реальная охота с доступной анимацией атаки")
         quit(1)
         return
@@ -326,6 +389,7 @@ func _check() -> void:
         "walked": moved, "walk_animation": animated,
         "hazard_flee": fled, "flee_actors": reacted,
         "confirmed_hunt_attack": attack_checked,
+        "nearby_prey_fled": prey_flee_checked,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
