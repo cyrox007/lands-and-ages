@@ -13,9 +13,11 @@ const DIRECTIONS := [
 const SPECIES := {
     "волк": {"prey": ["олень", "кабан", "заяц"],
         "need": 3, "birth": 0.10, "death": 0.035},
-    "лиса": {"prey": ["заяц"],
+    # Лисица питается не только зайцами, но и настоящей дикой
+    # птицей из природных популяций; яйца/грызуны пока не моделируются.
+    "лиса": {"prey": ["заяц", "дикая курица", "дикий гусь"],
         "need": 2, "birth": 0.16, "death": 0.045},
-    "дикая кошка": {"prey": ["заяц"],
+    "дикая кошка": {"prey": ["заяц", "дикая курица"],
         "need": 2, "birth": 0.13, "death": 0.035}
 }
 
@@ -66,10 +68,15 @@ func _limit(region: Vector2i, kind: String) -> int:
     var hare: int = prey.population_at(region, "заяц")
     if kind == "волк":
         return mini(MAX_PER_REGION, (deer * 2 + boar * 2 + hare) / 14)
+    # Ёмкость территорий лис и диких кошек зависит от всех
+    # видов реальной добычи, а не только от зайцев. Птица
+    # учитывается с меньшим весом, чем более доступные зайцы.
+    var fowl: int = prey.population_at(region, "дикая курица")
+    var geese: int = prey.population_at(region, "дикий гусь")
     if kind == "лиса":
-        return mini(MAX_PER_REGION, hare / 5)
+        return mini(MAX_PER_REGION, (hare + fowl / 2 + geese / 3) / 5)
     if kind == "дикая кошка":
-        return mini(MAX_PER_REGION, hare / 9)
+        return mini(MAX_PER_REGION, (hare + fowl / 2) / 9)
     return 0
 
 
