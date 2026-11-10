@@ -215,8 +215,8 @@ func _flee_target(movement: Dictionary, danger: Vector2i) -> Vector2i:
     var distance := Vector2(cell - danger).length_squared()
     for direction in WALK_DIRECTIONS:
         var candidate: Vector2i = cell + direction
-        if world.config.region_of(candidate) != region \\
-                or Vector2(candidate - home).length_squared() \\
+        if world.config.region_of(candidate) != region \
+                or Vector2(candidate - home).length_squared() \
                     > MAX_WANDER_CELLS * MAX_WANDER_CELLS:
             continue
         if not Paths.walkable(world, hydro, surface, candidate):
@@ -236,14 +236,14 @@ func react_hazards(hazards: Array) -> int:
         return 0
     var reacted := 0
     for hazard in hazards:
-        if not (hazard is Dictionary) \\
+        if not (hazard is Dictionary) \
                 or not (hazard.get("cell") is Vector2i):
             continue
         if str(hazard.get("kind", "")) not in DANGERS:
             continue
         var strength: float = float(hazard.get("severity", 0.0))
         var danger: Vector2i = hazard["cell"]
-        if not is_finite(strength) or strength < 0.50 \\
+        if not is_finite(strength) or strength < 0.50 \
                 or not world.config.contains_cell(danger):
             continue
         for key in _visible:
@@ -252,7 +252,7 @@ func react_hazards(hazards: Array) -> int:
                 continue
             var actor := _visible[key] as Node3D
             var cell: Vector2i = movement["cell"]
-            if Vector2(cell - danger).length_squared() \\
+            if Vector2(cell - danger).length_squared() \
                     > HAZARD_RADIUS * HAZARD_RADIUS:
                 continue
             # Если физическая особь уже погибла или переселилась,
@@ -295,7 +295,7 @@ func _process(delta: float) -> void:
             var destination: Vector3 = movement["target"]
             # Убегает быстрее обычной прогулки, но каждый кадр
             # проходит только допустимое расстояние по суше.
-            var speed := FLEE_SPEED if bool(movement.get("flee", false)) \\
+            var speed := FLEE_SPEED if bool(movement.get("flee", false)) \
                 else LOCAL_WALK_SPEED
             actor.position = actor.position.move_toward(
                 destination, frame_time * speed)
