@@ -19,11 +19,11 @@ const MODELS := {
     "собака": {"file": "Husky.gltf", "source": "Quaternius", "height": 0.7},
     "кабан": {"file": "Boar.glb", "source": "Gobkit", "height": 0.9},
     # Подлинные скелетные GLB, а не примитивные заменители.
-    "заяц": {"file": "Hare.glb", "source": "Gobkit-named", "height": 0.48},
-    "дикий гусь": {"file": "Goose.glb", "source": "Gobkit-named", "height": 0.72},
-    "гусь": {"file": "Goose.glb", "source": "Gobkit-named", "height": 0.72},
-    "курица": {"file": "Rooster.glb", "source": "Gobkit-named", "height": 0.46},
-    "дикая курица": {"file": "Rooster.glb", "source": "Gobkit-named", "height": 0.46}
+    "заяц": {"file": "Hare.glb", "source": "Gobkit", "height": 0.48},
+    "дикий гусь": {"file": "Goose.glb", "source": "Gobkit", "height": 0.72},
+    "гусь": {"file": "Goose.glb", "source": "Gobkit", "height": 0.72},
+    "курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46},
+    "дикая курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46}
 }
 
 var world: RefCounted
