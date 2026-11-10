@@ -214,8 +214,10 @@ func _process(delta: float) -> void:
             var destination: Vector3 = movement["target"]
             actor.position = actor.position.move_toward(
                 destination, frame_time * LOCAL_WALK_SPEED)
-            if actor.position.distance_to(destination) < 0.015:
-                actor.position = destination
+            if actor.position.distance_to(destination) < 0.0001:
+                # move_toward сам доводит актёра до цели. Второй
+                # принудительный скачок меша нарушал лимит пути
+                # за кадр и выглядел бы как микротелепортация.
                 movement["cell"] = movement["next"]
                 movement["walking"] = false
                 movement["rest"] = 1.4
