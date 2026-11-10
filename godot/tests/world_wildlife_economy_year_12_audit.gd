@@ -113,7 +113,7 @@ func _simulate_day(state: Dictionary) -> bool:
     if not state["harvest"].advance_day(day) \
             or not state["domestic"].advance_day(day):
         return false
-    var removed := before_humans - wildlife.total()
+    var removed: int = before_humans - wildlife.total()
     if removed < 0 or removed > 3:
         push_error("Охота/отлов создали животных или изъяли слишком много")
         return false
