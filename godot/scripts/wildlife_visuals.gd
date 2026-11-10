@@ -102,9 +102,12 @@ func _position(region: Vector2i, kind: String,
     # Внешний вид не меняет физический мир. Ищем настоящую
     # проходимую клетку внутри региона с уже существующим стадом.
     var bounds: Rect2i = world.config.region_rect(region)
+    # Для дикого зверя выбираем устойчивую точку его ареала:
+    # смещение камеры не должно телепортировать животных вслед
+    # за игроком и бесконечно менять выбор видимых особей.
     var anchor := Vector2i(
-        clampi(roundi(center.x), bounds.position.x, bounds.end.x - 1),
-        clampi(roundi(center.y), bounds.position.y, bounds.end.y - 1))
+        bounds.position.x + bounds.size.x / 2,
+        bounds.position.y + bounds.size.y / 2)
     # Домашних животных показываем у хозяйства, а не в точке
     # камеры на другом конце региона. Родословная остаётся
     # в модели фермы, визуальный объект её не меняет.
@@ -122,6 +125,49 @@ func _position(region: Vector2i, kind: String,
     return Vector2i(-1, -1)
 
 
+func _nearest_candidates(center: Vector2,
+        radius: float) -> Array[Dictionary]:
+    # Подготовка списка не создаёт SceneTree-узлов и не меняет
+    # экологическую численность. Проверяем только регионы рядом
+    # с камерой, чтобы избежать лишних обходов крупных миров.
+    var candidates: Array[Dictionary] = []
+    var sizes: Vector2i = world.config.region_count()
+    for ry in range(sizes.y):
+        for rx in range(sizes.x):
+            var region := Vector2i(rx, ry)
+            var bounds: Rect2i = world.config.region_rect(region)
+            var nearest := Vector2(
+                clampf(center.x, float(bounds.position.x), float(bounds.end.x)),
+                clampf(center.y, float(bounds.position.y), float(bounds.end.y)))
+            if nearest.distance_squared_to(center) > radius * radius:
+                continue
+            for kind in MODELS:
+                if _population(region, kind) <= 0:
+                    continue
+                var path := ROOT + str(MODELS[kind]["file"])
+                if not ResourceLoader.exists(path):
+                    continue
+                var cell: Vector2i = _position(region, kind, center)
+                if cell.x < 0:
+                    continue
+                var flat := Vector2(float(cell.x) + 0.5, float(cell.y) + 0.5)
+                var distance: float = flat.distance_squared_to(center)
+                if distance > radius * radius:
+                    continue
+                candidates.append({
+                    "key": "%s:%d:%d" % [kind, rx, ry],
+                    "kind": kind, "cell": cell, "distance": distance
+                })
+    # При равном расстоянии стабильный ключ вида и ареала
+    # исключает мерцание порядка и лишнее создание актёров.
+    candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+        var difference: float = float(a["distance"]) - float(b["distance"])
+        if absf(difference) > 0.0001:
+            return difference < 0.0
+        return str(a["key"]) < str(b["key"]))
+    return candidates
+
+
 func refresh(center: Vector2, camera_width: float,
         delta: float = UPDATE_INTERVAL) -> void:
     # Пересоздание не допускается каждый кадр. Число узлов строго
@@ -136,23 +182,12 @@ func refresh(center: Vector2, camera_width: float,
     _last_population_day = wildlife.last_day
     var radius := minf(MAX_RENDER_RANGE, camera_width * 0.62)
     var desired := {}
-    var sizes: Vector2i = world.config.region_count()
-    for ry in range(sizes.y):
-        for rx in range(sizes.x):
-            var region := Vector2i(rx, ry)
-            for kind in MODELS:
-                if desired.size() >= MAX_VISIBLE:
-                    break
-                if _population(region, kind) <= 0 or _scene(kind) == null:
-                    continue
-                var cell: Vector2i = _position(region, kind, center)
-                if cell.x < 0:
-                    continue
-                var spot := Vector2(float(cell.x) + 0.5, float(cell.y) + 0.5)
-                if spot.distance_to(center) > radius:
-                    continue
-                var key := "%s:%d:%d" % [kind, rx, ry]
-                desired[key] = {"kind": kind, "cell": cell}
+    var ranked: Array[Dictionary] = _nearest_candidates(center, radius)
+    for i in range(mini(MAX_VISIBLE, ranked.size())):
+        # В первую очередь показываем ближайших к камере особей,
+        # а не первые регионы в порядке обхода мировой сетки.
+        var entry: Dictionary = ranked[i]
+        desired[entry["key"]] = entry
     for key in _visible.keys():
         if desired.has(key):
             continue
