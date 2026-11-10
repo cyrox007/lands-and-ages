@@ -316,20 +316,27 @@ func _check() -> void:
                 # Это тест траектории, не генерация новых животных.
                 var suitable := Vector2i(-1, -1)
                 for direction in Visuals.WALK_DIRECTIONS:
-                    var middle: Vector2i = hunter_cell + direction
-                    var far: Vector2i = middle + direction
-                    if world.config.region_of(middle) != region \
-                            or world.config.region_of(far) != region \
-                            or not Paths.walkable(world, hydro, ground, middle) \
-                            or not Paths.walkable(world, hydro, ground, far):
+                    # Тестируем многоклеточный маршрут на настоящей
+                    # суше, сохраняя место уцелевшей добыче и выход.
+                    var path_ok := true
+                    for distance in range(1, 6):
+                        var candidate: Vector2i = hunter_cell \
+                            + direction * distance
+                        if world.config.region_of(candidate) != region \
+                                or not Paths.walkable(world, hydro, ground,
+                                    candidate):
+                            path_ok = false
+                            break
+                    if not path_ok:
                         continue
+                    var far: Vector2i = hunter_cell + direction * 4
                     var probe := {"cell": far, "home": far}
                     if visuals._flee_target(probe, hunter_cell) == far:
                         continue
-                    # Цель не должна совпадать с клеткой сближения:
-                    # актёры не входят друг в друга и в воду.
+                    # Первая клетка обязана сокращать расстояние,
+                    # а пятая оставляет добыче путь для бегства.
                     if visuals._chase_step(visuals._movement[hunter_key],
-                            far) == middle:
+                            far) == hunter_cell + direction:
                         suitable = far
                         break
                 if suitable.x < 0:
@@ -387,7 +394,9 @@ func _check() -> void:
                     return
                 var pursuit_start: Vector3 = hunter.position
                 var approach_reached := false
-                for frame in range(30):
+                var chase_cells := 0
+                var last_cell: Vector2i = chase["cell"]
+                for frame in range(75):
                     var before_step: Vector3 = hunter.position
                     visuals._process(0.10)
                     if hunter.position.distance_to(before_step) \
@@ -395,11 +404,16 @@ func _check() -> void:
                         push_error("Хищник телепортировался при сближении")
                         quit(1)
                         return
+                    var current_cell: Vector2i = chase["cell"]
+                    if current_cell != last_cell:
+                        chase_cells += 1
+                        last_cell = current_cell
                     if not bool(visuals._movement[hunter_key]["chase"]):
                         approach_reached = hunter.get("state") == "атака"
                         break
-                if not approach_reached \
-                        or hunter.position.distance_to(pursuit_start) < 0.1 \
+                if not approach_reached or chase_cells < 2 \
+                        or chase_cells > Visuals.MAX_CHASE_STEPS \
+                        or hunter.position.distance_to(pursuit_start) < 1.0 \
                         or absf(float(visuals._movement[hunter_key]["attack"]) \
                             - hunter.attack_duration()) > 0.001:
                     push_error("Сближение не завершилось скелетной атакой")
@@ -441,6 +455,7 @@ func _check() -> void:
         "confirmed_hunt_attack": attack_checked,
         "nearby_prey_fled": prey_flee_checked,
         "one_cell_pursuit": chase_checked,
+        "multi_cell_pursuit": chase_checked,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
