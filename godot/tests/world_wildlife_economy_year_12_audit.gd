@@ -352,7 +352,9 @@ func _check() -> bool:
     # домашние потомки; нулевая добыча не считается экономикой.
     if farm.total("корова", true) <= 0 or hunt.eaten_meat <= 0 \
             or butchered < 1 or state["human_removed"] < 3:
-        push_error("Нет домашнего потомства или настоящей охоты за год")
+        push_error("Годовая экономика: коровы=%d, мясо=%d, туши=%d, изъято=%d, заказы=%d, статус=%s" % [
+            farm.total("корова", true), hunt.eaten_meat, butchered,
+            state["human_removed"], hunts_ordered, str(hunt.summary()["event"])])
         return false
     print("STAGE12-ECONOMY-FAUNA-REPORT: ", JSON.stringify({
         "day": predators.last_day, "prey": wildlife.summary()["population"],
