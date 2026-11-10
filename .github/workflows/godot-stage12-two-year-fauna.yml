@@ -1,0 +1,51 @@
+name: "12.10 — два года настоящей фауны"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/tests/world_wildlife_two_year_12_audit.gd"
+      - "godot/scripts/wildlife_food_web.gd"
+      - "godot/scripts/wildlife_populations.gd"
+      - ".github/workflows/godot-stage12-two-year-fauna.yml"
+  workflow_dispatch:
+
+jobs:
+  two-year-fauna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1729, 9021]
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Проверить импорт мира и GDScript"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "730 физических суток — мир ${{ matrix.seed }}"
+        run: |
+          set -o pipefail
+          timeout 1440s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_wildlife_two_year_12_audit.gd \
+            -- --seed=${{ matrix.seed }} 2>&1 | tee /tmp/two-year.log
+          grep -q "STAGE12-TWO-YEAR-FAUNA: успешно" /tmp/two-year.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/two-year.log; then exit 1; fi
+      - name: "Сохранить отчёт двух игровых лет"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "два-года-фауны-${{ matrix.seed }}"
+          path: /tmp/two-year.log
+          if-no-files-found: ignore
