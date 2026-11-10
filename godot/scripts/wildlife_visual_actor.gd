@@ -105,8 +105,11 @@ func set_motion(next: String) -> void:
     # смыслу, а Gobkit делим единую временную дорожку на диапазоны.
     if _player == null:
         return
-    var action := next if next in ["покой", "ходьба", "атака", "смерть"] \
-        else "покой"
+    # Бег — ускоренная реальная скелетная локомоция. Если
+    # отдельного run/gallop нет, используем настоящий walk,
+    # а не придумываем анимацию или двигаем статичный куб.
+    var action := next if next in ["покой", "ходьба", "бег",
+        "атака", "смерть"] else "покой"
     if state == action and _elapsed > 0.0:
         return
     state = action
@@ -116,6 +119,7 @@ func set_motion(next: String) -> void:
         _player.pause()
         return
     var target: Array = {"покой": ["idle"], "ходьба": ["walk", "gallop"],
+        "бег": ["run", "gallop", "sprint", "walk"],
         "атака": ["attack", "bite"], "смерть": ["death", "dead", "die"]}[action]
     var selection := ""
     for name in _player.get_animation_list():
@@ -139,7 +143,10 @@ func _process(delta: float) -> void:
         return
     # Упакованный единый клип выбирает свой реальный диапазон
     # ключевых кадров, не проигрывая все действия подряд.
-    var frames: Array = PACKED_ACTIONS[state]
+    # У упакованных моделей отдельной дорожки бега нет:
+    # повторяем только диапазон настоящей ходьбы.
+    var clip := "ходьба" if state == "бег" else state
+    var frames: Array = PACKED_ACTIONS[clip]
     var start: float = float(frames[0]) / PACKED_FPS
     var length: float = float(frames[1] - frames[0] + 1) / PACKED_FPS
     _elapsed = fmod(_elapsed + delta, length)
