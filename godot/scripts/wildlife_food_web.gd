@@ -37,6 +37,9 @@ var last_events := {
     "eaten": 0, "born": 0, "died": 0,
     "migrated": 0, "prey_fled": 0, "prey_lost": 0
 }
+# Только события реального поедания текущих суток; в WorldSave
+# они не входят и после загрузки повторно не проигрываются.
+var last_hunts: Array[Dictionary] = []
 
 
 func _init(map: RefCounted, weather: RefCounted,
@@ -155,11 +158,15 @@ func _huntable(region: Vector2i, species: String) -> int:
     return maxi(0, count - refuge)
 
 
-func _feed(region: Vector2i, kind: String, amount: int) -> int:
+func _feed(region: Vector2i, kind: String, amount: int,
+        hunt_events: Array[Dictionary] = []) -> int:
     # Выбираем действительную доступную добычу, а не первый вид
     # из постоянного списка. Давление охоты распределяется по
     # экологическому избытку разных видов в одном ареале.
     var taken := 0
+    # Группируем подтверждённые захваты по виду, чтобы не
+    # создавать отдельное событие/3D-узел на каждую тушу.
+    var captures: Dictionary = {}
     var options: Array = SPECIES[kind]["prey"]
     while taken < amount:
         var chosen := ""
@@ -182,6 +189,13 @@ func _feed(region: Vector2i, kind: String, amount: int) -> int:
         if not prey.consume_prey(region, chosen, 1):
             break
         taken += 1
+        captures[chosen] = int(captures.get(chosen, 0)) + 1
+    # Только после настоящего списания особи передаём событие
+    # визуальному слою. Порядок видов всегда одинаковый.
+    for species in options:
+        if captures.has(species):
+            hunt_events.append({"region": region, "predator": kind,
+                "prey": str(species), "count": int(captures[species])})
     return taken
 
 func _forage(region: Vector2i, kind: String) -> int:
@@ -258,7 +272,7 @@ func _advance_packs(day: int) -> Dictionary:
             var rule: Dictionary = SPECIES[kind]
             var need := maxi(1, ceili(float(current) /
                 float(rule["need"])))
-            var consumed := _feed(region, kind, need)
+            var consumed := _feed(region, kind, need, last_hunts)
             eaten += consumed
             var supported := mini(current, consumed * int(rule["need"]))
             var shortage := current - supported
@@ -374,6 +388,9 @@ func advance_day(day: int, hazards: Array = []) -> bool:
             or prey.last_day != day:
         return false
     last_day = day
+    # Сброс событий каждый день исключает повтор старой атаки
+    # при пустом дне или загрузке сохранённого мира.
+    last_hunts.clear()
     var prey_hazards: Dictionary = prey.react_hazards(hazards)
     var predator_hazards: Dictionary = _flee(hazards)
     var report := {
@@ -450,6 +467,7 @@ func load_data(data: Dictionary) -> bool:
             restored[key] = count
     _packs = restored
     _capacity = limits
+    last_hunts.clear()
     last_day = climate.day
     generated = true
     revision += 1
