@@ -80,22 +80,6 @@ func _simulate_day(state: Dictionary) -> bool:
     # реально съеденных особей и реальные потери от катастроф.
     var wildlife: RefCounted = state["wildlife"]
     var predators: RefCounted = state["food_web"]
-    var hunt: RefCounted = state["harvest"]
-    var farm: RefCounted = state["domestic"]
-    var selected: Dictionary = _farm_site(state)
-    if selected.is_empty() or not hunt.activate(selected["site"]) \
-            or not farm.activate(selected["site"]) \
-            or not farm.order_capture(selected["region"], "корова", 2):
-        push_error("Нет физического пастбища и двух живых туров")
-        return false
-    var first_hunt: Dictionary = _hunt_source(state)
-    if first_hunt.is_empty() or not hunt.order_hunt(
-            first_hunt["region"], str(first_hunt["species"]), 1):
-        push_error("Невозможно отправить охотника к настоящему стаду")
-        return false
-    var hunts_ordered := 1
-    var butchered := 0
-
     var before_prey: int = wildlife.total()
     var before_predators: int = predators.total()
     state["runner"].run_day()
@@ -198,6 +182,23 @@ func _check() -> bool:
         return false
     var wildlife: RefCounted = state["wildlife"]
     var predators: RefCounted = state["food_web"]
+    var hunt: RefCounted = state["harvest"]
+    var farm: RefCounted = state["domestic"]
+    var selected: Dictionary = _farm_site(state)
+    if selected.is_empty() or not hunt.activate(selected["site"]) \
+            or not farm.activate(selected["site"]) \
+            or not farm.order_capture(selected["region"], "корова", 2):
+        push_error("Нет физического пастбища и двух живых туров")
+        return false
+    var first_hunt: Dictionary = _hunt_source(state)
+    if first_hunt.is_empty() or not hunt.order_hunt(
+            first_hunt["region"], str(first_hunt["species"]), 1):
+        push_error("Невозможно отправить охотника к настоящему стаду")
+        return false
+    var hunts_ordered := 1
+    var butchered := 0
+
+
     if predators.total() <= 0 or predators.generate():
         push_error("Хищники появились без добычи или повторно")
         return false
