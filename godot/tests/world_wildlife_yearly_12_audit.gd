@@ -132,6 +132,7 @@ func _check() -> bool:
     var fled_total := 0
     var lost_total := 0
     var predator_births := 0
+    var initial_fox: int = predators.total("лиса")
     var initial_deer: int = wildlife.total("олень")
     var minimum_deer := maxi(2, ceili(float(initial_deer) * 0.16))
     var peak_prey: int = wildlife.total()
@@ -215,6 +216,12 @@ func _check() -> bool:
         push_error("Олени истощены хищниками: было %d, осталось %d" % [
             initial_deer, wildlife.total("олень")])
         return false
+    # Обилие зайцев не оправдывает исчезновение всех лис:
+    # проверяем наличие хищника после четырёх сезонов, если
+    # исходно его популяция состояла из нескольких особей.
+    if initial_fox >= 2 and predators.total("лиса") <= 0:
+        push_error("Лисы вымерли при доступной добыче: исходно %d" % initial_fox)
+        return false
     if days_with_hunting < 3:
         push_error("Пищевая цепочка прекратилась слишком рано")
         return false
@@ -229,6 +236,7 @@ func _check() -> bool:
         "peak_prey": peak_prey, "peak_predators": peak_predators,
         "hunting_days": days_with_hunting, "days": DAYS,
         "seed": _seed, "seasons": season_markers,
-        "initial_deer": initial_deer, "minimum_deer": minimum_deer
+        "initial_deer": initial_deer, "minimum_deer": minimum_deer,
+        "initial_fox": initial_fox, "remaining_fox": predators.total("лиса")
     }))
     return true
