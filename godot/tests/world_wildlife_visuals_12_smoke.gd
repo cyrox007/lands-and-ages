@@ -247,6 +247,7 @@ func _check() -> void:
     # численность или событие для декоративной сцены.
     var attack_checked := false
     var prey_flee_checked := false
+    var chase_checked := false
     var regions: Vector2i = world.config.region_count()
     for ry in range(regions.y):
         if attack_checked:
@@ -315,13 +316,21 @@ func _check() -> void:
                 # Это тест траектории, не генерация новых животных.
                 var suitable := Vector2i(-1, -1)
                 for direction in Visuals.WALK_DIRECTIONS:
-                    var candidate: Vector2i = hunter_cell + direction
-                    if world.config.region_of(candidate) != region \
-                            or not Paths.walkable(world, hydro, ground, candidate):
+                    var middle: Vector2i = hunter_cell + direction
+                    var far: Vector2i = middle + direction
+                    if world.config.region_of(middle) != region \
+                            or world.config.region_of(far) != region \
+                            or not Paths.walkable(world, hydro, ground, middle) \
+                            or not Paths.walkable(world, hydro, ground, far):
                         continue
-                    var probe := {"cell": candidate, "home": candidate}
-                    if visuals._flee_target(probe, hunter_cell) != candidate:
-                        suitable = candidate
+                    var probe := {"cell": far, "home": far}
+                    if visuals._flee_target(probe, hunter_cell) == far:
+                        continue
+                    # Цель не должна совпадать с клеткой сближения:
+                    # актёры не входят друг в друга и в воду.
+                    if visuals._chase_step(visuals._movement[hunter_key],
+                            far) == middle:
+                        suitable = far
                         break
                 if suitable.x < 0:
                     continue
@@ -347,16 +356,35 @@ func _check() -> void:
                 var hunters_after: Dictionary = predators.to_data()
                 var position_before: Vector3 = hunter.position
                 if visuals.react_hunts() != 1 \
-                        or hunter.get("state") != "атака" \
-                        or absf(float(visuals._movement[hunter_key]["attack"]) \
-                            - hunter.attack_duration()) > 0.001 \
+                        or hunter.get("state") != "бег" \
+                        or not bool(visuals._movement[hunter_key]["chase"]) \
                         or prey_actor.get("state") != "бег" \
                         or not bool(visuals._movement[prey_key]["flee"]) \
                         or visuals.react_hunts() != 0:
-                    push_error("Охота не вызвала атаку и бегство близкой живой добычи")
+                    push_error("Реальная охота не запустила погоню и бегство")
                     quit(1)
                     return
-                # Проигрываем весь клип, а не фиксированные 0,8 с.
+                var pursuit_start: Vector3 = hunter.position
+                var approach_reached := false
+                for frame in range(30):
+                    var before_step: Vector3 = hunter.position
+                    visuals._process(0.10)
+                    if hunter.position.distance_to(before_step) \
+                            > Visuals.CHASE_SPEED * 0.10 + 0.001:
+                        push_error("Хищник телепортировался при сближении")
+                        quit(1)
+                        return
+                    if not bool(visuals._movement[hunter_key]["chase"]):
+                        approach_reached = hunter.get("state") == "атака"
+                        break
+                if not approach_reached \
+                        or hunter.position.distance_to(pursuit_start) < 0.1 \
+                        or absf(float(visuals._movement[hunter_key]["attack"]) \
+                            - hunter.attack_duration()) > 0.001:
+                    push_error("Сближение не завершилось скелетной атакой")
+                    quit(1)
+                    return
+                var approach_position: Vector3 = hunter.position
                 var attack_frames := ceili(hunter.attack_duration() / 0.10) + 1
                 for frame in range(attack_frames):
                     var prey_frame_start: Vector3 = prey_actor.position
@@ -367,7 +395,7 @@ func _check() -> void:
                         quit(1)
                         return
                 if hunter.get("state") != "покой" \
-                        or hunter.position != position_before \
+                        or hunter.position != approach_position \
                         or prey_actor.position.distance_to(prey_before_position) <= 0.1 \
                         or fauna.to_data() != after_capture \
                         or predators.to_data() != hunters_after:
@@ -376,8 +404,9 @@ func _check() -> void:
                     return
                 attack_checked = true
                 prey_flee_checked = true
+                chase_checked = true
                 break
-    if not attack_checked or not prey_flee_checked:
+    if not attack_checked or not prey_flee_checked or not chase_checked:
         push_error("Не найдена реальная охота с доступной анимацией атаки")
         quit(1)
         return
@@ -390,6 +419,7 @@ func _check() -> void:
         "hazard_flee": fled, "flee_actors": reacted,
         "confirmed_hunt_attack": attack_checked,
         "nearby_prey_fled": prey_flee_checked,
+        "one_cell_pursuit": chase_checked,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
