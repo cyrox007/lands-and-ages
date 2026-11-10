@@ -85,7 +85,33 @@ func _check() -> void:
     var visuals := Visuals.new()
     get_root().add_child(visuals)
     visuals.configure(world, hydro, ground, fauna, predators)
-    visuals.refresh(Vector2(128.0, 96.0), 66.0, 1.0)
+    var center := Vector2(128.0, 96.0)
+    var radius := minf(Visuals.MAX_RENDER_RANGE, 66.0 * 0.62)
+    visuals.refresh(center, 66.0, 1.0)
+    var candidates: Array[Dictionary] = visuals._nearest_candidates(
+        center, radius)
+    var selected := mini(Visuals.MAX_VISIBLE, candidates.size())
+    if selected == 0 or visuals.active_count() != selected:
+        push_error("Ближайшие живые животные не появились у камеры")
+        quit(1)
+        return
+    for i in range(selected):
+        if not visuals._visible.has(candidates[i]["key"]):
+            push_error("Далёкий регион вытеснил ближайшее животное")
+            quit(1)
+            return
+    var previous := {}
+    for key in visuals._visible:
+        previous[key] = (visuals._visible[key] as Node3D).position
+    # Камера может двигаться внутри ареала, но видимая особь
+    # не должна телепортироваться в новую случайную точку.
+    visuals.refresh(center + Vector2(1.5, 1.5), 66.0, 1.0)
+    for key in visuals._visible:
+        if previous.has(key) and previous[key] != (
+                visuals._visible[key] as Node3D).position:
+            push_error("Дикое животное переместилось вслед за камерой")
+            quit(1)
+            return
     if visuals.active_count() > Visuals.MAX_VISIBLE \
             or visuals.available_models() != Visuals.MODELS.size():
         push_error("Превышен бюджет или отсутствуют модели")
@@ -94,6 +120,7 @@ func _check() -> void:
     print("STAGE12-VISUAL-REPORT: ", JSON.stringify({
         "models": models, "visible": visuals.active_count(),
         "max_visible": Visuals.MAX_VISIBLE,
+        "nearest_candidates": candidates.size(),
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
     print("STAGE12-VISUAL: успешно")
