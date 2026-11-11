@@ -70,6 +70,16 @@ func _check() -> void:
         push_error("Неверная дистанция для отображения контакта")
         quit(1)
         return
+    # Учитываем действительное положение моделей между
+    # клетками; высота земли не должна влиять на горизонтальную
+    # дистанцию, а визуально убежавшая добыча недосягаема.
+    if not Visuals._actors_in_attack_range(
+            Vector3(0.5, 2.0, 0.5), Vector3(1.5, 8.0, 0.5)) \
+            or Visuals._actors_in_attack_range(
+                Vector3(0.5, 2.0, 0.5), Vector3(2.0, 2.0, 0.5)):
+        push_error("Положение 3D-моделей не ограничивает дальность атаки")
+        quit(1)
+        return
     var models := {}
     for kind in Visuals.MODELS:
         var entry: Dictionary = Visuals.MODELS[kind]
@@ -426,6 +436,28 @@ func _check() -> void:
                     push_error("Цель подтверждённой погони не распознана")
                     quit(1)
                     return
+                # Временно проверяем соседство на видимой сцене.
+                # Убежавшая на полклетки модель не может получить
+                # удар только потому, что реестр ещё хранит клетку.
+                var original_prey_cell: Vector2i = prey_movement["cell"]
+                var original_prey_position: Vector3 = prey_actor.position
+                var neighbor: Vector2i = chase["next"]
+                var offset: Vector2i = neighbor - chase["cell"]
+                prey_movement["cell"] = neighbor
+                prey_actor.position = hunter.position + Vector3(
+                    float(offset.x), 0.0, float(offset.y))
+                var contact_near := visuals._chase_contact_valid(
+                    hunter_key, chase)
+                prey_actor.position += Vector3(
+                    float(offset.x) * 0.8, 0.0, float(offset.y) * 0.8)
+                var contact_far := visuals._chase_contact_valid(
+                    hunter_key, chase)
+                prey_movement["cell"] = original_prey_cell
+                prey_actor.position = original_prey_position
+                if not contact_near or contact_far:
+                    push_error("Контакт не учитывает текущее положение модели")
+                    quit(1)
+                    return
                 var visible_prey: Node3D = visuals._visible[prey_key]
                 visuals._visible.erase(prey_key)
                 var target_gone := not visuals._chase_target_valid(
@@ -465,6 +497,16 @@ func _check() -> void:
                         or absf(float(visuals._movement[hunter_key]["attack"]) \
                             - hunter.attack_duration()) > 0.001:
                     push_error("Сближение не завершилось скелетной атакой")
+                    quit(1)
+                    return
+                # После настоящего сближения хищник должен
+                # смотреть на текущую позицию добычи, а не
+                # в сторону последнего шага своего маршрута.
+                var facing: Vector3 = prey_actor.position - hunter.position
+                var expected_y := atan2(-facing.x, -facing.z)
+                if absf(wrapf(hunter.rotation.y - expected_y,
+                        -PI, PI)) > 0.01:
+                    push_error("Скелетная атака направлена мимо добычи")
                     quit(1)
                     return
                 var approach_position: Vector3 = hunter.position
@@ -523,6 +565,8 @@ func _check() -> void:
         "multi_cell_pursuit": chase_checked,
         "obstacle_detour": true,
         "contact_distance_guard": true,
+        "model_position_contact": true,
+        "attack_facing_prey": true,
         "no_attack_without_visible_prey": true,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
