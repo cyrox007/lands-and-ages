@@ -1,0 +1,40 @@
+name: "12.10 — сезонный аудит реальных популяций"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/tests/world_wildlife_seasonal_12_audit.gd"
+      - "godot/scripts/wildlife_populations.gd"
+      - "godot/scripts/wildlife_food_web.gd"
+      - "godot/scripts/world_save.gd"
+      - ".github/workflows/godot-stage12-seasonal-fauna.yml"
+  workflow_dispatch:
+
+jobs:
+  seasonal-fauna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Проверить компиляцию Godot"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "96 суток: охота, сезоны, бедствия, баланс и повторяемость"
+        run: |
+          set -o pipefail
+          timeout 600s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_seasonal_12_audit.gd \
+            2>&1 | tee /tmp/fauna.log
+          grep -q "STAGE12-SEASONAL-FAUNA: успешно" /tmp/fauna.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fauna.log; then exit 1; fi

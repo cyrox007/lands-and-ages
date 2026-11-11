@@ -39,9 +39,13 @@ const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
+const Wildlife = preload("res://scripts/wildlife_populations.gd")
+const WildlifeVisuals = preload("res://scripts/wildlife_visuals.gd")
+const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
+const WildlifeHarvest = preload("res://scripts/wildlife_harvest.gd")
+const WildlifeDomestic = preload("res://scripts/wildlife_domestication.gd")
+const WildlifeAccess = preload("res://scripts/wildlife_region_access.gd")
 const ResourceRecipes = preload("res://scripts/natural_resource_recipes.gd")
-const WildlifeHabitats = preload("res://scripts/wildlife_habitats.gd")
-const WildlifePopulations = preload("res://scripts/wildlife_populations.gd")
 const Fire = preload("res://scripts/fire_registry.gd")
 const FirePresentation = preload("res://scripts/fire_presentation_controller.gd")
 const NatureRenderer = preload("res://scripts/nature_renderer.gd")
@@ -78,9 +82,18 @@ var _nature: RefCounted
 var _resources: RefCounted
 var _economy: RefCounted
 var _industry: RefCounted
-var _habitats: RefCounted
-var _fauna: RefCounted
-var _fauna_status: Label
+var _wildlife: RefCounted
+var _food_web: RefCounted
+var _wildlife_visuals
+var _fauna_audio_listener: AudioListener3D
+var _fauna_inspection_status: Label
+var _fauna_qa_day := -1
+var _harvest: RefCounted
+var _domestic: RefCounted
+var _animal_status: Label
+var _hunt_species := "олень"
+var _capture_species := "корова"
+var _wildlife_status: Label
 var _industry_status: Label
 var _industry_kind := "камень"
 var _industry_recipe := "тесать камень"
@@ -238,13 +251,20 @@ static func _generate_world_models() -> Dictionary:
 		resources, climate.day)
 	var industry := ResourceIndustry.new(world, hydro, surface, nature,
 		resources, climate.day)
-	# Дикая фауна заселяет только физически пригодные ареалы
-	# после подготовки леса, климата и настоящих водоёмов.
-	var habitats := WildlifeHabitats.new(world, hydro, surface, climate, nature)
-	var fauna := WildlifePopulations.new(world, habitats)
-	fauna.generate()
-	return {"habitats": habitats, "fauna": fauna,
-		"industry": industry, "economy": economy,
+	# Фауна формируется лишь в биотопах с доказанным кормом, водой
+	# и укрытием. Не создаём Node3D для каждого животного.
+	var wildlife := Wildlife.new(world, hydro, surface, climate, nature)
+	wildlife.generate()
+	# Хищники инициализируются ПОСЛЕ травоядных, иначе нет
+	# реального источника добычи и появились бы фиктивные стаи.
+	var food_web := FoodWeb.new(world, climate, wildlife)
+	food_web.generate()
+	# Охота и домашние линии не создают животных сами по себе:
+	# запуск требует реального источника и сухопутного маршрута.
+	var harvest := WildlifeHarvest.new(world, hydro, surface, climate, wildlife)
+	var domestic := WildlifeDomestic.new(world, hydro, surface, climate,
+		wildlife, food_web, harvest)
+	return {"harvest": harvest, "domestic": domestic, "food_web": food_web, "wildlife": wildlife, "industry": industry, "economy": economy,
 		"resources": resources, "world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "nature": nature}
 
@@ -274,17 +294,16 @@ func _ready() -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
-	_habitats = models["habitats"]
-	_fauna = models["fauna"]
+	_wildlife = models["wildlife"]
+	_food_web = models["food_web"]
+	_harvest = models["harvest"]
+	_domestic = models["domestic"]
 	_landscape_events = LandscapeEvents.new(_world_model)
 	_natural_processes = NaturalProcesses.new(
 		_world_model, _hydro, _surface, _climate)
 	_natural_disasters = NaturalDisasters.new(_world_model, _hydro, _surface, _climate)
 	_weather_events = WeatherEvents.new(_world_model, _climate, _surface, _hydro)
 	_fire = Fire.new(_world_model, _hydro, _surface, _climate, _nature)
-	# Травяной покров реагирует на физически выгоревшие участки:
-	# следующая суточная оценка среды увидит настоящие следы огня.
-	_habitats.fire = _fire
 	_bind_nature_events()
 	_ensure_day_runner()
 	_last_completed_day = _climate.day
@@ -301,6 +320,20 @@ func _ready() -> void:
 	_camera.size = 66.0
 	_camera.current = true
 	add_child(_camera)
+	# Изометрическая камера находится высоко над миром. Слушатель
+	# располагается у поверхности наблюдаемой клетки, чтобы
+	# пространственный звук животных не затухал из-за высоты камеры.
+	_fauna_audio_listener = AudioListener3D.new()
+	_fauna_audio_listener.name = "Приёмник звуков фауны"
+	add_child(_fauna_audio_listener)
+	_fauna_audio_listener.make_current()
+	# Графика животных существует только около камеры. Её создание
+	# не прибавляет особей и не вмешивается в физический календарь.
+	_wildlife_visuals = WildlifeVisuals.new()
+	_wildlife_visuals.name = "Видимые настоящие животные"
+	add_child(_wildlife_visuals)
+	_wildlife_visuals.configure(_world_model, _hydro, _surface,
+		_wildlife, _food_web, _domestic)
 	_update_material_detail()
 	_update_camera()
 	if stream_camera:
@@ -532,11 +565,25 @@ func _setup_interface() -> void:
 	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_showcase_text.text = "Лес · река · горы · побережье"
 	column.add_child(_showcase_text)
-	# Реальная численность агрегированных диких популяций.
-	# Отображение отдельных животных будет только в этапе 12.9.
-	_fauna_status = Label.new()
-	_fauna_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(_fauna_status)
+	# Приёмка 12.9 доступна сразу: ищем уже существующую
+	# региональную пару и перемещаем к ней только камеру.
+	var fauna_button := Button.new()
+	fauna_button.name = "FaunaInspect"
+	fauna_button.text = "Найти животных для проверки"
+	fauna_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fauna_button.pressed.connect(_focus_fauna)
+	column.add_child(fauna_button)
+	var fauna_hunt_button := Button.new()
+	fauna_hunt_button.name = "FaunaHuntQA"
+	fauna_hunt_button.text = "Проверить охоту: расходует 1 живую добычу"
+	fauna_hunt_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fauna_hunt_button.pressed.connect(_exercise_fauna_hunt)
+	column.add_child(fauna_hunt_button)
+	_fauna_inspection_status = Label.new()
+	_fauna_inspection_status.name = "Статус осмотра фауны"
+	_fauna_inspection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_fauna_inspection_status.text = "Осмотр не запускался; мир не изменён"
+	column.add_child(_fauna_inspection_status)
 	# Игрок может запустить настоящую цепочку из физического сырья.
 	# Работа идёт по календарю, а не по нажатию декоративной кнопки.
 	var economy_button := Button.new()
@@ -709,6 +756,55 @@ func _setup_interface() -> void:
 	_industry_status = Label.new()
 	_industry_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_debug_details.add_child(_industry_status)
+	_wildlife_status = Label.new()
+	_wildlife_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_details.add_child(_wildlife_status)
+	# Существующие стада — единственный источник добычи и предков.
+	# Выбор вида не создаёт животных и не обходит физику ареалов.
+	var hunt_menu := OptionButton.new()
+	var hunt_options := WildlifeHarvest.YIELDS.keys()
+	hunt_options.sort()
+	_hunt_species = str(hunt_options[0])
+	for kind in hunt_options:
+		hunt_menu.add_item(str(kind))
+	hunt_menu.item_selected.connect(func(i: int):
+		_hunt_species = str(hunt_options[i]))
+	_debug_details.add_child(hunt_menu)
+	var hunt_button := Button.new()
+	hunt_button.text = "Отправить охотника за выбранным видом"
+	hunt_button.pressed.connect(_order_hunting)
+	_debug_details.add_child(hunt_button)
+	var butcher_button := Button.new()
+	butcher_button.text = "Разделать одну доставленную тушу"
+	butcher_button.pressed.connect(_butcher_animal)
+	_debug_details.add_child(butcher_button)
+	var food_button := Button.new()
+	food_button.text = "Израсходовать 1 ед. мяса"
+	food_button.pressed.connect(_consume_animal_food)
+	_debug_details.add_child(food_button)
+	# Сырьё животного происхождения имеет действующие рецепты:
+	# без шкур, костей и перьев предметы не появляются.
+	for gear in WildlifeHarvest.GEAR:
+		var item_button := Button.new()
+		item_button.text = "Изготовить: " + str(gear)
+		item_button.pressed.connect(_craft_animal_gear.bind(str(gear)))
+		_debug_details.add_child(item_button)
+	var domestic_menu := OptionButton.new()
+	var domestic_options := WildlifeDomestic.LINEAGES.keys()
+	domestic_options.sort()
+	_capture_species = str(domestic_options[0])
+	for kind in domestic_options:
+		domestic_menu.add_item(str(kind))
+	domestic_menu.item_selected.connect(func(i: int):
+		_capture_species = str(domestic_options[i]))
+	_debug_details.add_child(domestic_menu)
+	var capture_button := Button.new()
+	capture_button.text = "Отловить до двух живых предков выбранного вида"
+	capture_button.pressed.connect(_order_capture)
+	_debug_details.add_child(capture_button)
+	_animal_status = Label.new()
+	_animal_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_details.add_child(_animal_status)
 	for button in _debug_details.get_children():
 		if button is Button:
 			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -723,6 +819,98 @@ func _toggle_debug() -> void:
 	_debug_details.visible = not _debug_details.visible
 	_details_toggle.text = "Скрыть диагностику" if _debug_details.visible \
 		else "Показать диагностику"
+	_update_hud()
+
+
+func _exercise_fauna_hunt() -> void:
+	# Приёмочный сценарий запускается только по явному нажатию
+	# кнопки, расходует реально доступную добычу через FoodWeb
+	# и не подменяет физический захват анимацией.
+	if _wildlife_visuals == null or _food_web == null or _wildlife == null:
+		return
+	if _day_task_id >= 0 or _days_pending > 0 or _benchmark_running \
+			or not _storage_request.is_empty() or _fire_demo_active():
+		_fauna_inspection_status.text = "Сначала завершите расчёт физического мира"
+		return
+	if _fauna_qa_day == _food_web.last_day:
+		_fauna_inspection_status.text = "Один проверочный захват уже был. Перейдите на следующий физический день."
+		return
+	var spot: Dictionary = _wildlife_visuals.inspection_spot()
+	if spot.is_empty():
+		_fauna_inspection_status.text = "Нет доступной добычи для проверки"
+		return
+	var region: Vector2i = spot["region"]
+	var hunter_kind := str(spot["predator"])
+	var prey_kind := str(spot["prey"])
+	var key := "%s:%d:%d" % [hunter_kind, region.x, region.y]
+	var prey_key := "%s:%d:%d" % [prey_kind, region.x, region.y]
+	# Сначала игрок должен открыть участок с существующими
+	# визуальными особями. Невидимых животных не перемещаем.
+	if not _wildlife_visuals._visible.has(key) \
+			or not _wildlife_visuals._visible.has(prey_key):
+		_fauna_inspection_status.text = "Сначала нажмите «Найти животных» и дождитесь загрузки"
+		return
+	var hunter_move: Dictionary = _wildlife_visuals._movement.get(key, {})
+	var prey_move: Dictionary = _wildlife_visuals._movement.get(prey_key, {})
+	if hunter_move.is_empty() or prey_move.is_empty() \
+			or bool(hunter_move.get("walking", false)) \
+			or bool(prey_move.get("walking", false)) \
+			or float(hunter_move.get("attack", 0.0)) > 0.0:
+		_fauna_inspection_status.text = "Дождитесь завершения текущих движений животных"
+		return
+	var captured: Array[Dictionary] = []
+	if _food_web._feed(region, hunter_kind, 1, captured) != 1 \
+			or captured.is_empty():
+		_fauna_inspection_status.text = "Физический захват не выполнен: доступной добычи нет"
+		return
+	_fauna_qa_day = _food_web.last_day
+	# Событие передаётся отдельно от календарного last_hunts,
+	# чтобы диагностика не переигрывала прошлую охоту в те же сутки.
+	var reacted: int = _wildlife_visuals.react_hunts(captured)
+	_fauna_inspection_status.text = "Физически захвачена 1 особь (%s). Визуальная погоня: %s. Мир изменён; для повтора нужны новые сутки." % [
+		str(captured[0]["prey"]), "запущена" if reacted > 0 \
+		else "не началась (расстояние или состояние животных)"]
+	_update_hud()
+
+
+func _focus_fauna() -> void:
+	# Функция выбирает реально населённый участок, не создавая
+	# тестовых животных и не меняя календарь природной симуляции.
+	if _world_model == null or _wildlife_visuals == null:
+		return
+	if _benchmark_running or _day_task_id >= 0 or _days_pending > 0 \
+			or not _storage_request.is_empty() or _fire_demo_active():
+		_fauna_inspection_status.text = "Сначала завершите расчёт мира"
+		return
+	if _wildlife_visuals.available_models() == 0:
+		_fauna_inspection_status.text = "Модели фауны не установлены: tools/install_fauna_assets.py"
+		return
+	var spot: Dictionary = _wildlife_visuals.inspection_spot()
+	if spot.is_empty():
+		_fauna_inspection_status.text = "Нет видимой пары живых хищников и добычи"
+		return
+	# При удалённом переходе подгружаем необходимые чанки.
+	# Самих зверей не переносим и физическую численность не трогаем.
+	var old_sparse := _detail_for_zoom(_camera.size) \
+		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	_center = _world_model.config.clamp_point(spot["center"])
+	_camera.size = clampf(maxf(32.0, float(spot["distance"]) * 2.0 + 12.0),
+		MIN_ZOOM, 66.0)
+	_pan_delta = Vector2.ZERO
+	_pan_pending = false
+	_view_mode = 0
+	_update_camera()
+	_apply_visual_budget()
+	_update_material_detail()
+	var sparse := _detail_for_zoom(_camera.size) \
+		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	if _loading_layer != null:
+		_loading_label.text = "Открываем реальную фауну"
+		_loading_layer.show()
+	_refresh_visible(old_sparse != sparse)
+	_wildlife_visuals.refresh(_center, _camera.size, 1.0)
+	_fauna_inspection_status.text = "Регион %s: %s и %s. Здесь можно наблюдать скелетную ходьбу и смену физических суток." % [
+		str(spot["region"]), str(spot["predator"]), str(spot["prey"])]
 	_update_hud()
 
 
@@ -793,9 +981,20 @@ func _update_camera() -> void:
 	var offset := Vector3(45.0, 63.0, 45.0)
 	_camera.position = Vector3(_center.x, 0.0, _center.y) + offset
 	_camera.look_at(Vector3(_center.x, 0.0, _center.y), Vector3.UP)
+	if _fauna_audio_listener != null:
+		# Звук слушаем у земли в центре обзора, но оставляем
+		# направление стереопанорамы таким же, как у камеры.
+		_fauna_audio_listener.position = _world_model.config.to_scene(
+			_center, _world_model.height_at(_center))
+		_fauna_audio_listener.rotation = _camera.rotation
 
 
 func _process(delta: float) -> void:
+	# Не читаем изменяемые реестры в момент работы фонового
+	# WorldDayRunner; вне видимости не создаём скелетных узлов.
+	if _wildlife_visuals != null and _day_task_id < 0 \
+			and _days_pending == 0:
+		_wildlife_visuals.refresh(_center, _camera.size, delta)
 	_record_frame(delta)
 	_advance_water_animation(delta)
 	_advance_weather_lighting(delta)
@@ -2237,6 +2436,97 @@ func _industry_research() -> void:
 	_update_hud()
 
 
+
+func _animal_actions_allowed() -> bool:
+	# Нельзя охотиться или отлавливать животных во время фонового
+	# изменения популяций, иначе возникнет гонка между потоками.
+	return _harvest != null and _domestic != null \
+		and _harvest.site.x >= 0 and _domestic.site.x >= 0 \
+		and _day_task_id < 0 and _days_pending == 0 \
+		and not _benchmark_running and not _fire_demo_active()
+
+
+func _find_animal_region(species: String, predators: bool) -> Vector2i:
+	# Выбираем ближайшую по реальному маршруту территорию
+	# с живыми животными, а не просто ближайшую по координатам.
+	var best := Vector2i(-1, -1)
+	var min_steps := 100000000
+	var size: Vector2i = _world_model.config.region_count()
+	for y in range(size.y):
+		for x in range(size.x):
+			var region := Vector2i(x, y)
+			var available: int = _food_web.count_at(region, species) \
+				if predators else _wildlife.population_at(region, species)
+			if available < 1:
+				continue
+			var route: Dictionary = WildlifeAccess.entry(
+				_world_model, _hydro, _surface, _harvest.site, region)
+			if route.is_empty() or int(route["steps"]) >= min_steps:
+				continue
+			best = region
+			min_steps = int(route["steps"])
+	return best
+
+
+func _order_hunting() -> void:
+	# Туша появится только после вычета дикого животного и
+	# обратного пути охотника до хозяйственной площадки.
+	if not _animal_actions_allowed():
+		_storage_status = "Сначала завершите мастерскую и расчёт дня"
+	else:
+		var region := _find_animal_region(_hunt_species, false)
+		if not _harvest.order_hunt(region, _hunt_species, 1):
+			_storage_status = "Не найден доступный живой источник: " + _hunt_species
+	_update_hud()
+
+
+func _butcher_animal() -> void:
+	# Разделываем только тушу из завершённого охотничьего рейса.
+	if not _animal_actions_allowed():
+		return
+	var carcasses: Dictionary = _harvest.summary()["carcasses"]
+	for species in carcasses:
+		if _harvest.butcher(str(species), 1):
+			break
+	_update_hud()
+
+
+func _consume_animal_food() -> void:
+	# Потребление уменьшает реальный склад, не выдавая новую еду.
+	if _animal_actions_allowed():
+		_harvest.consume_food(1)
+	_update_hud()
+
+
+func _craft_animal_gear(kind: String) -> void:
+	# Используем физические продукты из доставленных туш;
+	# готовое снаряжение затем меняет поведение охотников.
+	if not _animal_actions_allowed():
+		_storage_status = "Нужен действующий охотничий участок"
+	elif not _harvest.craft_tool(kind):
+		_storage_status = "Не хватает материалов или предмет уже готов: " + kind
+	_update_hud()
+
+
+func _order_capture() -> void:
+	# Отлов не создаёт домашнего животного мгновенно: сперва
+	# доставляются дикие основатели, затем требуются поколения.
+	if not _animal_actions_allowed():
+		_storage_status = "Для отлова нужен действующий природный участок"
+		_update_hud()
+		return
+	var rule: Dictionary = WildlifeDomestic.LINEAGES[_capture_species]
+	var region := _find_animal_region(
+		str(rule["ancestor"]), bool(rule["predator"]))
+	var source_count: int = _food_web.count_at(
+		region, str(rule["ancestor"])) if bool(rule["predator"]) \
+		else _wildlife.population_at(region, str(rule["ancestor"]))
+	var amount := mini(2, source_count)
+	if not _domestic.order_capture(region, _capture_species, amount):
+		_storage_status = "Нет доступных диких предков: " + _capture_species
+	_update_hud()
+
+
 func _storage_models() -> Dictionary:
 	return {
 		"world": _world_model, "hydro": _hydro,
@@ -2244,7 +2534,9 @@ func _storage_models() -> Dictionary:
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
 		"resources": _resources, "economy": _economy,
-		"industry": _industry, "fauna": _fauna, "fire": _fire
+		"industry": _industry, "wildlife": _wildlife,
+		"food_web": _food_web, "harvest": _harvest,
+		"domestic": _domestic, "fire": _fire
 	}
 
 
@@ -2308,8 +2600,13 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
-	_habitats = models["habitats"]
-	_fauna = models["fauna"]
+	_wildlife = models["wildlife"]
+	_food_web = models["food_web"]
+	_harvest = models["harvest"]
+	_domestic = models["domestic"]
+	if _wildlife_visuals != null:
+		_wildlife_visuals.configure(_world_model, _hydro, _surface,
+			_wildlife, _food_web, _domestic)
 	_fire = models["fire"]
 	# В новом сохранении или seed видовые точки могут сместиться:
 	# пересчитываем маршрут только при следующем выборе игрока.
@@ -2445,10 +2742,35 @@ func _complete_day(result: Dictionary) -> void:
 		if _economy.built and _industry.site.x < 0:
 			_industry.activate(_economy.site)
 		_industry.advance_day(_last_completed_day)
-	# Агрегированные популяции рассчитываются после завершения
-	# физического дня, не внутри рабочего потока и без Node3D.
-	if _fauna != null and _fauna.generated:
-		_fauna.advance_day(_last_completed_day)
+	# Популяции пересчитываются после полной природной физики суток:
+	# они получают фактический снег, паводки и состояние растительности.
+	if _wildlife != null and _wildlife.generated:
+		_wildlife.advance_day(_last_completed_day)
+	# Пищевые отношения и реакция на настоящие бедствия происходят
+	# после размножения и миграции травоядных в этом же дне.
+	if _food_web != null and _food_web.generated:
+		_food_web.advance_day(_last_completed_day, result["hazards"])
+	# Только законченная физика суток может запустить бегство
+	# видимых моделей. Это графическая реакция без повторного
+	# пересчёта численности и без запуска фальшивой охоты.
+	if _wildlife_visuals != null and _day_task_id < 0:
+		_wildlife_visuals.react_hazards(result["hazards"])
+		# Атака отражает только фактическое списание добычи в
+		# FoodWeb. Паника имеет приоритет; стада повторно не меняем.
+		_wildlife_visuals.react_hunts()
+	# Отлов и охота обновляются лишь после природного дня и охоты
+	# хищников. При постройке цеха животных не выдаём.
+	if _economy != null and _economy.built \
+			and _wildlife != null and _wildlife.generated \
+			and _food_web != null and _food_web.generated:
+		if _harvest != null and _harvest.site.x < 0:
+			_harvest.activate(_economy.site)
+		if _domestic != null and _domestic.site.x < 0:
+			_domestic.activate(_economy.site)
+	if _harvest != null:
+		_harvest.advance_day(_last_completed_day)
+	if _domestic != null:
+		_domestic.advance_day(_last_completed_day)
 	_last_day_step_us = _day_runner.last_duration_us
 	_peak_day_step_us = maxi(_peak_day_step_us, _last_day_step_us)
 	_last_day_profile_us = _day_runner.last_profile_us.duplicate()
@@ -2726,11 +3048,27 @@ func _run_landscape_benchmark() -> void:
 func _update_hud() -> void:
 	if _summary == null:
 		return
-	if _fauna_status != null and _fauna != null:
-		var population: Dictionary = _fauna.by_species()
-		_fauna_status.text = "Дикая фауна: %s · особей %d · родилось %d · погибло %d · переселилось %d" % [
-			JSON.stringify(population), _fauna.total(), _fauna.last_births,
-			_fauna.last_deaths, _fauna.last_migrated]
+	if _animal_status != null and _harvest != null and _domestic != null:
+		var hunt: Dictionary = _harvest.summary()
+		var farm: Dictionary = _domestic.summary()
+		_animal_status.text = "Охота: %s · туши: %s · продукты: %s\nПредки и потомство: %s" % [
+			str(hunt["event"]), JSON.stringify(hunt["carcasses"]),
+			JSON.stringify(hunt["products"]), JSON.stringify(farm["herds"])]
+		_animal_status.text += "\nСнаряжение: " + JSON.stringify(hunt["equipment"])
+	if _wildlife_status != null and _wildlife != null:
+		var fauna: Dictionary = _wildlife.summary()
+		_wildlife_status.text = "Дикие животные · %s · события %s" % [
+			JSON.stringify(fauna["population"]), JSON.stringify(fauna["events"])]
+		if _wildlife_visuals != null:
+			var visuals: Dictionary = _wildlife_visuals.stats()
+			_wildlife_status.text += " · реальные модели %d/%d; видимых %d/%d" % [
+				int(visuals["installed"]), int(visuals["catalog"]),
+				int(visuals["visible"]), int(visuals["limit"])]
+		if _food_web != null:
+			var predators: Dictionary = _food_web.summary()
+			_wildlife_status.text += " · хищники: %d волков, %d лис; %s" % [
+				int(predators["wolf"]), int(predators["fox"]),
+				JSON.stringify(predators["events"])]
 	if _industry_status != null and _industry != null:
 		if _industry.site.x < 0:
 			_industry_status.text = "Склад: нужен первый кирпичный цех"

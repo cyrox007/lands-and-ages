@@ -1,0 +1,50 @@
+name: "12.10 — годовые пищевые цепочки, три мира"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/tests/world_wildlife_yearly_12_audit.gd"
+      - "godot/scripts/wildlife_food_web.gd"
+      - "godot/scripts/wildlife_populations.gd"
+      - ".github/workflows/godot-stage12-yearly-fauna.yml"
+  workflow_dispatch:
+
+jobs:
+  yearly-fauna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1729, 3481, 9021]
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Godot 4.7.2 — установить движок"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Полностью импортировать GDScript и мир"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "365 суток и четыре сезона — сид ${{ matrix.seed }}"
+        run: |
+          set -o pipefail
+          timeout 1080s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_yearly_12_audit.gd \
+            -- --seed=${{ matrix.seed }} 2>&1 | tee /tmp/yearly.log
+          grep -q "STAGE12-YEARLY-FAUNA: успешно" /tmp/yearly.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/yearly.log; then exit 1; fi
+      - name: "Сохранить отчёт экологического года"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "годовая-фауна-${{ matrix.seed }}"
+          path: /tmp/yearly.log
+          if-no-files-found: ignore

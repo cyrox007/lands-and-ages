@@ -1,0 +1,101 @@
+name: "12.9 — настоящие скелетные 3D-животные"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "tools/install_fauna_assets.py"
+      - "godot/assets/fauna/**"
+      - "godot/scripts/wildlife_visual_actor.gd"
+      - "godot/scripts/wildlife_visuals.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/world_wildlife_visuals_12_smoke.gd"
+      - "godot/tests/world_fauna_qa_ui_smoke.gd"
+      - "godot/tests/world_wildlife_capture_12.gd"
+      - "godot/tests/world_wildlife_capture_new_12.gd"
+      - ".github/workflows/godot-stage12-visuals.yml"
+  workflow_dispatch:
+
+jobs:
+  fauna-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Проверить наличие CC0-моделей прямо в исходниках"
+        run: |
+          # CI не должен самостоятельно исправлять неполную поставку.
+          # Отсутствие ресурсов — ошибка комплектации, а не теста.
+          python3 tools/install_fauna_assets.py --check
+      - name: "Установка Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Импорт анимированных мешей, текстур и GDScript"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "Скелет, анимации и верхняя граница видимых животных"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_visuals_12_smoke.gd \
+            2>&1 | tee /tmp/rigs.log
+          grep -q "STAGE12-VISUAL: успешно" /tmp/rigs.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/rigs.log; then exit 1; fi
+      - name: "Приёмка реального интерфейса фауны и физической охоты"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_fauna_qa_ui_smoke.gd \
+            2>&1 | tee /tmp/fauna-ui.log
+          grep -q "STAGE12-FAUNA-UI: успешно" /tmp/fauna-ui.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fauna-ui.log; then exit 1; fi
+      - name: "Сделать реальный кадр моделей в Godot через Mesa"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri
+          mkdir -p godot/output
+          set -o pipefail
+          timeout 120s env LIBGL_ALWAYS_SOFTWARE=1 \
+            xvfb-run -a -s "-screen 0 960x540x24" \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy \
+            --rendering-method gl_compatibility --path godot \
+            --script res://tests/world_wildlife_capture_12.gd \
+            2>&1 | tee /tmp/visual.log
+          grep -q "STAGE12-FAUNA-CAPTURE: успешно" /tmp/visual.log
+          test -s godot/output/fauna_real_models.png
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/visual.log; then exit 1; fi
+      - name: "Отдельный кадр зайца, гуся и петуха в Godot"
+        run: |
+          set -o pipefail
+          timeout 120s env LIBGL_ALWAYS_SOFTWARE=1 \
+            xvfb-run -a -s "-screen 0 960x540x24" \
+            /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --audio-driver Dummy \
+            --rendering-method gl_compatibility --path godot \
+            --script res://tests/world_wildlife_capture_new_12.gd \
+            2>&1 | tee /tmp/new-species.log
+          grep -q "STAGE12-FAUNA-NEW-CAPTURE: успешно" /tmp/new-species.log
+          test -s godot/output/fauna_new_species.png
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/new-species.log; then exit 1; fi
+      - name: "Сохранить проверенные CC0 модели и кадры Godot"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "настоящие-3d-животные-Godot"
+          path: |
+            godot/assets/fauna
+            godot/output/fauna_real_models.png
+            godot/output/fauna_new_species.png
+            /tmp/new-species.log
+            /tmp/rigs.log
+            /tmp/fauna-ui.log
+            /tmp/visual.log
+          if-no-files-found: ignore

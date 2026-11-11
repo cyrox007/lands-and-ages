@@ -1,0 +1,246 @@
+{
+  "license": "CC0-1.0",
+  "models": {
+    "олень": {
+      "file": "Deer.gltf",
+      "author": "Quaternius",
+      "download_url": "https://raw.githubusercontent.com/agentkaerf/FreeModels/main/Ultimate%20Animated%20Animals%20-%20July%202021/glTF/Deer.gltf",
+      "source": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 46,
+      "animations": [
+        "Attack_Headbutt",
+        "Attack_Kick",
+        "Death",
+        "Eating",
+        "Gallop",
+        "Gallop_Jump",
+        "Idle",
+        "Idle_2",
+        "Idle_Headlow",
+        "Idle_HitReact1",
+        "Idle_HitReact2",
+        "Jump_toIdle",
+        "Walk"
+      ],
+      "sha256": "b8afd0647e7a74332ce802c8326dfefe1a2b76da67ab925a631aaddb5ae9bdd4",
+      "files": [
+        "Deer.gltf"
+      ]
+    },
+    "тур": {
+      "file": "Bull.gltf",
+      "author": "Quaternius",
+      "download_url": "https://raw.githubusercontent.com/agentkaerf/FreeModels/main/Ultimate%20Animated%20Animals%20-%20July%202021/glTF/Bull.gltf",
+      "source": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 42,
+      "animations": [
+        "Attack_Headbutt",
+        "Attack_Kick",
+        "Death",
+        "Eating",
+        "Gallop",
+        "Gallop_Jump",
+        "Idle",
+        "Idle_2",
+        "Idle_Headlow",
+        "Idle_HitReact1",
+        "Idle_HitReact2",
+        "Jump_toIdle",
+        "Walk"
+      ],
+      "sha256": "535da2992eb125d517725159a2eddeb520b72595bcb3021985fc43d2c84bff76",
+      "files": [
+        "Bull.gltf"
+      ]
+    },
+    "волк": {
+      "file": "Wolf.gltf",
+      "author": "Quaternius",
+      "download_url": "https://raw.githubusercontent.com/agentkaerf/FreeModels/main/Ultimate%20Animated%20Animals%20-%20July%202021/glTF/Wolf.gltf",
+      "source": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 51,
+      "animations": [
+        "Attack",
+        "Death",
+        "Eating",
+        "Gallop",
+        "Gallop_Jump",
+        "Idle",
+        "Idle_2",
+        "Idle_2_HeadLow",
+        "Idle_HitReact1",
+        "Idle_HitReact2",
+        "Jump_ToIdle",
+        "Walk"
+      ],
+      "sha256": "cc02e9d128b5715f352ee8bea086f97a35f1d875d240de99b0f9f2775c37d415",
+      "files": [
+        "Wolf.gltf"
+      ]
+    },
+    "лиса": {
+      "file": "Fox.gltf",
+      "author": "Quaternius",
+      "download_url": "https://raw.githubusercontent.com/agentkaerf/FreeModels/main/Ultimate%20Animated%20Animals%20-%20July%202021/glTF/Fox.gltf",
+      "source": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 51,
+      "animations": [
+        "Attack",
+        "Death",
+        "Eating",
+        "Gallop",
+        "Gallop_Jump",
+        "Idle",
+        "Idle_2",
+        "Idle_2_HeadLow",
+        "Idle_HitReact1",
+        "Idle_HitReact2",
+        "Jump_ToIdle",
+        "Walk"
+      ],
+      "sha256": "2f36e3c9c75ecddda85c5f9944e98ee1e88e7c679a546534aff1cea8ecde64c7",
+      "files": [
+        "Fox.gltf"
+      ]
+    },
+    "корова": {
+      "file": "Cow.gltf",
+      "author": "Quaternius",
+      "download_url": "https://raw.githubusercontent.com/agentkaerf/FreeModels/main/Ultimate%20Animated%20Animals%20-%20July%202021/glTF/Cow.gltf",
+      "source": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 42,
+      "animations": [
+        "Attack_Headbutt",
+        "Attack_Kick",
+        "Death",
+        "Eating",
+        "Gallop",
+        "Gallop_Jump",
+        "Idle",
+        "Idle_2",
+        "Idle_Headlow",
+        "Idle_HitReact1",
+        "Idle_HitReact2",
+        "Jump_toIdle",
+        "Walk"
+      ],
+      "sha256": "b04af067688d9fadf1395b4456dbf3117c2f760fb49e704ee5c8b6391fc8adb5",
+      "files": [
+        "Cow.gltf"
+      ]
+    },
+    "собака": {
+      "file": "Husky.gltf",
+      "author": "Quaternius",
+      "download_url": "https://raw.githubusercontent.com/agentkaerf/FreeModels/main/Ultimate%20Animated%20Animals%20-%20July%202021/glTF/Husky.gltf",
+      "source": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 49,
+      "animations": [
+        "Attack",
+        "Death",
+        "Eating",
+        "Gallop",
+        "Gallop_Jump",
+        "Idle",
+        "Idle_2",
+        "Idle_2_HeadLow",
+        "Idle_HitReact1",
+        "Idle_HitReact2",
+        "Jump_ToIdle",
+        "Walk"
+      ],
+      "sha256": "0cfd85ddfcc5c07caf1bdeb296b21017b0da4c8558a92086daf4a172e0bf8d97",
+      "files": [
+        "Husky.gltf"
+      ]
+    },
+    "кабан": {
+      "file": "Boar.glb",
+      "author": "Gobkit",
+      "download_url": "https://gobkit.com/freebies/animalB/Boar.glb",
+      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 16,
+      "animations": [
+        "idle",
+        "attack",
+        "dead",
+        "walk"
+      ],
+      "sha256": "e6ce64f0e4ac3646359c66d6d383604cb9299b11f867e1b62ea161c50d1e572c",
+      "files": [
+        "Boar.glb"
+      ]
+    },
+    "заяц": {
+      "file": "Hare.glb",
+      "author": "Gobkit",
+      "download_url": "https://gobkit.com/freebies/animal006/Hare.glb",
+      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 16,
+      "animations": [
+        "idle",
+        "attack",
+        "dead",
+        "walk"
+      ],
+      "sha256": "3342949e3b124441d4ac8a7bdffd93835c90752bfe0f3b7785a6cdd8f5b99cfb",
+      "files": [
+        "Hare.glb"
+      ]
+    },
+    "дикий гусь": {
+      "file": "Goose.glb",
+      "author": "Gobkit",
+      "download_url": "https://gobkit.com/freebies/animal006/Goose.glb",
+      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 16,
+      "animations": [
+        "idle",
+        "attack",
+        "dead",
+        "walk"
+      ],
+      "sha256": "a49f32e0b987776d4c4d953e853e435eb1574c173595da71b79ae716a56bcadc",
+      "files": [
+        "Goose.glb"
+      ]
+    },
+    "курица": {
+      "file": "Rooster.glb",
+      "author": "Gobkit",
+      "download_url": "https://gobkit.com/freebies/birds/Rooster.glb",
+      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
+      "license": "CC0-1.0",
+      "skins": 1,
+      "joints": 16,
+      "animations": [
+        "idle",
+        "attack",
+        "dead",
+        "walk"
+      ],
+      "sha256": "9c8a1c07418653dc0f1ede704934c9ef89a0735c1ed44ec755a97aae0c15e9a6",
+      "files": [
+        "Rooster.glb"
+      ]
+    }
+  }
+}

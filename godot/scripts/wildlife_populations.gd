@@ -1,352 +1,421 @@
 extends RefCounted
-## Детерминированные дикие популяции этапа 12.5 по природным регионам.
-## Животные не представлены множеством Godot Node3D и не создаются зданиями.
+## 12.5: численность диких травоядных по природным регионам.
+## Популяции не являются узлами сцены и не создают пищу из воздуха.
 
 const Terrain = preload("res://scripts/terrain.gd")
 const Habitats = preload("res://scripts/wildlife_habitats.gd")
-const VERSION := 1
-const MAX_GROUPS := 5000
-const MAX_GROUP_ANIMALS := 3000
-const MAX_TOTAL_ANIMALS := 250000
+const Paths = preload("res://scripts/world_resource_path.gd")
+
+const FORMAT_VERSION := 1
+const MAX_REGIONS := 4096
+const MAX_PER_REGION := 512
+const MAX_MIGRANTS := 6
+const UPDATE_DAYS := 8
+const HABITAT_DAYS := 24
+const DIRECTIONS := [
+    Vector2i(-1, 0), Vector2i(1, 0),
+    Vector2i(0, -1), Vector2i(0, 1)
+]
+const SPECIES := {
+    "олень": {"space": 0.38, "birth": 0.11, "mortality": 0.018},
+    "заяц": {"space": 0.90, "birth": 0.24, "mortality": 0.045},
+    "кабан": {"space": 0.32, "birth": 0.13, "mortality": 0.025},
+    "тур": {"space": 0.30, "birth": 0.10, "mortality": 0.025},
+    "дикая курица": {"space": 0.65, "birth": 0.20, "mortality": 0.055},
+    "дикий гусь": {"space": 0.38, "birth": 0.16, "mortality": 0.035}
+}
 
 var world: RefCounted
-var habitat: RefCounted
-var last_day := 0
+var hydro: RefCounted
+var surface: RefCounted
+var climate: RefCounted
+var nature: RefCounted
+var habitats: RefCounted
 var generated := false
-var _groups: Dictionary = {}
-var last_births := 0
-var last_deaths := 0
-var last_migrated := 0
+var last_day := 0
 var revision := 0
+var _counts: Dictionary = {}
+var _capacity: Dictionary = {}
+var last_events := {"born": 0, "died": 0, "migrated": 0}
 
 
-func _init(map: RefCounted, environment: RefCounted) -> void:
-    # Оставляем одну ссылку на физические биотопы: популяции не могут
-    # создавать собственные воду, траву или деревья при расчёте.
+func _init(map: RefCounted, water: RefCounted, ground: RefCounted,
+        weather: RefCounted, vegetation: RefCounted) -> void:
+    # Ссылки принадлежат физическому миру. Ни воды, ни травы,
+    # ни животных создание объекта автоматически не добавляет.
     world = map
-    habitat = environment
-    last_day = environment.climate.day
+    hydro = water
+    surface = ground
+    climate = weather
+    nature = vegetation
+    habitats = Habitats.new(map, water, ground, weather, vegetation)
+    last_day = weather.day
 
 
-static func _id(region: Vector2i, species: String) -> String:
-    # Ключ не зависит от размера чанка и числа открытых камер.
-    return "%d:%d|%s" % [region.x, region.y, species]
+static func _key(region: Vector2i, species: String) -> String:
+    # Ключ стабилен между запусками и хранит не координаты животного,
+    # а регион его действующей популяции.
+    return "%s:%d:%d" % [species, region.x, region.y]
 
 
-func generate() -> bool:
-    # Первичная фауна формируется единожды на основании уже существующей
-    # ёмкости и seed, без минимального гарантированного числа животных.
-    if generated or not habitat.rebuild(habitat.climate.day):
-        return false
-    var next := {}
-    var regions: Vector2i = world.config.region_count()
-    for y in regions.y:
-        for x in regions.x:
-            var region := Vector2i(x, y)
-            var zones: Dictionary = habitat.zone(region)
-            for species in Habitats.SPECIES:
-                var capacity: int = int(zones[species]["capacity"])
-                if capacity < 6 or int(zones[species]["water_sites"]) == 0:
-                    continue
-                var value := Terrain.hash2(x, y,
-                    world.config.world_seed + 9821 + species.hash())
-                # Часть подходящих ареалов незаселённая: наличие пищи
-                # ещё не гарантирует миграцию дикого животного туда.
-                if value < 0.17:
-                    continue
-                var total := clampi(floori(float(capacity)
-                    * (0.24 + value * 0.36)), 1, capacity)
-                var young := total / 4
-                var senior := total / 9
-                var adult := total - young - senior
-                if adult < 1:
-                    continue
-                next[_id(region, species)] = {
-                    "region": [x, y], "species": species,
-                    "young": young, "adult": adult, "senior": senior
-                }
-    if next.size() > MAX_GROUPS:
-        return false
-    _groups = next
-    generated = true
-    last_day = habitat.climate.day
-    revision += 1
-    return true
-
-
-func _count(group: Dictionary) -> int:
-    # Общая численность — сумма возрастных классов, а не счётчик
-    # объектов в визуальной сцене и не наследие предыдущего кадра.
-    return int(group["young"]) + int(group["adult"]) + int(group["senior"])
-
-
-func total() -> int:
-    # Суммируем только физически существующие региональные группы.
-    var amount := 0
-    for group in _groups.values():
-        amount += _count(group)
-    return amount
-
-
-func by_species() -> Dictionary:
-    # Агрегаты нужны для игрового HUD и проверки сохранения массы
-    # при миграциях без перебора отдельных особей.
-    var result := {}
-    for species in Habitats.SPECIES:
-        result[species] = 0
-    for group in _groups.values():
-        var species: String = group["species"]
-        result[species] = int(result[species]) + _count(group)
+func _regions() -> Array[Vector2i]:
+    # Обход всегда в одном порядке, независимо от камеры и чанков.
+    var result: Array[Vector2i] = []
+    var sizes: Vector2i = world.config.region_count()
+    for y in range(sizes.y):
+        for x in range(sizes.x):
+            result.append(Vector2i(x, y))
     return result
 
 
-func _daily_change(group: Dictionary, day: int,
-        capacity: int, food: float) -> Dictionary:
-    # Старение только переносит существующих особей между классами.
-    # Рождения требуют живых взрослых и доступного корма/воды.
-    var result: Dictionary = group.duplicate(true)
-    var young: int = result["young"]
-    var adult: int = result["adult"]
-    var senior: int = result["senior"]
-    # В возрастных когортах нет сотен отдельных Node3D. Для малых
-    # групп детерминированная вероятность переносит отдельных особей,
-    # не обнуляя взросление и старение из-за целочисленного деления.
-    var coords: Array = group["region"]
-    var rx: int = int(coords[0])
-    var ry: int = int(coords[1])
-    var seed: int = world.config.world_seed + str(group["species"]).hash()
-    var maturation_rate := float(young) / 96.0
-    var mature := floori(maturation_rate)
-    if Terrain.hash2(rx + day * 11, ry + day * 7, seed + 304) \
-            < maturation_rate - float(mature):
-        mature += 1
-    var aging_rate := float(adult) / float(9 * 96)
-    var aging := floori(aging_rate)
-    if Terrain.hash2(rx + day * 13, ry + day * 19, seed + 508) \
-            < aging_rate - float(aging):
-        aging += 1
-    mature = mini(mature, young)
-    aging = mini(aging, adult)
-    young -= mature
-    adult += mature - aging
-    senior += aging
-    var existing := young + adult + senior
-    var overcrowded := maxi(0, existing - capacity)
-    var starvation := mini(existing, ceili(float(overcrowded) * 0.08))
-    var cold := 0
-    if food < 0.15 and existing > 0:
-        cold = maxi(1, existing / 120)
-    var deaths := mini(senior, senior / 165 + cold)
-    senior -= deaths
-    var remaining := maxi(0, starvation + cold - deaths)
-    var young_deaths := mini(young, remaining)
-    young -= young_deaths
-    remaining -= young_deaths
-    var adult_deaths := mini(adult, remaining)
-    adult -= adult_deaths
-    deaths += young_deaths + adult_deaths
-    var births := 0
-    if day % 96 < 48 and adult > 1 and capacity > existing \
-            and food >= 0.13:
-        # Вероятность привязана к числу взрослых, корму и виду.
-        # Даже малые группы способны дать молодняк, но только при
-        # наличии свободной кормовой ёмкости и сезонного окна.
-        var denominator := 22 if group["species"] == "куропатка" else (
-            32 if group["species"] == "заяц" else 65)
-        var potential := float(adult) * food / float(denominator)
-        births = floori(potential)
-        if Terrain.hash2(rx + day * 17, ry + day * 31, seed + 822) \
-                < potential - float(births):
-            births += 1
-        births = mini(births, maxi(0, capacity - existing))
-    young += births
-    result["young"] = young
-    result["adult"] = adult
-    result["senior"] = senior
-    return {"group": result, "births": births, "deaths": deaths}
+func _survey() -> Dictionary:
+    # Вместимость выводим из площади реально пригодных биотопов.
+    # При исчезновении питьевой воды или корма вместимость падает.
+    var result := {}
+    for region in _regions():
+        var report: Dictionary = habitats.region_report(region)
+        if report.is_empty():
+            continue
+        var available: Dictionary = report["suitable"]
+        for species in SPECIES:
+            var suitable: int = int(available.get(species, 0))
+            var factor: float = float(SPECIES[species]["space"])
+            result[_key(region, species)] = clampi(
+                roundi(float(suitable) * factor), 0, MAX_PER_REGION)
+    return result
 
 
-func advance_day(day: int) -> bool:
-    # Нельзя пропускать промежуточные сутки: крупный скачок календаря
-    # не должен терять рождаемость, смерти и миграционные перемещения.
-    if not generated or day != last_day + 1 \
-            or day != habitat.climate.day or not habitat.rebuild(day):
+func generate() -> bool:
+    # Начальные стада допустимы только там, где география уже
+    # подтверждает корм, воду и укрытие. Никаких хищников без добычи.
+    if generated or not nature.generated:
         return false
-    var birth_count := 0
-    var death_count := 0
-    var moved_count := 0
-    var updated := {}
-    var ids := _groups.keys()
-    ids.sort()
-    for id in ids:
-        var group: Dictionary = _groups[id]
-        var region := Vector2i(int(group["region"][0]), int(group["region"][1]))
-        var species: String = group["species"]
-        var zone: Dictionary = habitat.zone(region)[species]
-        var change: Dictionary = _daily_change(group, day,
-            int(zone["capacity"]), float(zone["food"]))
-        updated[id] = change["group"]
-        birth_count += int(change["births"])
-        death_count += int(change["deaths"])
-
-    # Миграцию рассчитываем по исходному снимку дня и потом
-    # применяем отдельно: нельзя переселить одну особь дважды.
-    var movements: Array = []
-    # Резервируем свободные места до переселения: несколько соседей
-    # не могут независимо заполнить один и тот же регион сверх лимита.
-    var incoming := {}
-    var bounds: Vector2i = world.config.region_count()
-    for id in ids:
-        var group: Dictionary = updated[id]
-        var region := Vector2i(int(group["region"][0]), int(group["region"][1]))
-        var species: String = group["species"]
-        var current: int = _count(group)
-        if int(group["adult"]) < 3 or current < 8:
-            continue
-        var origin: Dictionary = habitat.zone(region)[species]
-        var origin_cap: int = int(origin["capacity"])
-        var best_score := -1.0
-        var destination := Vector2i(-1, -1)
-        for delta in [Vector2i(1, 0), Vector2i(0, 1),
-                Vector2i(-1, 0), Vector2i(0, -1)]:
-            var neighbor: Vector2i = region + delta
-            if neighbor.x < 0 or neighbor.y < 0 \
-                    or neighbor.x >= bounds.x or neighbor.y >= bounds.y:
-                continue
-            # Соседние координаты ещё не доказывают возможность перехода:
-            # две области могут быть разделены непрерывной водой.
-            if not habitat.connected_regions(region, neighbor):
-                continue
-            var target: Dictionary = habitat.zone(neighbor)[species]
-            var target_cap: int = int(target["capacity"])
-            var neighbor_id := _id(neighbor, species)
-            var used := _count(updated.get(neighbor_id, {
-                "young": 0, "adult": 0, "senior": 0
-            }))
-            used += int(incoming.get(neighbor_id, 0))
-            if target_cap <= 0 or int(target["water_sites"]) == 0 \
-                    or used >= target_cap:
-                continue
-            var score := float(target_cap - used) / float(target_cap)
-            if score > best_score:
-                best_score = score
-                destination = neighbor
-        if destination.x < 0:
-            continue
-        # Только взрослые могут перейти в соседний пригодный ареал;
-        # пустой регион заселяется исключительно реальными мигрантами.
-        var count := mini(int(group["adult"]) / 7, 4)
-        if current > origin_cap:
-            count = mini(int(group["adult"]) / 4, 8)
-        if count <= 0:
-            continue
-        var target_id := _id(destination, species)
-        var target_zone: Dictionary = habitat.zone(destination)[species]
-        var existing: int = _count(updated.get(target_id, {
-            "young": 0, "adult": 0, "senior": 0
-        }))
-        count = mini(count, int(target_zone["capacity"]) - existing
-            - int(incoming.get(target_id, 0)))
-        if count > 0:
-            incoming[target_id] = int(incoming.get(target_id, 0)) + count
-            movements.append({"from": id, "to": target_id, "count": count,
-                "region": [destination.x, destination.y], "species": species})
-    for movement in movements:
-        var from_id: String = movement["from"]
-        var to_id: String = movement["to"]
-        var count: int = mini(int(movement["count"]),
-            int(updated[from_id]["adult"]))
-        if count <= 0:
-            continue
-        var target: Dictionary = updated.get(to_id, {
-            "region": movement["region"], "species": movement["species"],
-            "young": 0, "adult": 0, "senior": 0
-        })
-        updated[from_id]["adult"] -= count
-        target["adult"] = int(target["adult"]) + count
-        updated[to_id] = target
-        moved_count += count
-    # Удаление исчезнувших групп не порождает новых особей.
-    var alive := {}
-    for id in updated:
-        if _count(updated[id]) > 0:
-            alive[id] = updated[id]
-    if alive.size() > MAX_GROUPS:
+    var sizes: Vector2i = world.config.region_count()
+    if sizes.x * sizes.y > MAX_REGIONS:
         return false
-    _groups = alive
-    last_births = birth_count
-    last_deaths = death_count
-    last_migrated = moved_count
-    last_day = day
+    _capacity = _survey()
+    _counts.clear()
+    for region in _regions():
+        for species in SPECIES:
+            var key := _key(region, species)
+            var limit: int = int(_capacity.get(key, 0))
+            if limit <= 0:
+                continue
+            var chance := Terrain.hash2(region.x, region.y,
+                world.config.world_seed + 35000 + species.hash())
+            # Небольшая естественная исходная численность оставляет
+            # свободное пространство для последующего размножения.
+            _counts[key] = clampi(roundi(float(limit)
+                * (0.43 + chance * 0.24)), 1, limit)
+    last_day = climate.day
+    generated = true
     revision += 1
     return true
 
 
+func population_at(region: Vector2i, species: String) -> int:
+    # Несуществующие виды и внешние координаты не попадают
+    # в реестр животных из ошибочного или чужого запроса.
+    if not SPECIES.has(species) or not world.config.region_rect(region).has_area():
+        return 0
+    return int(_counts.get(_key(region, species), 0))
+
+
+func capacity_at(region: Vector2i, species: String) -> int:
+    # Вместимость — ограничение территории, не ресурс на складе.
+    if not SPECIES.has(species) or not world.config.region_rect(region).has_area():
+        return 0
+    return int(_capacity.get(_key(region, species), 0))
+
+
+func total(species: String = "") -> int:
+    # Подсчёт по реестру, без создания тысяч NPC на карте.
+    var count := 0
+    for region in _regions():
+        if species.is_empty():
+            for kind in SPECIES:
+                count += population_at(region, kind)
+        else:
+            count += population_at(region, species)
+    return count
+
+
+func _round_expected(expected: float, region: Vector2i,
+        species: String, day: int, salt: int) -> int:
+    # Для малых стад дробные ожидаемые рождения и смерти
+    # проверяем стабильным хешем, не глобальным RandomNumberGenerator.
+    var whole := floori(expected)
+    var fraction := expected - float(whole)
+    var random := Terrain.hash2(region.x + day, region.y,
+        world.config.world_seed + species.hash() + salt)
+    return whole + (1 if random < fraction else 0)
+
+
+func _border_open(a: Vector2i, b: Vector2i) -> bool:
+    # Граница соседних регионов должна иметь хотя бы один реальный
+    # проход по суше. Через море и паводок популяция не переносится.
+    var first: Rect2i = world.config.region_rect(a)
+    var second: Rect2i = world.config.region_rect(b)
+    if not first.has_area() or not second.has_area():
+        return false
+    if absi(a.x - b.x) + absi(a.y - b.y) != 1:
+        return false
+    if a.y == b.y:
+        var edge: int = maxi(first.position.x, second.position.x)
+        var low: int = maxi(first.position.y, second.position.y)
+        var high: int = mini(first.end.y, second.end.y)
+        for y in range(low, high, 2):
+            if Paths.walkable(world, hydro, surface, Vector2i(edge - 1, y)) \
+                    and Paths.walkable(world, hydro, surface, Vector2i(edge, y)):
+                return true
+    else:
+        var edge: int = maxi(first.position.y, second.position.y)
+        var low: int = maxi(first.position.x, second.position.x)
+        var high: int = mini(first.end.x, second.end.x)
+        for x in range(low, high, 2):
+            if Paths.walkable(world, hydro, surface, Vector2i(x, edge - 1)) \
+                    and Paths.walkable(world, hydro, surface, Vector2i(x, edge)):
+                return true
+    return false
+
+
+func consume_prey(region: Vector2i, species: String, amount: int) -> bool:
+    # Хищник обязан забрать существующих животных из исходного реестра.
+    # Если животных не хватает, никакой добычи не возникает.
+    if not generated or not SPECIES.has(species) or amount <= 0:
+        return false
+    var existing := population_at(region, species)
+    if amount > existing:
+        return false
+    var key := _key(region, species)
+    if amount == existing:
+        _counts.erase(key)
+    else:
+        _counts[key] = existing - amount
+    revision += 1
+    return true
+
+
+func can_cross(source: Vector2i, destination: Vector2i) -> bool:
+    # Все миграции и эвакуации используют один реальный переход:
+    # нельзя перемещать стада через затопленные границы.
+    return _border_open(source, destination)
+
+
+func react_hazards(hazards: Array) -> Dictionary:
+    # Стихийное событие берём только из настоящей физики.
+    # На сильную опасность стада уходят к свободной кормовой базе;
+    # если безопасного перехода нет, возможна потеря особей.
+    var moved := 0
+    var lost := 0
+    if not generated:
+        return {"moved": moved, "lost": lost}
+    for event in hazards:
+        if not (event is Dictionary) or not (event.get("cell") is Vector2i):
+            continue
+        var kind := str(event.get("kind", ""))
+        if kind not in ["шторм", "шквал", "ураган", "смерч",
+                "паводок", "лавина", "сель", "оползень", "обвал",
+                "землетрясение", "пожар"]:
+            continue
+        var power: float = float(event.get("severity", 0.0))
+        var cell: Vector2i = event["cell"]
+        if not is_finite(power) or power <= 0.0 \
+                or not world.config.contains_cell(cell):
+            continue
+        var region: Vector2i = world.config.region_of(cell)
+        for species in SPECIES:
+            var key := _key(region, species)
+            var count := population_at(region, species)
+            if count <= 0:
+                continue
+            var risk := clampf(power, 0.0, 1.0)
+            var fleeing := mini(count, maxi(1, roundi(float(count) * risk * 0.19)))
+            var best := Vector2i(-1, -1)
+            var available := 0
+            for direction in DIRECTIONS:
+                var neighbor: Vector2i = region + direction
+                var vacancy := capacity_at(neighbor, species) \
+                    - population_at(neighbor, species)
+                if vacancy <= available or not can_cross(region, neighbor):
+                    continue
+                best = neighbor
+                available = vacancy
+            if best.x >= 0:
+                var transferred := mini(fleeing, available)
+                _counts[key] = count - transferred
+                var dest := _key(best, species)
+                _counts[dest] = population_at(best, species) + transferred
+                moved += transferred
+            elif risk >= 0.80:
+                # Стихийное событие без безопасного выхода наносит урон,
+                # но не уничтожает целый регион по одному событию.
+                var casualties := mini(count, maxi(1,
+                    roundi(float(count) * 0.06 * risk)))
+                _counts[key] = count - casualties
+                lost += casualties
+    if moved > 0 or lost > 0:
+        revision += 1
+        last_events["migrated"] = int(last_events["migrated"]) + moved
+        last_events["died"] = int(last_events["died"]) + lost
+    return {"moved": moved, "lost": lost}
+
+
+func _change_population(day: int) -> Dictionary:
+    # Рождение ограничено свободной кормовой ёмкостью. Смертность
+    # растёт от перенаселения и исчезновения доступных биотопов.
+    var born := 0
+    var died := 0
+    var next_counts: Dictionary = _counts.duplicate()
+    for region in _regions():
+        for species in SPECIES:
+            var key := _key(region, species)
+            var current: int = int(next_counts.get(key, 0))
+            if current <= 0:
+                continue
+            var limit: int = int(_capacity.get(key, 0))
+            var rule: Dictionary = SPECIES[species]
+            var space := maxf(0.0, 1.0 - float(current) / float(maxi(1, limit)))
+            var births := _round_expected(float(current)
+                * float(rule["birth"]) * space, region, species, day, 9127)
+            var losses := _round_expected(float(current)
+                * float(rule["mortality"]) + maxf(0.0,
+                float(current - limit)) * 0.24,
+                region, species, day, 12791)
+            losses = mini(current, losses)
+            var target := clampi(current + births - losses, 0, MAX_PER_REGION)
+            born += maxi(0, target - current + losses)
+            died += losses
+            if target == 0:
+                next_counts.erase(key)
+            else:
+                next_counts[key] = target
+
+    # Сначала вычисляем общий результат размножения и смертности,
+    # затем переносим существующих животных, не создавая новых.
+    var migrated := 0
+    for region in _regions():
+        for species in SPECIES:
+            var key := _key(region, species)
+            var current: int = int(next_counts.get(key, 0))
+            var limit: int = int(_capacity.get(key, 0))
+            if current < 2 or (limit >= 2 and current < maxi(2, ceili(float(limit) * 0.58))):
+                continue
+            var best := Vector2i(-1, -1)
+            var best_space := 0
+            for direction in DIRECTIONS:
+                var neighbor: Vector2i = region + direction
+                var neighbor_limit := capacity_at(neighbor, species)
+                var neighbor_count := int(next_counts.get(
+                    _key(neighbor, species), 0))
+                var space := neighbor_limit - neighbor_count
+                if space <= best_space:
+                    continue
+                # Не гоняем животных между одинаково заполненными
+                # территориями без экологического выигрыша.
+                if float(neighbor_count) / float(maxi(1, neighbor_limit)) \
+                        >= float(current) / float(maxi(1, limit)) - 0.10:
+                    continue
+                if not _border_open(region, neighbor):
+                    continue
+                best = neighbor
+                best_space = space
+            if best.x < 0:
+                continue
+            var transferred := mini(MAX_MIGRANTS, mini(
+                maxi(1, current / 10), mini(current, best_space)))
+            next_counts[key] = current - transferred
+            var dest := _key(best, species)
+            next_counts[dest] = int(next_counts.get(dest, 0)) + transferred
+            migrated += transferred
+    _counts = next_counts
+    revision += 1
+    return {"born": born, "died": died, "migrated": migrated}
+
+
+func advance_day(day: int) -> bool:
+    # Вызывающий код обязан передать один завершённый физический
+    # день; скачок без климатических шагов исказил бы сезонный корм.
+    if not generated or day != last_day + 1 or day != climate.day:
+        return false
+    last_day = day
+    last_events = {"born": 0, "died": 0, "migrated": 0}
+    if day % HABITAT_DAYS == 0:
+        _capacity = _survey()
+    if day % UPDATE_DAYS == 0:
+        last_events = _change_population(day)
+    return true
+
+
+func summary() -> Dictionary:
+    # Возвращаем итог без раскрытия изменяемого внутреннего словаря.
+    var numbers := {}
+    for species in SPECIES:
+        numbers[species] = total(species)
+    return {"day": last_day, "population": numbers,
+        "events": last_events.duplicate(true), "revision": revision}
+
+
 func to_data() -> Dictionary:
-    # Порядок групп стабилен для одинакового seed и игровых событий.
-    var ids := _groups.keys()
-    ids.sort()
+    # Сохраняем вместе с численностью действующую экологическую
+    # ёмкость: загрузка в середине сезона не меняет траекторию роста.
     var entries: Array = []
-    for id in ids:
-        entries.append((_groups[id] as Dictionary).duplicate(true))
-    return {"version": VERSION, "generated": generated,
-        "last_day": last_day, "groups": entries}
+    for region in _regions():
+        for species in SPECIES:
+            var key := _key(region, species)
+            var amount := int(_counts.get(key, 0))
+            var limit := int(_capacity.get(key, 0))
+            if amount == 0 and limit == 0:
+                continue
+            entries.append({"x": region.x, "y": region.y,
+                "species": species, "count": amount, "capacity": limit})
+    return {"version": FORMAT_VERSION, "last_day": last_day,
+        "generated": generated, "entries": entries}
 
 
 func load_data(data: Dictionary) -> bool:
-    # Сначала валидируем все группы, затем заменяем реестр целиком.
-    # Негативные/дробные числа и несуществующие виды не импортируются.
-    if data.get("version") != VERSION \
-            or not (data.get("generated") is bool) \
-            or not (data.get("groups") is Array) \
-            or data.get("last_day") != habitat.climate.day:
+    # Валидируем снимок целиком, прежде чем менять живые популяции.
+    # Старые миры без раздела обрабатывает WorldSave отдельно.
+    if data.get("version") != FORMAT_VERSION \
+            or data.get("generated") != true \
+            or data.get("last_day") != climate.day \
+            or not (data.get("entries") is Array):
         return false
-    var entries: Array = data["groups"]
-    if entries.size() > MAX_GROUPS or not bool(data["generated"]) \
-            and not entries.is_empty():
+    var entries: Array = data["entries"]
+    if entries.size() > MAX_REGIONS * SPECIES.size():
         return false
-    var result := {}
-    var count_total := 0
-    var regions: Vector2i = world.config.region_count()
+    var restored := {}
+    var limits := {}
     for item in entries:
-        if not (item is Dictionary) \
-                or str(item.get("species", "")) not in Habitats.SPECIES \
-                or not (item.get("region") is Array) \
-                or item["region"].size() != 2:
+        if not (item is Dictionary):
             return false
-        var coords: Array = item["region"]
-        for number in coords:
-            if not (number is int or number is float) \
-                    or not is_finite(float(number)) \
-                    or float(number) != float(int(number)):
+        var species: Variant = item.get("species")
+        if not (species is String) or not SPECIES.has(species):
+            return false
+        for field in ["x", "y", "count", "capacity"]:
+            var value: Variant = item.get(field)
+            if not (value is int or value is float) \
+                    or not is_finite(float(value)) \
+                    or float(value) != float(int(value)):
                 return false
-        var region := Vector2i(int(coords[0]), int(coords[1]))
-        if region.x < 0 or region.y < 0 \
-                or region.x >= regions.x or region.y >= regions.y:
+        var region := Vector2i(int(item["x"]), int(item["y"]))
+        if not world.config.region_rect(region).has_area():
             return false
-        for key in ["young", "adult", "senior"]:
-            var number: Variant = item.get(key)
-            if not (number is int or number is float) \
-                    or not is_finite(float(number)) \
-                    or float(number) != float(int(number)) \
-                    or number < 0 or number > MAX_GROUP_ANIMALS:
-                return false
-        var total_group := _count(item)
-        if total_group <= 0 or total_group > MAX_GROUP_ANIMALS:
+        var count := int(item["count"])
+        var cap := int(item["capacity"])
+        if count < 0 or count > MAX_PER_REGION \
+                or cap < 0 or cap > MAX_PER_REGION \
+                or (count == 0 and cap == 0):
             return false
-        var key := _id(region, str(item["species"]))
-        if result.has(key):
+        var key := _key(region, species)
+        if limits.has(key):
             return false
-        result[key] = {
-            "region": [region.x, region.y], "species": str(item["species"]),
-            "young": int(item["young"]), "adult": int(item["adult"]),
-            "senior": int(item["senior"])
-        }
-        count_total += total_group
-        if count_total > MAX_TOTAL_ANIMALS:
-            return false
-    _groups = result
-    generated = bool(data["generated"])
-    last_day = int(data["last_day"])
+        if count > 0:
+            restored[key] = count
+        limits[key] = cap
+    _counts = restored
+    _capacity = limits
+    last_day = climate.day
+    generated = true
     revision += 1
     return true

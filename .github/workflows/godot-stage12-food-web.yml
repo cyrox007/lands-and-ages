@@ -1,0 +1,50 @@
+name: "12.6 — хищники, добыча и бедствия"
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "godot/scripts/wildlife_food_web.gd"
+      - "godot/scripts/wildlife_populations.gd"
+      - "godot/scripts/world.gd"
+      - "godot/scripts/world_save.gd"
+      - "godot/tests/world_wildlife_food_web_12_smoke.gd"
+      - "godot/tests/world_wildlife_fox_food_12_smoke.gd"
+      - ".github/workflows/godot-stage12-food-web.yml"
+  workflow_dispatch:
+
+jobs:
+  food-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Установить Godot 4.7.2"
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Компиляция и импорт"
+        run: |
+          set -o pipefail
+          timeout 160s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
+      - name: "12.10 — рацион лис: только существующая дикая птица"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_fox_food_12_smoke.gd \
+            2>&1 | tee /tmp/fox-food.log
+          grep -q "STAGE12-FOX-FOOD: успешно" /tmp/fox-food.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fox-food.log; then exit 1; fi
+      - name: "12.6 — хищники и настоящий шторм"
+        run: |
+          set -o pipefail
+          timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_wildlife_food_web_12_smoke.gd \
+            2>&1 | tee /tmp/food-web.log
+          grep -q "STAGE12-FOOD-WEB: успешно" /tmp/food-web.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/food-web.log; then exit 1; fi

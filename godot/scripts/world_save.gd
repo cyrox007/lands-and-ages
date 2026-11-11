@@ -16,8 +16,10 @@ const Fire = preload("res://scripts/fire_registry.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
-const Habitats = preload("res://scripts/wildlife_habitats.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
+const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
+const Harvest = preload("res://scripts/wildlife_harvest.gd")
+const Domestic = preload("res://scripts/wildlife_domestication.gd")
 
 const FORMAT_VERSION := 1
 const SAVE_PATH := "user://world-save.json"
@@ -112,13 +114,38 @@ static func capture(state: Dictionary) -> Dictionary:
 		if industry.last_day != climate.day:
 			return {}
 		snapshot["industry"] = industry.to_data()
-	# Животные входят в общий снимок только после реального заселения.
-	# Новые биотопы получаем из физики, а численность сохраняем отдельно.
-	var fauna: RefCounted = state.get("fauna")
-	if fauna != null and fauna.generated:
-		if fauna.last_day != climate.day:
+	# Дикие популяции добавляются в снимок только после реальной
+	# генерации и обработки того же климатического дня.
+	var wildlife: RefCounted = state.get("wildlife")
+	if wildlife != null and wildlife.generated:
+		if wildlife.last_day != climate.day:
 			return {}
-		snapshot["fauna"] = fauna.to_data()
+		snapshot["wildlife"] = wildlife.to_data()
+	# Хищники хранят только собственные стаи; их жертвы уже
+	# списаны из того же реестра травоядных WildlifePopulations.
+	var food_web: RefCounted = state.get("food_web")
+	if food_web != null and food_web.generated:
+		if food_web.last_day != climate.day or wildlife == null \
+				or not wildlife.generated:
+			return {}
+		snapshot["food_web"] = food_web.to_data()
+	# Туши и материалы хранятся отдельно от исходных живых стад.
+	# Если хозяйство ведёт охоту, нужно сохранить весь путь до склада.
+	var harvest: RefCounted = state.get("harvest")
+	if harvest != null and harvest.site.x >= 0:
+		if wildlife == null or not wildlife.generated \
+				or harvest.last_day != climate.day:
+			return {}
+		snapshot["harvest"] = harvest.to_data()
+	# Отловленные предки и их потомки никогда не генерируются
+	# заново из построек при восстановлении сохранения.
+	var domestic: RefCounted = state.get("domestic")
+	if domestic != null and domestic.site.x >= 0:
+		if wildlife == null or not wildlife.generated \
+				or food_web == null or not food_web.generated \
+				or harvest == null or domestic.last_day != climate.day:
+			return {}
+		snapshot["domestic"] = domestic.to_data()
 	return snapshot
 
 
@@ -198,20 +225,42 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("industry") and (not (snapshot["industry"] is Dictionary)
 			or not industry.load_data(snapshot["industry"], int(saved_day))):
 		return {}
-	# В старых сохранениях популяций нет. Их нельзя самопроизвольно
-	# сгенерировать при загрузке: это изменило бы сохранённый мир.
-	var habitats := Habitats.new(world, hydro, surface, climate, nature, fire)
-	var fauna := Wildlife.new(world, habitats)
-	if snapshot.has("fauna") and (not (snapshot["fauna"] is Dictionary)
-			or not fauna.load_data(snapshot["fauna"])):
+	# Старое сохранение остаётся доступно без автоматического
+	# появления животных. Существующий реестр читается атомарно.
+	var wildlife := Wildlife.new(world, hydro, surface, climate, nature)
+	if snapshot.has("wildlife") and (not (snapshot["wildlife"] is Dictionary)
+			or not wildlife.load_data(snapshot["wildlife"])):
 		return {}
+	# Старые миры сохраняют совместимость; стаи не появляются при
+	# загрузке, если новый раздел отсутствует в старом файле.
+	var food_web := FoodWeb.new(world, climate, wildlife)
+	if snapshot.has("food_web") and (not (snapshot["food_web"] is Dictionary)
+			or not food_web.load_data(snapshot["food_web"])):
+		return {}
+	# Реестр продукции не может существовать без живой фауны,
+	# от которой могла произойти учтённая добыча.
+	var harvest := Harvest.new(world, hydro, surface, climate, wildlife)
+	if snapshot.has("harvest"):
+		if not snapshot.has("wildlife") \
+				or not (snapshot["harvest"] is Dictionary) \
+				or not harvest.load_data(snapshot["harvest"]):
+			return {}
+	# Источник предков должен быть восстановлен раньше домашних линий.
+	var domestic := Domestic.new(world, hydro, surface, climate,
+		wildlife, food_web, harvest)
+	if snapshot.has("domestic"):
+		if not snapshot.has("wildlife") or not snapshot.has("food_web") \
+				or not snapshot.has("harvest") \
+				or not (snapshot["domestic"] is Dictionary) \
+				or not domestic.load_data(snapshot["domestic"]):
+			return {}
 	return {
 		"world": world, "hydro": hydro, "surface": surface,
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
-		"economy": economy, "industry": industry,
-		"habitats": habitats, "fauna": fauna,
+		"economy": economy, "industry": industry, "wildlife": wildlife,
+		"food_web": food_web, "harvest": harvest, "domestic": domestic,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
 			weather, natural, disasters, nature, fire)

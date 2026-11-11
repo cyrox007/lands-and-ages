@@ -1,4 +1,4 @@
-name: "Этап 12 — ресурсы, биотопы и дикие популяции"
+name: "12.0–12.3 — геология, производство и хозяйство"
 
 on:
   pull_request:
@@ -10,8 +10,6 @@ on:
       - "godot/scripts/natural_resource_recipes.gd"
       - "godot/scripts/world_resource_industry.gd"
       - "godot/scripts/world_resource_path.gd"
-      - "godot/scripts/wildlife_habitats.gd"
-      - "godot/scripts/wildlife_populations.gd"
       - "godot/scripts/natural_resource_uses.gd"
       - "godot/scripts/world_first_economy.gd"
       - "godot/scripts/world.gd"
@@ -20,7 +18,6 @@ on:
       - "godot/tests/world_first_economy_12_smoke.gd"
       - "godot/tests/world_mineral_geology_12_smoke.gd"
       - "godot/tests/world_resource_industry_12_smoke.gd"
-      - "godot/tests/wildlife_stage12_smoke.gd"
       - ".github/workflows/godot-stage12-resources.yml"
   workflow_dispatch:
 
@@ -75,11 +72,3 @@ jobs:
             2>&1 | tee /tmp/industry.log
           grep -q "STAGE12-INDUSTRY: успешно" /tmp/industry.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/industry.log; then exit 1; fi
-      - name: "12.4–12.5 — биотопы, вода, демография и миграция"
-        run: |
-          set -o pipefail
-          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
-            --headless --path godot --script res://tests/wildlife_stage12_smoke.gd \
-            2>&1 | tee /tmp/wildlife.log
-          grep -q "STAGE12-FAUNA: успешно" /tmp/wildlife.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/wildlife.log; then exit 1; fi
