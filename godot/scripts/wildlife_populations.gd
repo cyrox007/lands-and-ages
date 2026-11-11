@@ -6,7 +6,7 @@ const Terrain = preload("res://scripts/terrain.gd")
 const Habitats = preload("res://scripts/wildlife_habitats.gd")
 const Paths = preload("res://scripts/world_resource_path.gd")
 
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
 const MAX_REGIONS := 4096
 const MAX_PER_REGION := 512
 const MAX_MIGRANTS := 6
@@ -35,6 +35,7 @@ var generated := false
 var last_day := 0
 var revision := 0
 var _counts: Dictionary = {}
+var _ages: Dictionary = {} # Когорты [молодые, взрослые, старые] по тем же ключам.
 var _capacity: Dictionary = {}
 var last_events := {"born": 0, "died": 0, "migrated": 0}
 
@@ -56,6 +57,75 @@ static func _key(region: Vector2i, species: String) -> String:
     # Ключ стабилен между запусками и хранит не координаты животного,
     # а регион его действующей популяции.
     return "%s:%d:%d" % [species, region.x, region.y]
+
+
+
+static func _initial_ages(count: int) -> Array:
+    # Для новой карты задаём компактное детерминированное соотношение возрастов.
+    # Те же правила восстанавливают старые сохранения, в которых есть только count.
+    var young := count / 4
+    var old := count / 10
+    return [young, count - young - old, old]
+
+
+func age_at(region: Vector2i, species: String) -> Array:
+    # Внешнему коду выдаём копию, чтобы UI и охота не могли изменить реестр.
+    if not SPECIES.has(species) or not world.config.region_rect(region).has_area():
+        return [0, 0, 0]
+    var key := _key(region, species)
+    return (_ages.get(key, [0, 0, 0]) as Array).duplicate()
+
+
+static func _take_age(groups: Dictionary, key: String,
+        amount: int, old_first: bool = false) -> Array:
+    # При гибели в первую очередь теряем старых особей, при охоте —
+    # взрослых. Это перераспределяет только уже существующую численность.
+    var current: Array = (groups.get(key, [0, 0, 0]) as Array).duplicate()
+    var removed := [0, 0, 0]
+    var remaining := amount
+    var order := [2, 1, 0] if old_first else [1, 2, 0]
+    for index in order:
+        var taken := mini(remaining, int(current[index]))
+        current[index] = int(current[index]) - taken
+        removed[index] = taken
+        remaining -= taken
+    if remaining != 0:
+        push_error("Возрастные когорты не совпадают с численностью: " + key)
+        return []
+    if int(current[0]) + int(current[1]) + int(current[2]) == 0:
+        groups.erase(key)
+    else:
+        groups[key] = current
+    return removed
+
+
+static func _add_age(groups: Dictionary, key: String, additions: Array) -> void:
+    # Возраст сохраняется при переносе между регионами — миграция
+    # не превращает старых животных в молодняк.
+    var current: Array = (groups.get(key, [0, 0, 0]) as Array).duplicate()
+    for index in range(3):
+        current[index] = int(current[index]) + int(additions[index])
+    groups[key] = current
+
+
+static func _age_survivors(groups: Array, births: int, deaths: int) -> Array:
+    # Старение идёт только в действующем восьмидневном цикле популяций.
+    # Изменение возрастов не должно менять ранее проверенный прирост стада.
+    var result: Array = groups.duplicate()
+    var grown := int(result[0]) / 3
+    var aged := int(result[1]) / 12
+    result[0] = int(result[0]) - grown
+    result[1] = int(result[1]) + grown - aged
+    result[2] = int(result[2]) + aged
+    # Смертность уже рассчитана общей экологией; снимаем те же
+    # особи в порядке старые → взрослые → молодые, без двойного расхода.
+    var remaining := deaths
+    for index in [2, 1, 0]:
+        var lost := mini(remaining, int(result[index]))
+        result[index] = int(result[index]) - lost
+        remaining -= lost
+    result[0] = int(result[0]) + births
+    return result
 
 
 func _regions() -> Array[Vector2i]:
@@ -95,6 +165,7 @@ func generate() -> bool:
         return false
     _capacity = _survey()
     _counts.clear()
+    _ages.clear()
     for region in _regions():
         for species in SPECIES:
             var key := _key(region, species)
@@ -107,6 +178,7 @@ func generate() -> bool:
             # свободное пространство для последующего размножения.
             _counts[key] = clampi(roundi(float(limit)
                 * (0.43 + chance * 0.24)), 1, limit)
+            _ages[key] = _initial_ages(int(_counts[key]))
     last_day = climate.day
     generated = true
     revision += 1
@@ -188,6 +260,9 @@ func consume_prey(region: Vector2i, species: String, amount: int) -> bool:
     if amount > existing:
         return false
     var key := _key(region, species)
+    # Убираем реально существующие возрастные группы вместе с добычей.
+    if _take_age(_ages, key, amount).is_empty():
+        return false
     if amount == existing:
         _counts.erase(key)
     else:
@@ -243,8 +318,13 @@ func react_hazards(hazards: Array) -> Dictionary:
                 available = vacancy
             if best.x >= 0:
                 var transferred := mini(fleeing, available)
+                # Мигрирующие животные сохраняют возрастную группу.
+                var cohorts := _take_age(_ages, key, transferred)
+                if cohorts.is_empty():
+                    continue
                 _counts[key] = count - transferred
                 var dest := _key(best, species)
+                _add_age(_ages, dest, cohorts)
                 _counts[dest] = population_at(best, species) + transferred
                 moved += transferred
             elif risk >= 0.80:
@@ -252,6 +332,10 @@ func react_hazards(hazards: Array) -> Dictionary:
                 # но не уничтожает целый регион по одному событию.
                 var casualties := mini(count, maxi(1,
                     roundi(float(count) * 0.06 * risk)))
+                # Бедствие расходует старых особей первыми и не меняет
+                # общий баланс уже рассчитанных потерь.
+                if _take_age(_ages, key, casualties, true).is_empty():
+                    continue
                 _counts[key] = count - casualties
                 lost += casualties
     if moved > 0 or lost > 0:
@@ -267,6 +351,7 @@ func _change_population(day: int) -> Dictionary:
     var born := 0
     var died := 0
     var next_counts: Dictionary = _counts.duplicate()
+    var next_ages: Dictionary = _ages.duplicate(true)
     for region in _regions():
         for species in SPECIES:
             var key := _key(region, species)
@@ -284,12 +369,19 @@ func _change_population(day: int) -> Dictionary:
                 region, species, day, 12791)
             losses = mini(current, losses)
             var target := clampi(current + births - losses, 0, MAX_PER_REGION)
-            born += maxi(0, target - current + losses)
+            var actual_births := maxi(0, target - current + losses)
+            born += actual_births
             died += losses
+            # Структура возрастов учитывает ровно те рождения и смерти,
+            # которые уже применяет прежняя модель численности.
+            var groups: Array = next_ages.get(key, _initial_ages(current))
+            var aged := _age_survivors(groups, actual_births, losses)
             if target == 0:
                 next_counts.erase(key)
+                next_ages.erase(key)
             else:
                 next_counts[key] = target
+                next_ages[key] = aged
 
     # Сначала вычисляем общий результат размножения и смертности,
     # затем переносим существующих животных, не создавая новых.
@@ -324,10 +416,17 @@ func _change_population(day: int) -> Dictionary:
                 continue
             var transferred := mini(MAX_MIGRANTS, mini(
                 maxi(1, current / 10), mini(current, best_space)))
+            # При миграции переносим существующие возрастные когорты
+            # вместе с числом животных, не создавая новые группы.
+            var transferred_ages := _take_age(next_ages, key, transferred)
+            if transferred_ages.is_empty():
+                continue
             next_counts[key] = current - transferred
             var dest := _key(best, species)
+            _add_age(next_ages, dest, transferred_ages)
             next_counts[dest] = int(next_counts.get(dest, 0)) + transferred
             migrated += transferred
+    _ages = next_ages
     _counts = next_counts
     revision += 1
     return {"born": born, "died": died, "migrated": migrated}
@@ -367,8 +466,11 @@ func to_data() -> Dictionary:
             var limit := int(_capacity.get(key, 0))
             if amount == 0 and limit == 0:
                 continue
+            # Когорты сериализуются вместе с прежними полями count/capacity.
+            # Старые потребители численности не должны менять API.
             entries.append({"x": region.x, "y": region.y,
-                "species": species, "count": amount, "capacity": limit})
+                "species": species, "count": amount, "capacity": limit,
+                "ages": age_at(region, species)})
     return {"version": FORMAT_VERSION, "last_day": last_day,
         "generated": generated, "entries": entries}
 
@@ -376,7 +478,8 @@ func to_data() -> Dictionary:
 func load_data(data: Dictionary) -> bool:
     # Валидируем снимок целиком, прежде чем менять живые популяции.
     # Старые миры без раздела обрабатывает WorldSave отдельно.
-    if data.get("version") != FORMAT_VERSION \
+    # Версия 1 совместима: в ней были только общие количества животных.
+    if data.get("version") not in [1, FORMAT_VERSION] \
             or data.get("generated") != true \
             or data.get("last_day") != climate.day \
             or not (data.get("entries") is Array):
@@ -385,6 +488,7 @@ func load_data(data: Dictionary) -> bool:
     if entries.size() > MAX_REGIONS * SPECIES.size():
         return false
     var restored := {}
+    var restored_ages := {}
     var limits := {}
     for item in entries:
         if not (item is Dictionary):
@@ -410,10 +514,29 @@ func load_data(data: Dictionary) -> bool:
         var key := _key(region, species)
         if limits.has(key):
             return false
+        # В новых снимках сумма когорт строго равна общей численности.
+        # Невалидный массив отклоняется до изменений живого мира.
+        var ages := _initial_ages(count)
+        if data["version"] == FORMAT_VERSION:
+            var raw_ages: Variant = item.get("ages")
+            if not (raw_ages is Array) or raw_ages.size() != 3:
+                return false
+            ages = []
+            for value in raw_ages:
+                if not (value is int or value is float) \
+                        or not is_finite(float(value)) \
+                        or float(value) != float(int(value)) \
+                        or int(value) < 0:
+                    return false
+                ages.append(int(value))
+            if int(ages[0]) + int(ages[1]) + int(ages[2]) != count:
+                return false
         if count > 0:
             restored[key] = count
+            restored_ages[key] = ages
         limits[key] = cap
     _counts = restored
+    _ages = restored_ages
     _capacity = limits
     last_day = climate.day
     generated = true

@@ -118,6 +118,13 @@ func _step(state: Dictionary) -> Dictionary:
                 if n < 0 or n > Wildlife.MAX_PER_REGION:
                     push_error("В регионе превышен предел травоядных")
                     return {}
+                # В каждом из 96 суток суммарная численность должна
+                # совпадать с возрастными группами и после охоты хищника.
+                var ages: Array = fauna.age_at(region, species)
+                if ages.size() != 3 or int(ages[0]) + int(ages[1]) \
+                        + int(ages[2]) != n:
+                    push_error("Годовая экология потеряла возрастную когорту")
+                    return {}
             for species in FoodWeb.SPECIES:
                 var n: int = predators.count_at(region, species)
                 if n < 0 or n > FoodWeb.MAX_PER_REGION:
