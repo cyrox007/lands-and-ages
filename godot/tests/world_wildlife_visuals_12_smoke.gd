@@ -22,6 +22,42 @@ func _initialize() -> void:
 
 
 func _check() -> void:
+    # Синтетическое препятствие проверяет именно алгоритм
+    # обхода: первый шаг обязан отклониться от добычи, иначе
+    # жадное движение навсегда упрётся в закрытую клетку.
+    var detour_allowed := func(cell: Vector2i) -> bool:
+        return cell.x >= -2 and cell.x <= 4 \
+            and absi(cell.y) <= 2 and cell != Vector2i(1, 0)
+    var detour_start := Vector2i.ZERO
+    var detour_target := Vector2i(3, 0)
+    var detour_first := Visuals._route_chase_step(
+        detour_start, detour_target, Visuals.MAX_CHASE_STEPS, detour_allowed)
+    if detour_first != Vector2i(0, 1) \
+            or Visuals._route_chase_step(
+                detour_start, detour_target, 1, detour_allowed) \
+                != detour_start:
+        push_error("Хищник не умеет обходить препятствие первым боковым шагом")
+        quit(1)
+        return
+    var detour_second := Visuals._route_chase_step(
+        detour_first, detour_target, 2, detour_allowed)
+    var detour_third := Visuals._route_chase_step(
+        detour_second, detour_target, 1, detour_allowed)
+    if detour_second != Vector2i(1, 1) \
+            or detour_third != Vector2i(2, 1) \
+            or detour_third == detour_target:
+        push_error("Обход препятствия нарушил трёхшаговый маршрут")
+        quit(1)
+        return
+    # Если свободных клеток нет, маршрут отсутствует:
+    # нельзя телепортировать хищника через сплошную преграду.
+    var closed_area := func(cell: Vector2i) -> bool:
+        return cell == Vector2i.ZERO
+    if Visuals._route_chase_step(
+            detour_start, detour_target, 3, closed_area) != detour_start:
+        push_error("Поиск прошёл через полностью закрытый участок")
+        quit(1)
+        return
     var models := {}
     for kind in Visuals.MODELS:
         var entry: Dictionary = Visuals.MODELS[kind]
@@ -456,6 +492,7 @@ func _check() -> void:
         "nearby_prey_fled": prey_flee_checked,
         "one_cell_pursuit": chase_checked,
         "multi_cell_pursuit": chase_checked,
+        "obstacle_detour": true,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
