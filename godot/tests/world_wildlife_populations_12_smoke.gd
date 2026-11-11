@@ -77,6 +77,12 @@ func _step(state: Dictionary) -> bool:
                 if count < 0 or count > Populations.MAX_PER_REGION:
                     push_error("Численность вне физического лимита")
                     return false
+                # Каждый физический день сохраняет закон сложения возрастов.
+                var ages: Array = fauna.age_at(region, kind)
+                if ages.size() != 3 or int(ages[0]) + int(ages[1]) \
+                        + int(ages[2]) != count:
+                    push_error("Возрастные группы не равны численности")
+                    return false
     return true
 
 
@@ -155,6 +161,24 @@ func _check() -> bool:
     wrong["entries"][0]["species"] = "домашняя корова"
     if wildlife.load_data(wrong) or wildlife.to_data() != saved:
         push_error("Поддельное животное попало в природный реестр")
+        return false
+    # Повреждённые когорты нельзя принимать даже при корректном count.
+    var broken: Dictionary = saved.duplicate(true)
+    broken["entries"][0]["ages"] = [0, 0, 0]
+    if int(broken["entries"][0]["count"]) > 0 \
+            and (wildlife.load_data(broken) or wildlife.to_data() != saved):
+        push_error("Принято сохранение с несогласованными возрастами")
+        return false
+    # Снимки до введения возрастов восстанавливаем без изменений общей
+    # численности, без генерации дополнительной добычи или миграций.
+    var legacy: Dictionary = saved.duplicate(true)
+    legacy["version"] = 1
+    for item in legacy["entries"]:
+        item.erase("ages")
+    var old_world = Populations.new(state["world"], state["hydro"],
+        state["surface"], state["climate"], state["nature"])
+    if not old_world.load_data(legacy) or old_world.total() != wildlife.total():
+        push_error("Потеряна совместимость сохранения без возрастных групп")
         return false
     print("STAGE12-POPULATIONS-REPORT: ", JSON.stringify({
         "day": wildlife.last_day, "counts": wildlife.summary()["population"],
