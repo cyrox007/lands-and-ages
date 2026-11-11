@@ -656,6 +656,7 @@ func _process(delta: float) -> void:
                 # принудительный скачок меша нарушал лимит пути
                 # за кадр и выглядел бы как микротелепортация.
                 movement["cell"] = movement["next"]
+                var was_fleeing := bool(movement.get("flee", false))
                 movement["walking"] = false
                 movement["flee"] = false
                 if bool(movement.get("chase", false)):
@@ -697,7 +698,10 @@ func _process(delta: float) -> void:
                     var forager := kind in ["олень", "тур", "корова",
                         "кабан", "заяц", "дикий гусь", "гусь",
                         "дикая курица", "курица"]
-                    actor.set_motion("кормление" if forager else "покой")
+                    # После бегства возвращаем обычный покой, а не
+                    # начинаем пастись рядом с ещё опасным участком.
+                    actor.set_motion("кормление" if forager and not was_fleeing
+                        else "покой")
             continue
         movement["rest"] = maxf(0.0, float(movement["rest"]) - frame_time)
         if float(movement["rest"]) > 0.0:
