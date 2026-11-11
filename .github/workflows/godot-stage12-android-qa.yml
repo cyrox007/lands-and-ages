@@ -141,17 +141,28 @@ jobs:
 
           apk = Path("build/lands-and-ages-fauna-qa-arm64.apk")
           with zipfile.ZipFile(apk) as archive:
-              packs = [name for name in archive.namelist()
+              entries = archive.namelist()
+              packs = [name for name in entries
                        if name.lower().endswith(".pck")]
-              if not packs:
-                  raise SystemExit("В APK нет ресурсного пакета Godot")
+              # Android может хранить импортированные ресурсы как
+              # файлы assets/ без отдельного PCK; проверяем оба вида.
               payload = b"".join(archive.read(name) for name in packs)
+              fauna_entries = [name for name in entries
+                               if "fauna" in name.lower() or
+                               any(model in name for model in (
+                                   "Deer.gltf", "Wolf.gltf", "Hare.glb"))]
+              print("ANDROID-FAUNA-ARCHIVE: entries=", len(entries),
+                    "packs=", len(packs),
+                    "fauna_entries=", len(fauna_entries))
+              print("ANDROID-FAUNA-SAMPLE: ", fauna_entries[:16])
           names = ("Deer.gltf", "Bull.gltf", "Wolf.gltf", "Fox.gltf",
                    "Cow.gltf", "Husky.gltf", "Boar.glb", "Hare.glb",
                    "Goose.glb", "Rooster.glb")
-          missing = [name for name in names if name.encode() not in payload]
+          missing = [name for name in names
+                     if name.encode() not in payload
+                     and not any(name in entry for entry in entries)]
           if missing:
-              raise SystemExit("В Android PCK отсутствуют модели: "
+              raise SystemExit("В Android APK не найдены CC0-модели: "
                                + ", ".join(missing))
           print("ANDROID-FAUNA-PACK: успешно; 10 проверенных GLTF/GLB")
           PY
