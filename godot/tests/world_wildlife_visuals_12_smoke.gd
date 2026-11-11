@@ -156,6 +156,11 @@ func _check() -> void:
     # изменяет их физическую численность ради демонстрации.
     var inspection_before: Dictionary = fauna.to_data()
     var spot: Dictionary = visuals.inspection_spot()
+    print("STAGE12-INSPECTION-DIAG: ", JSON.stringify({
+        "spot": str(spot), "available_models": visuals.available_models(),
+        "same_fauna": fauna.to_data() == inspection_before,
+        "predators": predators.total()
+    }))
     if spot.is_empty() \
             or fauna.population_at(spot["region"], str(spot["prey"])) <= 0 \
             or predators.count_at(spot["region"], str(spot["predator"])) <= 0 \
