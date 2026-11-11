@@ -5,6 +5,7 @@ extends Node3D
 const Actor = preload("res://scripts/wildlife_visual_actor.gd")
 const Paths = preload("res://scripts/world_resource_path.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 
 const ROOT := "res://assets/fauna/"
 const MAX_VISIBLE := 16
@@ -147,6 +148,49 @@ func _position(region: Vector2i, kind: String,
         if Paths.walkable(world, hydro, surface, cell):
             return cell
     return Vector2i(-1, -1)
+
+
+func inspection_spot() -> Dictionary:
+    # Для ручного осмотра ищем существующие пары хищника и
+    # травоядного. Камера перемещается, а животные и популяции —
+    # нет. Если в мире нет живой пары, возвращаем пустой ответ.
+    if world == null or wildlife == null or predators == null:
+        return {}
+    var best: Dictionary = {}
+    var score := INF
+    var regions: Vector2i = world.config.region_count()
+    for ry in range(regions.y):
+        for rx in range(regions.x):
+            var region := Vector2i(rx, ry)
+            for hunter_kind in ["волк", "лиса"]:
+                if predators.count_at(region, hunter_kind) <= 0 \
+                        or not ResourceLoader.exists(ROOT \
+                            + str(MODELS[hunter_kind]["file"])):
+                    continue
+                var hunter_cell := _position(region, hunter_kind, Vector2.ZERO)
+                if hunter_cell.x < 0:
+                    continue
+                for prey_kind in FoodWeb.SPECIES[hunter_kind]["prey"]:
+                    var species := str(prey_kind)
+                    if not MODELS.has(species) \
+                            or wildlife.population_at(region, species) <= 0 \
+                            or not ResourceLoader.exists(ROOT \
+                                + str(MODELS[species]["file"])):
+                        continue
+                    var prey_cell := _position(region, species, Vector2.ZERO)
+                    if prey_cell.x < 0:
+                        continue
+                    var distance := Vector2(hunter_cell - prey_cell).length_squared()
+                    if distance >= score:
+                        continue
+                    # Ближайшая физическая пара выбрана один раз
+                    # без создания фиктивного контакта или охоты.
+                    score = distance
+                    best = {"region": region, "predator": hunter_kind,
+                        "prey": species, "distance": sqrt(distance),
+                        "center": (Vector2(hunter_cell + prey_cell) \
+                            + Vector2.ONE) * 0.5}
+    return best
 
 
 func _nearest_candidates(center: Vector2,
