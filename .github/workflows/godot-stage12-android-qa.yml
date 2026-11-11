@@ -9,6 +9,7 @@ on:
       - "godot/scripts/wildlife_*.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
+      - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "tools/install_fauna_assets.py"
   push:
     branches: [develop]
@@ -17,6 +18,7 @@ on:
       - "godot/scripts/wildlife_*.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
+      - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "tools/install_fauna_assets.py"
 
 permissions:
@@ -103,6 +105,15 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fauna-smoke.log; then
             exit 1
           fi
+      - name: Проверить кнопки осмотра и физическую охоту в игровом мире
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_fauna_qa_ui_smoke.gd \
+            2>&1 | tee /tmp/fauna-ui.log
+          grep -q "STAGE12-FAUNA-UI: успешно" /tmp/fauna-ui.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fauna-ui.log; then exit 1; fi
       - name: Экспортировать и подписать отладочный ARM64 APK
         timeout-minutes: 6
         env:
@@ -155,5 +166,6 @@ jobs:
             build/SHA256SUMS.txt
             /tmp/android-export.log
             /tmp/fauna-smoke.log
+            /tmp/fauna-ui.log
           if-no-files-found: warn
           retention-days: 30
