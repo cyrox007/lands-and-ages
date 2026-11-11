@@ -231,6 +231,64 @@ function buildGlb(model){
   return {data,gltf};
 }
 
+
+// Сравниваем повторную генерацию с утверждённым GLB по его геометрии.
+// Тригонометрия движков Node/V8 может различаться на несколько бит float32,
+// поэтому побайтовое совпадение не является корректным инвариантом модели.
+function unpackGlb(data){
+  // Оба файла имеют два чанка: документ JSON и бинарный буфер вершин.
+  const bytes=Buffer.from(data);
+  const jsonLength=bytes.readUInt32LE(12);
+  const doc=JSON.parse(bytes.subarray(20,20+jsonLength).toString("utf8"));
+  const binAt=20+jsonLength+8;
+  return {doc,buffer:bytes.subarray(binAt)};
+}
+function compareStruct(a,b,path="root"){
+  // Сохраняем строгую структуру костей, рига, материалов и анимаций.
+  // Допускаем только погрешность округления конечных чисел.
+  if(typeof a==="number"&&typeof b==="number"){
+    if(!Number.isFinite(a)||!Number.isFinite(b)||Math.abs(a-b)>0.00001){
+      throw new Error("Различие геометрического числа: "+path);
+    }
+    return;
+  }
+  if(Array.isArray(a)||Array.isArray(b)){
+    if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length){
+      throw new Error("Изменена структура массива: "+path);
+    }
+    for(let i=0;i<a.length;i++)compareStruct(a[i],b[i],path+"["+i+"]");
+    return;
+  }
+  if(a!==null&&b!==null&&typeof a==="object"&&typeof b==="object"){
+    const ak=Object.keys(a).sort(),bk=Object.keys(b).sort();
+    if(ak.join("|")!==bk.join("|"))throw new Error("Изменены поля: "+path);
+    for(const k of ak)compareStruct(a[k],b[k],path+"."+k);
+    return;
+  }
+  if(a!==b)throw new Error("Изменён элемент модели: "+path);
+}
+function verifyModel(known,recreated){
+  // Проверяем не только JSON, но и каждую вершину, вес, сустав и индекс.
+  const a=unpackGlb(known),b=unpackGlb(recreated);
+  compareStruct(a.doc,b.doc);
+  const components={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16};
+  for(let i=0;i<a.doc.accessors.length;i++){
+    const left=a.doc.accessors[i],right=b.doc.accessors[i];
+    const la=a.doc.bufferViews[left.bufferView],rb=b.doc.bufferViews[right.bufferView];
+    const offA=la.byteOffset||0,offB=rb.byteOffset||0;
+    const total=left.count*components[left.type];
+    const f=left.componentType===5126;
+    if(!f&&left.componentType!==5123)throw new Error("Неизвестный формат вершин");
+    for(let j=0;j<total;j++){
+      const x=f?a.buffer.readFloatLE(offA+j*4):a.buffer.readUInt16LE(offA+j*2);
+      const y=f?b.buffer.readFloatLE(offB+j*4):b.buffer.readUInt16LE(offB+j*2);
+      if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x-y)>(f?0.00001:0)){
+        throw new Error("Изменён бинарный элемент "+i+":"+j);
+      }
+    }
+  }
+}
+
 const destination=join(dirname(fileURLToPath(import.meta.url)),"..","godot","assets","fauna");
 const check=process.argv.includes("--check");
 for(const species of ["Goose","Boar"]){
@@ -238,9 +296,12 @@ for(const species of ["Goose","Boar"]){
   const output=join(destination,species+"_LandsAndAges.glb");
   const data=buildGlb(makeAnimal(species)).data;
   if(check){
-    if(!existsSync(output)||!readFileSync(output).equals(Buffer.from(data))) {
-      throw new Error("Изменена авторская модель: "+output);
+    if(!existsSync(output)){
+      throw new Error("Отсутствует авторская модель: "+output);
     }
+    // Побайтовое сравнение используем первым, проверка float32 — при отличиях.
+    const original=readFileSync(output);
+    if(!original.equals(Buffer.from(data)))verifyModel(original,data);
     process.stdout.write("Проверено: "+output+"\n");
   }else{
     writeFileSync(output,Buffer.from(data));
