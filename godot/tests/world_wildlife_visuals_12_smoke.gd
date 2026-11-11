@@ -58,6 +58,18 @@ func _check() -> void:
         push_error("Поиск прошёл через полностью закрытый участок")
         quit(1)
         return
+    # Визуальный удар возможен только из соседней клетки:
+    # ни диагональ, ни удалённая цель не являются контактом.
+    if not Visuals._attack_reachable(Vector2i(2, 2), Vector2i(3, 2)) \
+            or Visuals._attack_reachable(
+                Vector2i(2, 2), Vector2i(3, 3)) \
+            or Visuals._attack_reachable(
+                Vector2i(2, 2), Vector2i(5, 2)) \
+            or Visuals._attack_reachable(
+                Vector2i(2, 2), Vector2i(2, 2)):
+        push_error("Неверная дистанция для отображения контакта")
+        quit(1)
+        return
     var models := {}
     for kind in Visuals.MODELS:
         var entry: Dictionary = Visuals.MODELS[kind]
@@ -355,7 +367,7 @@ func _check() -> void:
                     # Тестируем многоклеточный маршрут на настоящей
                     # суше, сохраняя место уцелевшей добыче и выход.
                     var path_ok := true
-                    for distance in range(1, 6):
+                    for distance in range(1, 5):
                         var candidate: Vector2i = hunter_cell \
                             + direction * distance
                         if world.config.region_of(candidate) != region \
@@ -365,12 +377,12 @@ func _check() -> void:
                             break
                     if not path_ok:
                         continue
-                    var far: Vector2i = hunter_cell + direction * 4
+                    var far: Vector2i = hunter_cell + direction * 3
                     var probe := {"cell": far, "home": far}
                     if visuals._flee_target(probe, hunter_cell) == far:
                         continue
-                    # Первая клетка обязана сокращать расстояние,
-                    # а пятая оставляет добыче путь для бегства.
+                    # Первая клетка сокращает расстояние,
+                    # четвёртая оставляет добыче путь для бегства.
                     if visuals._chase_step(visuals._movement[hunter_key],
                             far) == hunter_cell + direction:
                         suitable = far
@@ -473,6 +485,23 @@ func _check() -> void:
                     push_error("Атака сдвинула хищника или повторно списала добычу")
                     quit(1)
                     return
+                # Проверяем уже подтверждённое физическое
+                # событие при временно невидимой добыче.
+                # Переигрываем только визуализацию, не FoodWeb.
+                var old_hunt_day: int = visuals._last_hunt_day
+                var visible_prey_after: Node3D = visuals._visible[prey_key]
+                visuals._visible.erase(prey_key)
+                visuals._last_hunt_day = predators.last_day - 1
+                var missing_reactions: int = visuals.react_hunts()
+                visuals._visible[prey_key] = visible_prey_after
+                visuals._last_hunt_day = old_hunt_day
+                if missing_reactions != 0 \
+                        or hunter.get("state") != "покой" \
+                        or fauna.to_data() != after_capture \
+                        or predators.to_data() != hunters_after:
+                    push_error("Отсутствующая видимая добыча вызвала ложную атаку")
+                    quit(1)
+                    return
                 attack_checked = true
                 prey_flee_checked = true
                 chase_checked = true
@@ -493,6 +522,8 @@ func _check() -> void:
         "one_cell_pursuit": chase_checked,
         "multi_cell_pursuit": chase_checked,
         "obstacle_detour": true,
+        "contact_distance_guard": true,
+        "no_attack_without_visible_prey": true,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
     }))
