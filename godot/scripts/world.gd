@@ -423,6 +423,11 @@ func _present_camera() -> void:
 		_update_material_detail()
 	else:
 		_update_shadow_lod()
+	# Фауна выбирается только по уже показанной камере. До этого
+	# она не должна исчезать в ещё не подгруженном новом ракурсе.
+	if _wildlife_visuals != null and _day_task_id < 0 \
+			and _days_pending == 0:
+		_wildlife_visuals.refresh(_display_center, _display_camera.size, 1.0)
 	_loading_layer.hide()
 
 
@@ -894,7 +899,10 @@ func _focus_fauna() -> void:
 	var old_sparse := _detail_for_zoom(_camera.size) \
 		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
 	_center = _world_model.config.clamp_point(spot["center"])
-	_camera.size = clampf(maxf(32.0, float(spot["distance"]) * 2.0 + 12.0),
+	# Приёмка открывает ближний ракурс, чтобы даже мелкие
+	# скелетные виды были различимы. Дальние пары помещаются
+	# целиком, а сама фауна и численность не перемещаются.
+	_camera.size = clampf(maxf(20.0, float(spot["distance"]) * 2.0 + 8.0),
 		MIN_ZOOM, 66.0)
 	_pan_delta = Vector2.ZERO
 	_pan_pending = false
@@ -908,7 +916,10 @@ func _focus_fauna() -> void:
 		_loading_label.text = "Открываем реальную фауну"
 		_loading_layer.show()
 	_refresh_visible(old_sparse != sparse)
-	_wildlife_visuals.refresh(_center, _camera.size, 1.0)
+	# При потоковом рендере новый ракурс появится только после
+	# готовности его чанков. Не удаляем животных старого кадра.
+	if _display_camera == null:
+		_wildlife_visuals.refresh(_center, _camera.size, 1.0)
 	_fauna_inspection_status.text = "Регион %s: %s и %s. Здесь можно наблюдать скелетную ходьбу и смену физических суток." % [
 		str(spot["region"]), str(spot["predator"]), str(spot["prey"])]
 	_update_hud()
@@ -989,12 +1000,23 @@ func _update_camera() -> void:
 		_fauna_audio_listener.rotation = _camera.rotation
 
 
+func _fauna_view_state() -> Dictionary:
+	# В потоковом режиме расчётная камера может ждать чанки.
+	# Игрок всё это время смотрит через _display_camera, поэтому
+	# и графические животные должны следовать именно её ракурсу.
+	if _display_camera != null:
+		return {"center": _display_center, "size": _display_camera.size}
+	return {"center": _center, "size": _camera.size}
+
+
 func _process(delta: float) -> void:
 	# Не читаем изменяемые реестры в момент работы фонового
 	# WorldDayRunner; вне видимости не создаём скелетных узлов.
 	if _wildlife_visuals != null and _day_task_id < 0 \
 			and _days_pending == 0:
-		_wildlife_visuals.refresh(_center, _camera.size, delta)
+		var fauna_view := _fauna_view_state()
+		_wildlife_visuals.refresh(fauna_view["center"],
+			float(fauna_view["size"]), delta)
 	_record_frame(delta)
 	_advance_water_animation(delta)
 	_advance_weather_lighting(delta)
