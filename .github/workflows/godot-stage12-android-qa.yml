@@ -11,6 +11,7 @@ on:
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
       - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "tools/install_fauna_assets.py"
+      - "godot/assets/fauna/**"
   push:
     branches: [develop]
     paths:
@@ -20,6 +21,7 @@ on:
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
       - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "tools/install_fauna_assets.py"
+      - "godot/assets/fauna/**"
 
 permissions:
   contents: read
@@ -30,9 +32,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Установить настоящие CC0-модели животных и проверить хеши
+      - name: Проверить CC0-модели из исходников перед экспортом
         run: |
-          python3 tools/install_fauna_assets.py
+          # Проверяем комплектность без сетевого скачивания:
+          # исходники должны запускаться в Godot сами по себе.
           python3 tools/install_fauna_assets.py --check
           for model in Deer.gltf Bull.gltf Wolf.gltf Fox.gltf Cow.gltf Husky.gltf Boar.glb Hare.glb Goose.glb Rooster.glb; do
             test -s "godot/assets/fauna/$model"
