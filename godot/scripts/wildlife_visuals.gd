@@ -296,6 +296,25 @@ func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
             return Paths.walkable(world, hydro, surface, candidate))
 
 
+static func _attack_reachable(hunter_cell: Vector2i,
+        prey_cell: Vector2i) -> bool:
+    # Удар разрешается только при соседстве по стороне.
+    # Диагональная клетка, удалённое стадо и совпадение клеток
+    # не означают физический контакт конкретных животных.
+    var delta := hunter_cell - prey_cell
+    return absi(delta.x) + absi(delta.y) == 1
+
+
+func _chase_contact_valid(key: String, movement: Dictionary) -> bool:
+    # Сначала проверяем день, живые популяции и наличие обеих
+    # видимых моделей, затем — расстояние между их клетками.
+    # Никаких повторных списаний или создания новых особей.
+    if not _chase_target_valid(key, movement):
+        return false
+    var prey_key := str(movement["chase_prey"])
+    return _attack_reachable(movement["cell"], _movement[prey_key]["cell"])
+
+
 func _begin_chase_step(key: String, movement: Dictionary) -> bool:
     # На каждом новом шаге используем положение именно видимой
     # живой добычи. Физический реестр охоты уже завершил работу:
@@ -468,23 +487,33 @@ func react_hunts() -> int:
             if Vector2(visible_cell - hunter_cell).length_squared() \
                     <= HUNT_SCARE_RADIUS * HUNT_SCARE_RADIUS:
                 prey_cell = visible_cell
-                # Представитель уцелевшего стада реагирует на
-                # угрозу независимо от будущего шага хищника.
-                _start_flee(prey_key, hunter_cell)
-        # Не больше MAX_CHASE_STEPS проверяемых шагов по суше.
-        # В последующих кадрах цель может уйти: новый шаг всегда
-        # перечитывает её положение, а не старые координаты.
+        # Подтверждённая гибель в FoodWeb не указывает клетку
+        # конкретной жертвы. Без близкого живого ориентира
+        # нельзя изображать удар по воздуху или через преграду.
+        if prey_cell.x < 0:
+            continue
         movement["chase_prey"] = prey_key
         movement["chase_day"] = predators.last_day
         movement["chase_steps"] = MAX_CHASE_STEPS
-        if prey_cell.x < 0 or not _begin_chase_step(key, movement):
-            # Нет безопасного пути или видимой добычи — оставляем
-            # прежний жест атаки, не перемещая животное силой.
+        var approaching := _begin_chase_step(key, movement)
+        var contact := not approaching \
+            and _chase_contact_valid(key, movement)
+        if not approaching and not contact:
+            # Маршрута нет и контакта нет: физическая охота
+            # остаётся учтённой, но фальшивой анимации не будет.
             movement["chase_prey"] = ""
             movement["chase_day"] = -1
             movement["chase_steps"] = 0
+            continue
+        # Только после реальной возможности сблизиться
+        # оставшийся представитель стада получает сигнал бегства.
+        _start_flee(prey_key, hunter_cell)
+        if contact:
             movement["attack"] = actor.attack_duration()
             actor.set_motion("атака")
+            movement["chase_prey"] = ""
+            movement["chase_day"] = -1
+            movement["chase_steps"] = 0
         reacted += 1
     return reacted
 
@@ -537,10 +566,13 @@ func _process(delta: float) -> void:
                     if can_attack and int(movement["chase_steps"]) > 0 \
                             and _begin_chase_step(str(key), movement):
                         continue
+                    # Даже успешный последний шаг ещё не даёт
+                    # права на удар с расстояния или по диагонали.
+                    var contact := _chase_contact_valid(str(key), movement)
                     movement["chase_prey"] = ""
                     movement["chase_day"] = -1
                     movement["chase_steps"] = 0
-                    if can_attack:
+                    if contact:
                         movement["attack"] = actor.attack_duration()
                         actor.set_motion("атака")
                     else:
