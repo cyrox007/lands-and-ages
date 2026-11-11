@@ -188,7 +188,14 @@ func _check() -> void:
         quit(1)
         return
     var center := Vector2(128.0, 96.0)
-    var radius := Visuals.MAX_RENDER_RANGE
+    # Радиус должен покрывать фактически показанный широкий
+    # изометрический кадр, а не прежние 42 клетки независимо от
+    # расстояния камеры.
+    var radius := Visuals._render_radius(66.0)
+    if radius < 78.0 or Visuals._render_radius(105.0) < 120.0:
+        push_error("Дальняя камера снова теряет видимую фауну")
+        quit(1)
+        return
     visuals.refresh(center, 66.0, 1.0)
     var candidates: Array[Dictionary] = visuals._nearest_candidates(
         center, radius)
@@ -208,7 +215,7 @@ func _check() -> void:
     var zoom_actors := {}
     for key in visuals._visible:
         zoom_actors[key] = visuals._visible[key]
-    for zoom in [44.0, 24.0, 12.0, 6.0, 12.0, 66.0]:
+    for zoom in [44.0, 24.0, 16.0, 66.0, 105.0, 66.0]:
         visuals.refresh(center, zoom, 1.0)
         if visuals.active_count() != selected:
             push_error("При зуме исчезли реальные животные")
@@ -218,6 +225,14 @@ func _check() -> void:
             if not visuals._visible.has(key) \
                     or visuals._visible[key] != zoom_actors[key]:
                 push_error("При зуме пересоздана модель: " + str(key))
+                quit(1)
+                return
+            # Проверяем не только наличие узла, но и его реальный
+            # экранный размер. Прошлый тест не измерял масштаб и
+            # поэтому не находил слишком мелкие модели при отдалении.
+            var actor_zoom := visuals._visible[key] as Node3D
+            if absf(actor_zoom.scale.x - Visuals._overview_scale(zoom)) > 0.001:
+                push_error("3D-модель не меняет размер обзорного LOD")
                 quit(1)
                 return
     var previous := {}
@@ -647,6 +662,8 @@ func _check() -> void:
         "no_phantom_contact_sound": true,
         "fauna_inspection_spot": true,
         "zoom_keeps_actors": true,
+        "wide_camera_fauna_range": true,
+        "zoom_readability_lod": true,
         "imported_forward_fixed": true,
         "mesh_bbox_8_corners": true,
         "no_attack_without_visible_prey": true,
