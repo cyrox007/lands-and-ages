@@ -1,5 +1,5 @@
 {
-  "license": "CC0-1.0",
+  "license": "mixed: CC0-1.0 and project-owned",
   "models": {
     "олень": {
       "file": "Deer.gltf",
@@ -167,22 +167,22 @@
       ]
     },
     "кабан": {
-      "file": "Boar.glb",
-      "author": "Gobkit",
-      "download_url": "https://gobkit.com/freebies/animalB/Boar.glb",
-      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
-      "license": "CC0-1.0",
+      "file": "Boar_LandsAndAges.glb",
+      "author": "LandsAndAges",
+      "download_url": null,
+      "source": "tools/build_authored_fauna.mjs",
+      "license": "Авторская модель Lands and Ages",
       "skins": 1,
-      "joints": 16,
+      "joints": 13,
       "animations": [
-        "idle",
-        "attack",
-        "dead",
-        "walk"
+        "Idle",
+        "Walk",
+        "Attack",
+        "Death"
       ],
-      "sha256": "e6ce64f0e4ac3646359c66d6d383604cb9299b11f867e1b62ea161c50d1e572c",
+      "sha256": "c8b48ff10b3a6b24474ef25db861a68186951600be786c9bbb6a4f116c3fdc0a",
       "files": [
-        "Boar.glb"
+        "Boar_LandsAndAges.glb"
       ]
     },
     "заяц": {
@@ -205,22 +205,22 @@
       ]
     },
     "дикий гусь": {
-      "file": "Goose.glb",
-      "author": "Gobkit",
-      "download_url": "https://gobkit.com/freebies/animal006/Goose.glb",
-      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
-      "license": "CC0-1.0",
+      "file": "Goose_LandsAndAges.glb",
+      "author": "LandsAndAges",
+      "download_url": null,
+      "source": "tools/build_authored_fauna.mjs",
+      "license": "Авторская модель Lands and Ages",
       "skins": 1,
-      "joints": 16,
+      "joints": 10,
       "animations": [
-        "idle",
-        "attack",
-        "dead",
-        "walk"
+        "Idle",
+        "Walk",
+        "Attack",
+        "Death"
       ],
-      "sha256": "a49f32e0b987776d4c4d953e853e435eb1574c173595da71b79ae716a56bcadc",
+      "sha256": "44483cf32a602056c0e872b96e81b64648349e1bebc8a1d6a0ddc9c2110d6905",
       "files": [
-        "Goose.glb"
+        "Goose_LandsAndAges.glb"
       ]
     },
     "курица": {

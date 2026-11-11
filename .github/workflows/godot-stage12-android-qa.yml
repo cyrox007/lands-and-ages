@@ -11,6 +11,8 @@ on:
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
       - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "tools/install_fauna_assets.py"
+      - "tools/build_authored_fauna.mjs"
+      - "tools/check_fauna_silhouettes.py"
       - "godot/assets/fauna/**"
   push:
     branches: [develop]
@@ -21,6 +23,8 @@ on:
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
       - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "tools/install_fauna_assets.py"
+      - "tools/build_authored_fauna.mjs"
+      - "tools/check_fauna_silhouettes.py"
       - "godot/assets/fauna/**"
 
 permissions:
@@ -37,7 +41,9 @@ jobs:
           # Проверяем комплектность без сетевого скачивания:
           # исходники должны запускаться в Godot сами по себе.
           python3 tools/install_fauna_assets.py --check
-          for model in Deer.gltf Bull.gltf Wolf.gltf Fox.gltf Cow.gltf Husky.gltf Boar.glb Hare.glb Goose.glb Rooster.glb; do
+          node tools/build_authored_fauna.mjs --check
+          python3 tools/check_fauna_silhouettes.py
+          for model in Deer.gltf Bull.gltf Wolf.gltf Fox.gltf Cow.gltf Husky.gltf Boar_LandsAndAges.glb Hare.glb Goose_LandsAndAges.glb Rooster.glb; do
             test -s "godot/assets/fauna/$model"
           done
       - name: Настроить Java 17
@@ -159,8 +165,8 @@ jobs:
                     "fauna_entries=", len(fauna_entries))
               print("ANDROID-FAUNA-SAMPLE: ", fauna_entries[:16])
           names = ("Deer.gltf", "Bull.gltf", "Wolf.gltf", "Fox.gltf",
-                   "Cow.gltf", "Husky.gltf", "Boar.glb", "Hare.glb",
-                   "Goose.glb", "Rooster.glb")
+                   "Cow.gltf", "Husky.gltf", "Boar_LandsAndAges.glb", "Hare.glb",
+                   "Goose_LandsAndAges.glb", "Rooster.glb")
           missing = [name for name in names
                      if name.encode() not in payload
                      and not any(name in entry for entry in entries)]

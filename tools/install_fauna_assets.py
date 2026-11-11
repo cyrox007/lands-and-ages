@@ -28,13 +28,11 @@ ASSETS = {
     "лиса": ("Fox.gltf", QUATERNIUS + "Fox.gltf", "Quaternius"),
     "корова": ("Cow.gltf", QUATERNIUS + "Cow.gltf", "Quaternius"),
     "собака": ("Husky.gltf", QUATERNIUS + "Husky.gltf", "Quaternius"),
-    "кабан": (
-        "Boar.glb", "https://gobkit.com/freebies/animalB/Boar.glb", "Gobkit"
-    ),
 }
 SOURCES = {
     "Quaternius": "https://quaternius.com/packs/ultimateanimatedanimals.html",
     "Gobkit": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
+    "LandsAndAges": "tools/build_authored_fauna.mjs",
 }
 PINNED_GIT_BLOBS = {
     "Deer.gltf": "7c8abdd5018ea0869a85d6eb8056c0d4f673fd0e",
@@ -44,19 +42,25 @@ PINNED_GIT_BLOBS = {
     "Cow.gltf": "f90a67b34818693e418c1cf6ae5c9565ec1d90fc",
     "Husky.gltf": "cece6d1fc74ad0c0e37ac59cb766274838e938c3",
 }
-# Следующие виды доступны только как настоящие скелетные GLB.
+LOCAL_SPECIES = {
+    # Собственные полигональные модели не скачиваются во время сборки.
+    # Права на них сохраняются за владельцем Lands and Ages.
+    "кабан": ("Boar_LandsAndAges.glb", None, "LandsAndAges"),
+    "дикий гусь": ("Goose_LandsAndAges.glb", None, "LandsAndAges"),
+}
+# Оставшиеся внешние виды доступны как скелетные CC0 GLB.
 # Их точные адреса берём из официального CC0-манифеста, а не
 # угадываем по имени файла и не подменяем чужим животным.
 GOBKIT_SPECIES = {
     "заяц": ("Hare.glb", "Hare"),
-    "дикий гусь": ("Goose.glb", "Goose"),
     "курица": ("Rooster.glb", "Rooster"),
 }
 # Хеши взяты из реально импортированных GLB Godot CI.
 # Любая замена файла требует новой графической и лицензионной приёмки.
 PINNED_SHA256 = {
     "Hare.glb": "3342949e3b124441d4ac8a7bdffd93835c90752bfe0f3b7785a6cdd8f5b99cfb",
-    "Goose.glb": "a49f32e0b987776d4c4d953e853e435eb1574c173595da71b79ae716a56bcadc",
+    "Goose_LandsAndAges.glb": "44483cf32a602056c0e872b96e81b64648349e1bebc8a1d6a0ddc9c2110d6905",
+    "Boar_LandsAndAges.glb": "c8b48ff10b3a6b24474ef25db861a68186951600be786c9bbb6a4f116c3fdc0a",
     "Rooster.glb": "9c8a1c07418653dc0f1ede704934c9ef89a0735c1ed44ec755a97aae0c15e9a6",
 }
 GOBKIT_MANIFEST = "https://gobkit.com/api/free"
@@ -185,13 +189,19 @@ def install(check_only: bool) -> None:
     if check_only and provenance.exists():
         existing = json.loads(provenance.read_text(encoding="utf-8")).get(
             "models", {})
-    models = {**ASSETS, **resolve_gobkit(check_only)}
-    manifest = {"license": "CC0-1.0", "models": {}}
+    models = {**ASSETS, **resolve_gobkit(check_only), **LOCAL_SPECIES}
+    manifest = {"license": "mixed: CC0-1.0 and project-owned", "models": {}}
     for kind, (filename, url, author) in models.items():
         target = DESTINATION / filename
         if check_only and not target.exists():
             raise FileNotFoundError("Не установлен вид: " + kind)
-        data = target.read_bytes() if target.exists() else fetch(url)
+        # Авторская модель обязана находиться непосредственно в репозитории.
+        if target.exists():
+            data = target.read_bytes()
+        elif url is not None:
+            data = fetch(url)
+        else:
+            raise FileNotFoundError("Отсутствует авторский GLB: " + filename)
         # Фиксированный Git-blob хеш основного glTF обнаруживает
         # замену файла на зеркале, в том числе при повторной сборке.
         if filename in PINNED_GIT_BLOBS:
@@ -208,6 +218,17 @@ def install(check_only: bool) -> None:
                 != PINNED_SHA256[filename]:
             raise ValueError("Изменена проверенная CC0-модель: " + filename)
         gltf = document(data, filename)
+        # Проверяем обязательные видовые кости, а не только файл и MeshInstance3D.
+        # Это исключает возврат скелета кабана при импорте птицы.
+        if author == "LandsAndAges":
+            nodes = {str(node.get("name", "")) for node in gltf.get("nodes", [])}
+            expected = ({"Neck", "Head", "Beak", "WingLeft", "WingRight",
+                         "LegLeft", "LegRight"} if kind == "дикий гусь"
+                        else {"Snout", "TuskLeft", "TuskRight",
+                              "LegFrontLeft", "LegFrontRight",
+                              "LegBackLeft", "LegBackRight"})
+            if not expected.issubset(nodes) or len(gltf["animations"]) < 4:
+                raise ValueError("Нет видовой анатомии/анимаций: " + kind)
         if not target.exists():
             target.write_bytes(data)
         # Подтягиваем только реальные внешние текстуры/буферы glTF.
@@ -217,12 +238,16 @@ def install(check_only: bool) -> None:
             if check_only and not dependency.exists():
                 raise FileNotFoundError("Недостаёт внешнего файла: " + name)
             if not dependency.exists():
+                if url is None:
+                    raise FileNotFoundError("У авторской модели нет буфера: " + name)
                 dependency.write_bytes(fetch(url.rsplit("/", 1)[0] + "/" + name))
             files.append(name)
         manifest["models"][kind] = {
             "file": filename, "author": author,
             "download_url": url,
-            "source": SOURCES[author], "license": "CC0-1.0",
+            "source": SOURCES[author],
+            "license": ("Авторская модель Lands and Ages" if author == "LandsAndAges"
+                        else "CC0-1.0"),
             "skins": len(gltf["skins"]),
             "joints": max(len(s["joints"]) for s in gltf["skins"]),
             "animations": [a.get("name", "") for a in gltf["animations"]],
