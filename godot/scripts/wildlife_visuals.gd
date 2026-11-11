@@ -38,11 +38,11 @@ const MODELS := {
     "лиса": {"file": "Fox.gltf", "source": "Quaternius", "height": 0.48},
     "корова": {"file": "Cow.gltf", "source": "Quaternius", "height": 1.4},
     "собака": {"file": "Husky.gltf", "source": "Quaternius", "height": 0.7},
-    "кабан": {"file": "Boar.glb", "source": "Gobkit", "height": 0.9},
-    # Подлинные скелетные GLB, а не примитивные заменители.
+    "кабан": {"file": "Boar_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.9},
+    # Остальные модели Gobkit пока ожидают отдельной художественной приёмки.
     "заяц": {"file": "Hare.glb", "source": "Gobkit", "height": 0.48},
-    "дикий гусь": {"file": "Goose.glb", "source": "Gobkit", "height": 0.72},
-    "гусь": {"file": "Goose.glb", "source": "Gobkit", "height": 0.72},
+    "дикий гусь": {"file": "Goose_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.72},
+    "гусь": {"file": "Goose_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.72},
     "курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46},
     "дикая курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46}
 }
