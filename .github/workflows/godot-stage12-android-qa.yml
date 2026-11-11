@@ -1,0 +1,159 @@
+name: Этап 12.9 — Android QA с настоящей 3D-фауной
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - ".github/workflows/godot-stage12-android-qa.yml"
+      - "godot/scripts/wildlife_*.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/world_wildlife_visuals_12_smoke.gd"
+      - "tools/install_fauna_assets.py"
+  push:
+    branches: [develop]
+    paths:
+      - ".github/workflows/godot-stage12-android-qa.yml"
+      - "godot/scripts/wildlife_*.gd"
+      - "godot/scripts/world.gd"
+      - "godot/tests/world_wildlife_visuals_12_smoke.gd"
+      - "tools/install_fauna_assets.py"
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установить настоящие CC0-модели животных и проверить хеши
+        run: |
+          python3 tools/install_fauna_assets.py
+          python3 tools/install_fauna_assets.py --check
+          for model in Deer.gltf Bull.gltf Wolf.gltf Fox.gltf Cow.gltf Husky.gltf Boar.glb Hare.glb Goose.glb Rooster.glb; do
+            test -s "godot/assets/fauna/$model"
+          done
+      - name: Настроить Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Подготовить SDK с уже установленного GitHub Runner
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          test -d "$SDK_ROOT"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if test -z "$SDKMANAGER"; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "build-tools;35.0.0" "platforms;android-35"
+          test -x "$SDK_ROOT/platform-tools/adb"
+          test -x "$JAVA_HOME/bin/keytool"
+      - name: Скачать официальный Godot 4.7.2 и подходящие шаблоны
+        timeout-minutes: 6
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz" \
+            --output /tmp/godot-templates.tpz
+          unzip -q /tmp/godot.zip -d /tmp
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-export
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          cp /tmp/godot-export/templates/* \
+            "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+      - name: Подготовить отдельный временный ключ отладочной сборки
+        run: |
+          mkdir -p /tmp/world-android-keystore
+          keytool -genkeypair -noprompt \
+            -keystore /tmp/world-android-keystore/debug.keystore \
+            -alias androiddebugkey -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 1000 \
+            -dname "CN=World QA,O=Lands and Ages,C=US"
+          mkdir -p "$HOME/.config/godot"
+          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/android_sdk_path = "%s"\nexport/android/java_sdk_path = "%s"\n' \
+            "$ANDROID_HOME" "$JAVA_HOME" \
+            > "$HOME/.config/godot/editor_settings-4.tres"
+      - name: Импортировать Godot-проект
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 210s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --editor --import --quit 2>&1 | tee /tmp/android-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load" /tmp/android-import.log; then
+            exit 1
+          fi
+      - name: Проверить реальную фауну и аудио в игровом Godot
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_wildlife_visuals_12_smoke.gd \
+            2>&1 | tee /tmp/fauna-smoke.log
+          grep -q "STAGE12-VISUAL: успешно" /tmp/fauna-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fauna-smoke.log; then
+            exit 1
+          fi
+      - name: Экспортировать и подписать отладочный ARM64 APK
+        timeout-minutes: 6
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /tmp/world-android-keystore/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          set -o pipefail
+          mkdir -p build
+          timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --export-debug Android "$GITHUB_WORKSPACE/build/lands-and-ages-fauna-qa-arm64.apk" \
+            2>&1 | tee /tmp/android-export.log
+          test -s build/lands-and-ages-fauna-qa-arm64.apk
+          unzip -t build/lands-and-ages-fauna-qa-arm64.apk | tail -n 2
+          unzip -l build/lands-and-ages-fauna-qa-arm64.apk | grep -q 'lib/arm64-v8a/'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose \
+            build/lands-and-ages-fauna-qa-arm64.apk
+          sha256sum build/lands-and-ages-fauna-qa-arm64.apk > build/SHA256SUMS.txt
+          # Экспорт должен содержать именно импортированные ресурсы
+          # скелетных CC0-животных, а не пустой игровой проект.
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          apk = Path("build/lands-and-ages-fauna-qa-arm64.apk")
+          with zipfile.ZipFile(apk) as archive:
+              packs = [name for name in archive.namelist()
+                       if name.lower().endswith(".pck")]
+              if not packs:
+                  raise SystemExit("В APK нет ресурсного пакета Godot")
+              payload = b"".join(archive.read(name) for name in packs)
+          names = ("Deer.gltf", "Bull.gltf", "Wolf.gltf", "Fox.gltf",
+                   "Cow.gltf", "Husky.gltf", "Boar.glb", "Hare.glb",
+                   "Goose.glb", "Rooster.glb")
+          missing = [name for name in names if name.encode() not in payload]
+          if missing:
+              raise SystemExit("В Android PCK отсутствуют модели: "
+                               + ", ".join(missing))
+          print("ANDROID-FAUNA-PACK: успешно; 10 проверенных GLTF/GLB")
+          PY
+          echo "Этап 12.9: настоящая фауна включена в подписанный Android ARM64 APK."
+      - name: Сохранить APK для аппаратной проверки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-stage12-fauna-android-arm64-qa
+          path: |
+            build/lands-and-ages-fauna-qa-arm64.apk
+            build/SHA256SUMS.txt
+            /tmp/android-export.log
+            /tmp/fauna-smoke.log
+          if-no-files-found: warn
+          retention-days: 30
