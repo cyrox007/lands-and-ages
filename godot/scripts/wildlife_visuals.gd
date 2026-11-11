@@ -14,6 +14,7 @@ const LOCAL_WALK_SPEED := 0.85
 const FLEE_SPEED := 2.40
 const CHASE_SPEED := 1.80
 const MAX_CHASE_STEPS := 3
+const MAX_CHASE_SEARCH_CELLS := 32
 const HUNT_SCARE_RADIUS := 10.0
 const HAZARD_RADIUS := 12.0
 const DANGERS := [
@@ -233,28 +234,66 @@ func _flee_target(movement: Dictionary, danger: Vector2i) -> Vector2i:
     return best
 
 
+static func _route_chase_step(start: Vector2i, prey_cell: Vector2i,
+        steps: int, can_enter: Callable) -> Vector2i:
+    # Небольшой поиск в ширину позволяет сначала уйти в сторону
+    # от добычи, если прямую клетку закрывает вода или обрыв.
+    # Возвращаем только первый соседний шаг найденного пути.
+    if steps <= 0 or can_enter.is_null():
+        return start
+    var queue: Array[Dictionary] = [{
+        "cell": start, "first": start, "depth": 0
+    }]
+    var visited := {start: true}
+    var best := start
+    var nearest: int = (start - prey_cell).length_squared()
+    var index := 0
+    while index < queue.size() and queue.size() < MAX_CHASE_SEARCH_CELLS:
+        var state: Dictionary = queue[index]
+        index += 1
+        if int(state["depth"]) >= mini(steps, MAX_CHASE_STEPS):
+            continue
+        for direction in WALK_DIRECTIONS:
+            var candidate: Vector2i = state["cell"] + direction
+            # Добыча — не проходимая цель, а ориентир маршрута.
+            # Повторные клетки исключаем для ограниченного бюджета.
+            if candidate == prey_cell or visited.has(candidate) \
+                    or not bool(can_enter.call(candidate)):
+                continue
+            visited[candidate] = true
+            var depth := int(state["depth"]) + 1
+            var first: Vector2i = candidate if depth == 1 else state["first"]
+            queue.append({"cell": candidate, "first": first, "depth": depth})
+            var distance: int = (candidate - prey_cell).length_squared()
+            # Важна лучшая достижимая точка за весь остаток
+            # погони, а не только улучшение на первом шаге.
+            if distance < nearest:
+                nearest = distance
+                best = first
+            if queue.size() >= MAX_CHASE_SEARCH_CELLS:
+                break
+    return best
+
+
 func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
-    # За каждый шаг сокращаем расстояние только по соседней
-    # проходимой клетке, не заходя в клетку уцелевшей добычи.
-    # Одна погоня ограничена отдельным счётчиком шагов.
+    # География реального мира ограничивает поиск домашним
+    # ареалом, радиусом прогулки и только проходимой сушей.
     var cell: Vector2i = movement["cell"]
     var home: Vector2i = movement["home"]
     var region: Vector2i = world.config.region_of(home)
-    var nearest: float = Vector2(cell - prey_cell).length_squared()
-    var best := cell
-    for direction in WALK_DIRECTIONS:
-        var candidate: Vector2i = cell + direction
-        if candidate == prey_cell or world.config.region_of(candidate) != region \
-                or Vector2(candidate - home).length_squared() \
-                    > MAX_WANDER_CELLS * MAX_WANDER_CELLS:
-            continue
-        if not Paths.walkable(world, hydro, surface, candidate):
-            continue
-        var distance: float = Vector2(candidate - prey_cell).length_squared()
-        if distance < nearest:
-            nearest = distance
-            best = candidate
-    return best
+    var remaining := int(movement.get("chase_steps", 0))
+    # Пока погоня не началась, планировщик можно вызывать для
+    # безопасной оценки маршрута. Во время погони используем
+    # только фактически оставшийся бюджет шагов.
+    if remaining <= 0 and not bool(movement.get("chase", false)):
+        remaining = MAX_CHASE_STEPS
+    return _route_chase_step(cell, prey_cell, remaining,
+        func(candidate: Vector2i) -> bool:
+            if world.config.region_of(candidate) != region \
+                    or Vector2(candidate - home).length_squared() \
+                        > MAX_WANDER_CELLS * MAX_WANDER_CELLS:
+                return false
+            return Paths.walkable(world, hydro, surface, candidate))
 
 
 func _begin_chase_step(key: String, movement: Dictionary) -> bool:
