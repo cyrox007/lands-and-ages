@@ -16,6 +16,7 @@ const CHASE_SPEED := 1.80
 const MAX_CHASE_STEPS := 3
 const MAX_CHASE_SEARCH_CELLS := 32
 const HUNT_SCARE_RADIUS := 10.0
+const VISUAL_ATTACK_RANGE := 1.25
 const HAZARD_RADIUS := 12.0
 const DANGERS := [
     "шторм", "шквал", "ураган", "смерч",
@@ -305,14 +306,41 @@ static func _attack_reachable(hunter_cell: Vector2i,
     return absi(delta.x) + absi(delta.y) == 1
 
 
+static func _actors_in_attack_range(hunter_at: Vector3,
+        prey_at: Vector3) -> bool:
+    # При движении 3D-модель ещё находится между центрами клеток.
+    # Проверяем реальное горизонтальное положение, не высоту
+    # ландшафта и не устаревшую клетку в словаре движения.
+    var offset := Vector2(hunter_at.x - prey_at.x,
+        hunter_at.z - prey_at.z)
+    var squared := offset.length_squared()
+    return is_finite(squared) \
+        and squared <= VISUAL_ATTACK_RANGE * VISUAL_ATTACK_RANGE
+
+
 func _chase_contact_valid(key: String, movement: Dictionary) -> bool:
-    # Сначала проверяем день, живые популяции и наличие обеих
-    # видимых моделей, затем — расстояние между их клетками.
-    # Никаких повторных списаний или создания новых особей.
+    # Сначала проверяем день, видимость и живые популяции,
+    # затем соседство клеток и положение самих 3D-моделей.
+    # Это фильтр отображения, а не физическая обработка убийства.
     if not _chase_target_valid(key, movement):
         return false
     var prey_key := str(movement["chase_prey"])
-    return _attack_reachable(movement["cell"], _movement[prey_key]["cell"])
+    if not _attack_reachable(movement["cell"], _movement[prey_key]["cell"]):
+        return false
+    var hunter := _visible[key] as Node3D
+    var target := _visible[prey_key] as Node3D
+    return _actors_in_attack_range(hunter.position, target.position)
+
+
+func _face_chase_prey(key: String, movement: Dictionary) -> void:
+    # Разворачиваем хищника непосредственно перед показом удара,
+    # а не в прежнем направлении бега по соседней клетке.
+    # Поворот не изменяет координаты или количество животных.
+    var actor := _visible[key] as Node3D
+    var target := _visible[str(movement["chase_prey"])] as Node3D
+    var direction: Vector3 = target.position - actor.position
+    if Vector2(direction.x, direction.z).length_squared() > 0.0001:
+        actor.rotation.y = atan2(-direction.x, -direction.z)
 
 
 func _begin_chase_step(key: String, movement: Dictionary) -> bool:
@@ -509,6 +537,10 @@ func react_hunts() -> int:
         # оставшийся представитель стада получает сигнал бегства.
         _start_flee(prey_key, hunter_cell)
         if contact:
+            # Контакт проверен и по клеткам, и по текущим
+            # положениям моделей; удар направлен к добыче.
+            movement["chase_prey"] = prey_key
+            _face_chase_prey(key, movement)
             movement["attack"] = actor.attack_duration()
             actor.set_motion("атака")
             movement["chase_prey"] = ""
@@ -569,6 +601,10 @@ func _process(delta: float) -> void:
                     # Даже успешный последний шаг ещё не даёт
                     # права на удар с расстояния или по диагонали.
                     var contact := _chase_contact_valid(str(key), movement)
+                    if contact:
+                        # И добыча, и хищник должны находиться
+                        # достаточно близко в реальной 3D-сцене.
+                        _face_chase_prey(str(key), movement)
                     movement["chase_prey"] = ""
                     movement["chase_day"] = -1
                     movement["chase_steps"] = 0
