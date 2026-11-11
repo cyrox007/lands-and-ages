@@ -64,7 +64,11 @@ function makeAdditional(species){
   function triangle(material,joint,a,b,c){
     // Рёбра и плоские нормали сохраняют узнаваемый силуэт без текстуры.
     if(!buckets[material])buckets[material]=[];
-    const n=norm(cross(sub(b,a),sub(c,a)));
+    const raw=cross(sub(b,a),sub(c,a));
+    const area=Math.hypot(...raw);
+    // В полюсах эллипсоидов есть почти нулевые треугольники:
+    // их нормаль должна быть одинаковой в Node/V8 и в CI.
+    const n=area<1e-7?[0,1,0]:raw.map(x=>x/area);
     for(const p of [a,b,c])buckets[material].push({p,n,j:names[joint]});
   }
   function ellipsoid(material,joint,center,r,rows=8,cols=12){
