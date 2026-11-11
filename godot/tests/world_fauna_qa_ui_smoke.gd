@@ -17,6 +17,31 @@ func _run() -> void:
     var view := View.new()
     get_root().add_child(view)
     await process_frame
+    # При потоковой камере рабочая позиция может отличаться от
+    # реально показанного кадра. Фауна обязана оставаться у
+    # видимой камеры до завершения загрузки новых чанков.
+    var actual_center: Vector2 = view._center
+    var camera := Camera3D.new()
+    view.add_child(camera)
+    camera.size = 28.0
+    view._display_camera = camera
+    view._display_center = Vector2(25.5, 30.5)
+    var shown: Dictionary = view._fauna_view_state()
+    if shown["center"] != view._display_center \
+            or absf(float(shown["size"]) - 28.0) > 0.001:
+        push_error("Фауна выбрана по невидимой расчётной камере")
+        view.queue_free()
+        quit(1)
+        return
+    view._display_camera = null
+    camera.queue_free()
+    var direct: Dictionary = view._fauna_view_state()
+    if direct["center"] != actual_center \
+            or absf(float(direct["size"]) - view._camera.size) > 0.001:
+        push_error("Обычная камера ошибочно подменена потоковой")
+        view.queue_free()
+        quit(1)
+        return
     var focus := view.find_child("FaunaInspect", true, false) as Button
     var hunt := view.find_child("FaunaHuntQA", true, false) as Button
     if focus == null or hunt == null \
@@ -75,6 +100,7 @@ func _run() -> void:
         "actual_capture": true, "one_capture_per_day": true,
         "inspection_preserved_world": true,
         "audio_listener_near_ground": true,
+        "fauna_follows_display_camera": true,
         "visible": view._wildlife_visuals.active_count(),
         "manual_hardware_acceptance": false
     }))
