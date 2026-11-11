@@ -420,6 +420,8 @@ func _check() -> void:
                 var after_capture: Dictionary = fauna.to_data()
                 var hunters_after: Dictionary = predators.to_data()
                 var position_before: Vector3 = hunter.position
+                var sound_plays_before: int = int(
+                    hunter.get("contact_sound_plays"))
                 if visuals.react_hunts() != 1 \
                         or hunter.get("state") != "бег" \
                         or not bool(visuals._movement[hunter_key]["chase"]) \
@@ -509,6 +511,25 @@ func _check() -> void:
                     push_error("Скелетная атака направлена мимо добычи")
                     quit(1)
                     return
+                var contact_audio_node := hunter.get_node_or_null(
+                    "ContactSound") as AudioStreamPlayer3D
+                var contact_clip: AudioStreamWAV = null
+                if contact_audio_node != null:
+                    contact_clip = contact_audio_node.stream as AudioStreamWAV
+                if contact_clip == null \
+                        or contact_clip.format != AudioStreamWAV.FORMAT_16_BITS \
+                        or contact_clip.data.size() != 4800 \
+                        or int(hunter.get("contact_sound_plays")) \
+                            != sound_plays_before + 1:
+                    push_error("Подтверждённый визуальный контакт не создал 3D-звук")
+                    quit(1)
+                    return
+                # Звуковой клип привязан к движущемуся хищнику:
+                # он не создаёт самостоятельных животных.
+                if contact_audio_node.get_parent() != hunter:
+                    push_error("Звуковой источник оторван от модели хищника")
+                    quit(1)
+                    return
                 var approach_position: Vector3 = hunter.position
                 var attack_frames := ceili(hunter.attack_duration() / 0.10) + 1
                 for frame in range(attack_frames):
@@ -538,6 +559,8 @@ func _check() -> void:
                 visuals._visible[prey_key] = visible_prey_after
                 visuals._last_hunt_day = old_hunt_day
                 if missing_reactions != 0 \
+                        or int(hunter.get("contact_sound_plays")) \
+                            != sound_plays_before + 1 \
                         or hunter.get("state") != "покой" \
                         or fauna.to_data() != after_capture \
                         or predators.to_data() != hunters_after:
@@ -567,6 +590,8 @@ func _check() -> void:
         "contact_distance_guard": true,
         "model_position_contact": true,
         "attack_facing_prey": true,
+        "contact_sound_3d": true,
+        "no_phantom_contact_sound": true,
         "no_attack_without_visible_prey": true,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
