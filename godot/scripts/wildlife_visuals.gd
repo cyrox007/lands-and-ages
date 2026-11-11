@@ -193,7 +193,7 @@ func inspection_spot() -> Dictionary:
                 if prey_cell.x < 0:
                     continue
                 var distance := Vector2(hunter_cell - prey_cell).length_squared()
-                if distance >= score or distance > HUNT_SCARE_RADIUS * HUNT_SCARE_RADIUS:
+                if distance >= score:
                     continue
                     # Ближайшая физическая пара выбрана один раз
                     # без создания фиктивного контакта или охоты.
