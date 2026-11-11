@@ -17,10 +17,15 @@ func _run() -> void:
     var view := View.new()
     get_root().add_child(view)
     await process_frame
-    var focus := view.find_child("Осмотр фауны 12.9", true, false) as Button
-    var hunt := view.find_child("Испытание охоты 12.9", true, false) as Button
+    var focus := view.find_child("FaunaInspect", true, false) as Button
+    var hunt := view.find_child("FaunaHuntQA", true, false) as Button
     if focus == null or hunt == null \
             or view._fauna_audio_listener == null:
+        print("STAGE12-FAUNA-UI-DIAG: ", JSON.stringify({
+            "focus": focus != null, "hunt": hunt != null,
+            "listener": view._fauna_audio_listener != null,
+            "world": view._world_model != null
+        }))
         push_error("В игровом интерфейсе отсутствует приёмка фауны 12.9")
         view.queue_free()
         quit(1)
