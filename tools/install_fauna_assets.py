@@ -62,11 +62,11 @@ GOBKIT_SPECIES = {
 # Хеши взяты из реально импортированных GLB Godot CI.
 # Любая замена файла требует новой графической и лицензионной приёмки.
 PINNED_SHA256 = {
-    "Hare_LandsAndAges.glb": "86c3c75439cbaf2de741a9929a76eb32ef0fd5a91bc351a9ac64ea10bcc6ae75",
+    "Hare_LandsAndAges.glb": "e75b7da4e8bccac0cf5924104f19d1ac023e2d277122f143c19711fb1d9cb886",
     "Goose_LandsAndAges.glb": "44483cf32a602056c0e872b96e81b64648349e1bebc8a1d6a0ddc9c2110d6905",
     "Boar_LandsAndAges.glb": "c8b48ff10b3a6b24474ef25db861a68186951600be786c9bbb6a4f116c3fdc0a",
-    "Hen_LandsAndAges.glb": "3facdc7a7751d1efd063015cd3b096253dab29c46abebbbb561e24f69c2300c7",
-    "Cat_LandsAndAges.glb": "eb109e895c6db662b8cb495ead634908bdfc5b6a4e3fe58a4912e36f2633a79d",
+    "Hen_LandsAndAges.glb": "dbfc8cb766ad0fabb006949dcda0514a59448c6f00902e742afa1d966162fade",
+    "Cat_LandsAndAges.glb": "8e1067519bd89995e243097d51dd179b83da62a5bba5dbf04a4f789625e790ff",
 }
 GOBKIT_MANIFEST = "https://gobkit.com/api/free"
 MAX_BYTES = 40 * 1024 * 1024
