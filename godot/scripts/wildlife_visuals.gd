@@ -543,6 +543,9 @@ func react_hunts() -> int:
             _face_chase_prey(key, movement)
             movement["attack"] = actor.attack_duration()
             actor.set_motion("атака")
+            # Только разрешённый близкий визуальный контакт
+            # вызывает короткий пространственный звук.
+            actor.play_contact_sound()
             movement["chase_prey"] = ""
             movement["chase_day"] = -1
             movement["chase_steps"] = 0
@@ -611,6 +614,9 @@ func _process(delta: float) -> void:
                     if contact:
                         movement["attack"] = actor.attack_duration()
                         actor.set_motion("атака")
+                        # Звук не запускается от далёкой/устаревшей
+                        # добычи или одного лишь события FoodWeb.
+                        actor.play_contact_sound()
                     else:
                         movement["rest"] = 1.4
                         actor.set_motion("покой")
