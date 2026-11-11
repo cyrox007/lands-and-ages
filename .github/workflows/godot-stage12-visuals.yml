@@ -22,9 +22,10 @@ jobs:
     timeout-minutes: 14
     steps:
       - uses: actions/checkout@v4
-      - name: "Загрузить оригинальные CC0 GLTF/GLB и проверить скелеты"
+      - name: "Проверить наличие CC0-моделей прямо в исходниках"
         run: |
-          python3 tools/install_fauna_assets.py
+          # CI не должен самостоятельно исправлять неполную поставку.
+          # Отсутствие ресурсов — ошибка комплектации, а не теста.
           python3 tools/install_fauna_assets.py --check
       - name: "Установка Godot 4.7.2"
         run: |
