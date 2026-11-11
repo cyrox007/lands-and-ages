@@ -281,7 +281,12 @@ func _chase_step(movement: Dictionary, prey_cell: Vector2i) -> Vector2i:
     var cell: Vector2i = movement["cell"]
     var home: Vector2i = movement["home"]
     var region: Vector2i = world.config.region_of(home)
-    var remaining := int(movement.get("chase_steps", MAX_CHASE_STEPS))
+    var remaining := int(movement.get("chase_steps", 0))
+    # Пока погоня не началась, планировщик можно вызывать для
+    # безопасной оценки маршрута. Во время погони используем
+    # только фактически оставшийся бюджет шагов.
+    if remaining <= 0 and not bool(movement.get("chase", false)):
+        remaining = MAX_CHASE_STEPS
     return _route_chase_step(cell, prey_cell, remaining,
         func(candidate: Vector2i) -> bool:
             if world.config.region_of(candidate) != region \
