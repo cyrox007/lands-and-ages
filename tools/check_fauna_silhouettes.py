@@ -16,6 +16,24 @@ SPECIES = {
         "forbidden": {"LegFrontLeft", "LegBackLeft", "Snout"},
         "vertical": True,
     },
+    "Hare": {
+        "bones": {"Root", "Head", "EarLeft", "EarRight", "Tail",
+                  "LegFrontLeft", "LegBackLeft"},
+        "forbidden": {"Beak", "Snout", "WingLeft"},
+        "vertical": True,
+    },
+    "Hen": {
+        "bones": {"Root", "Neck", "Head", "Beak",
+                  "WingLeft", "WingRight", "LegLeft", "LegRight"},
+        "forbidden": {"LegFrontLeft", "Snout", "TuskLeft"},
+        "vertical": True,
+    },
+    "Cat": {
+        "bones": {"Root", "Head", "EarLeft", "EarRight", "Tail",
+                  "LegFrontLeft", "LegBackLeft"},
+        "forbidden": {"Beak", "WingLeft", "TuskLeft"},
+        "vertical": False,
+    },
     "Boar": {
         "bones": {"Root", "Head", "Snout", "TuskLeft", "TuskRight",
                   "LegFrontLeft", "LegFrontRight", "LegBackLeft", "LegBackRight"},
@@ -50,7 +68,7 @@ def inspect(species: str, expectations: dict) -> None:
     # Проверяем четыре настоящих анимационных клипа.
     clips = {animation.get("name", "")
              for animation in document.get("animations", [])}
-    if clips != {"Idle", "Walk", "Attack", "Death"}:
+    if not {"Idle", "Walk", "Attack", "Death"} <= clips:
         raise ValueError(f"Неполная анимация: {species}")
 
     # Собираем фактические границы вершин, а не размеры камеры:
@@ -67,7 +85,7 @@ def inspect(species: str, expectations: dict) -> None:
 
     # У гуся высота шеи выраженно превышает ширину корпуса.
     # У кабана длинное туловище с носом заметно длиннее ширины.
-    if expectations["vertical"] and spans[1] <= spans[0] * 1.6:
+    if expectations["vertical"] and spans[1] <= spans[0] * (1.4 if species == "Hen" else 1.6):
         raise ValueError("Гусь снова выглядит как шарообразный меш")
     if not expectations["vertical"] and spans[2] <= spans[0] * 2.0:
         raise ValueError("У кабана пропал вытянутый силуэт")

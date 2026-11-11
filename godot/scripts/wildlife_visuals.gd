@@ -39,12 +39,14 @@ const MODELS := {
     "корова": {"file": "Cow.gltf", "source": "Quaternius", "height": 1.4},
     "собака": {"file": "Husky.gltf", "source": "Quaternius", "height": 0.7},
     "кабан": {"file": "Boar_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.9},
-    # Остальные модели Gobkit пока ожидают отдельной художественной приёмки.
-    "заяц": {"file": "Hare.glb", "source": "Gobkit", "height": 0.48},
+    # Для птиц и млекопитающих используются разные видовые скелеты.
+    "заяц": {"file": "Hare_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.48},
     "дикий гусь": {"file": "Goose_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.72},
     "гусь": {"file": "Goose_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.72},
-    "курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46},
-    "дикая курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46}
+    "курица": {"file": "Hen_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.46},
+    "дикая курица": {"file": "Hen_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.46},
+    "дикая кошка": {"file": "Cat_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.55},
+    "кошка": {"file": "Cat_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.55}
 }
 
 var world: RefCounted
@@ -116,7 +118,7 @@ func _population(region: Vector2i, kind: String) -> int:
         return predators.count_at(region, kind)
     # Домашняя особь должна действительно пройти племенные
     # поколения и находиться на существующем хозяйственном дворе.
-    if kind in ["корова", "собака", "курица", "гусь"]:
+    if kind in ["корова", "собака", "курица", "гусь", "кошка"]:
         if domestic == null or domestic.site.x < 0 \
                 or region != world.config.region_of(domestic.site):
             return 0
