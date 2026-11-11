@@ -10,6 +10,7 @@ on:
       - "godot/scripts/wildlife_visuals.gd"
       - "godot/scripts/world.gd"
       - "godot/tests/world_wildlife_visuals_12_smoke.gd"
+      - "godot/tests/world_fauna_qa_ui_smoke.gd"
       - "godot/tests/world_wildlife_capture_12.gd"
       - "godot/tests/world_wildlife_capture_new_12.gd"
       - ".github/workflows/godot-stage12-visuals.yml"
@@ -46,6 +47,14 @@ jobs:
             2>&1 | tee /tmp/rigs.log
           grep -q "STAGE12-VISUAL: успешно" /tmp/rigs.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/rigs.log; then exit 1; fi
+      - name: "Приёмка реального интерфейса фауны и физической охоты"
+        run: |
+          set -o pipefail
+          timeout 180s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot --script res://tests/world_fauna_qa_ui_smoke.gd \
+            2>&1 | tee /tmp/fauna-ui.log
+          grep -q "STAGE12-FAUNA-UI: успешно" /tmp/fauna-ui.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/fauna-ui.log; then exit 1; fi
       - name: "Сделать реальный кадр моделей в Godot через Mesa"
         run: |
           sudo apt-get update -qq
@@ -86,5 +95,6 @@ jobs:
             godot/output/fauna_new_species.png
             /tmp/new-species.log
             /tmp/rigs.log
+            /tmp/fauna-ui.log
             /tmp/visual.log
           if-no-files-found: ignore
