@@ -568,13 +568,13 @@ func _setup_interface() -> void:
 	# Приёмка 12.9 доступна сразу: ищем уже существующую
 	# региональную пару и перемещаем к ней только камеру.
 	var fauna_button := Button.new()
-	fauna_button.name = "Осмотр фауны 12.9"
+	fauna_button.name = "FaunaInspect"
 	fauna_button.text = "Найти животных для проверки"
 	fauna_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	fauna_button.pressed.connect(_focus_fauna)
 	column.add_child(fauna_button)
 	var fauna_hunt_button := Button.new()
-	fauna_hunt_button.name = "Испытание охоты 12.9"
+	fauna_hunt_button.name = "FaunaHuntQA"
 	fauna_hunt_button.text = "Проверить охоту: расходует 1 живую добычу"
 	fauna_hunt_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	fauna_hunt_button.pressed.connect(_exercise_fauna_hunt)
