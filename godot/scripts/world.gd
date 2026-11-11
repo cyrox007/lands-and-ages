@@ -920,8 +920,12 @@ func _focus_fauna() -> void:
 	# готовности его чанков. Не удаляем животных старого кадра.
 	if _display_camera == null:
 		_wildlife_visuals.refresh(_center, _camera.size, 1.0)
-	_fauna_inspection_status.text = "Регион %s: %s и %s. Здесь можно наблюдать скелетную ходьбу и смену физических суток." % [
-		str(spot["region"]), str(spot["predator"]), str(spot["prey"])]
+	# В реальном интерфейсе показываем коэффициент обзорного
+	# увеличения: так легко отличить исправленную версию от старой
+	# копии исходников без доступа к Git-командам.
+	_fauna_inspection_status.text = "Регион %s: %s и %s · обзорный масштаб животных ×%.2f · зум карты %.0f. Ближние модели используют естественные пропорции." % [
+		str(spot["region"]), str(spot["predator"]), str(spot["prey"]),
+		WildlifeVisuals._overview_scale(_camera.size), _camera.size]
 	_update_hud()
 
 
