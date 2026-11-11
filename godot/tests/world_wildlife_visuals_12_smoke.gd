@@ -98,6 +98,23 @@ func _check() -> void:
             actor.queue_free()
             quit(1)
             return
+        # В glTF нос направлен вдоль +Z; после исправления
+        # визуальная модель обязана смотреть вдоль -Z своего
+        # управляющего Node3D, а не бежать задом наперёд.
+        var visual := actor._visual as Node3D
+        var facing: Vector3 = (visual.basis * Vector3.BACK).normalized()
+        if facing.dot(Vector3.FORWARD) < 0.99:
+            push_error("Импортированная модель смотрит против движения: " + kind)
+            actor.queue_free()
+            quit(1)
+            return
+        # Масштаб должен быть конечным и положительным. 
+        # Нельзя принимать нулевой или перевёрнутый SkinnedMesh.
+        if not is_finite(visual.scale.y) or visual.scale.y <= 0.0:
+            push_error("Неверный масштаб скелетной модели: " + kind)
+            actor.queue_free()
+            quit(1)
+            return
         # Скелет и анимации должны работать не только на этапе
         # импорта: проверяем переходы между реальными клипами.
         actor.set_motion("ходьба")
@@ -131,7 +148,9 @@ func _check() -> void:
         var skeleton_count := actor.bone_count()
         var animation_count := actor.animation_count()
         models[kind] = {"bones": skeleton_count,
-            "clips": animation_count}
+            "clips": animation_count,
+            "target_height": float(entry["height"]),
+            "import_scale": snappedf(visual.scale.y, 0.00001)}
         actor.queue_free()
         await process_frame
     # Кроме индивидуальных мешей, проверяем, что визуальный
@@ -169,7 +188,7 @@ func _check() -> void:
         quit(1)
         return
     var center := Vector2(128.0, 96.0)
-    var radius := minf(Visuals.MAX_RENDER_RANGE, 66.0 * 0.62)
+    var radius := Visuals.MAX_RENDER_RANGE
     visuals.refresh(center, 66.0, 1.0)
     var candidates: Array[Dictionary] = visuals._nearest_candidates(
         center, radius)
@@ -183,6 +202,24 @@ func _check() -> void:
             push_error("Далёкий регион вытеснил ближайшее животное")
             quit(1)
             return
+    # Один и тот же центр обзора: приближение и возвращение
+    # не должны удалять, пересоздавать или телепортировать
+    # живые модели даже при самых близких значениях зума.
+    var zoom_actors := {}
+    for key in visuals._visible:
+        zoom_actors[key] = visuals._visible[key]
+    for zoom in [44.0, 24.0, 12.0, 6.0, 12.0, 66.0]:
+        visuals.refresh(center, zoom, 1.0)
+        if visuals.active_count() != selected:
+            push_error("При зуме исчезли реальные животные")
+            quit(1)
+            return
+        for key in zoom_actors:
+            if not visuals._visible.has(key) \
+                    or visuals._visible[key] != zoom_actors[key]:
+                push_error("При зуме пересоздана модель: " + str(key))
+                quit(1)
+                return
     var previous := {}
     for key in visuals._visible:
         previous[key] = (visuals._visible[key] as Node3D).position
@@ -609,6 +646,9 @@ func _check() -> void:
         "contact_sound_3d": true,
         "no_phantom_contact_sound": true,
         "fauna_inspection_spot": true,
+        "zoom_keeps_actors": true,
+        "imported_forward_fixed": true,
+        "mesh_bbox_8_corners": true,
         "no_attack_without_visible_prey": true,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"

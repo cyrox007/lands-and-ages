@@ -706,7 +706,7 @@ func _process(delta: float) -> void:
         actor.set_motion("ходьба")
 
 
-func refresh(center: Vector2, camera_width: float,
+func refresh(center: Vector2, _camera_width: float,
         delta: float = UPDATE_INTERVAL) -> void:
     # Пересоздание не допускается каждый кадр. Число узлов строго
     # ограничено, а при отсутствии ассета вид остаётся невидимым.
@@ -718,7 +718,11 @@ func refresh(center: Vector2, camera_width: float,
         return
     _elapsed = 0.0
     _last_population_day = wildlife.last_day
-    var radius := minf(MAX_RENDER_RANGE, camera_width * 0.62)
+    # Масштаб камеры не должен удалять уже существующих животных.
+    # Число скелетов по-прежнему ограничено MAX_VISIBLE, а небольшой
+    # постоянный радиус защищает от мерцания при приближении и задержке
+    # потоковой камеры, пока подгружаются чанки поверхности.
+    var radius := MAX_RENDER_RANGE
     var desired := {}
     var ranked: Array[Dictionary] = _nearest_candidates(center, radius)
     for i in range(mini(MAX_VISIBLE, ranked.size())):

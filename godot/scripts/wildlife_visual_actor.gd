@@ -60,8 +60,14 @@ func configure(species_name: String, scene: PackedScene,
         _visual.queue_free()
         _visual = null
         return false
-    # Высота настоящего меша определяет масштаб конкретного вида,
-    # чтобы корова не оказалась меньше зайца при общем масштабе.
+    # Импортированные glTF/GLB смотрят лицом вдоль +Z, тогда
+    # как направление движения игрового Node3D — вдоль -Z.
+    # Поворачиваем только визуальный меш: координаты клетки,
+    # траектория и физический реестр не изменяются.
+    _visual.rotation.y += PI
+    # Высоту измеряем по всем восьми углам каждого меша.
+    # Два угла по центральной оси давали неверный рост у
+    # наклонённых или повёрнутых импортированных скелетов.
     var lowest := INF
     var highest := -INF
     for candidate in meshes:
@@ -69,26 +75,35 @@ func configure(species_name: String, scene: PackedScene,
         if mesh_node.mesh == null:
             continue
         var box: AABB = mesh_node.mesh.get_aabb()
-        # Вычисляем локальную цепочку костей и мешей без
-        # global_transform: актёр может ещё не быть в SceneTree.
+        # Собираем трансформации от меша до импортированного
+        # корня, не требуя размещения актёра в SceneTree.
         var local_to_root := Transform3D.IDENTITY
         var cursor: Node3D = mesh_node
         while cursor != null and cursor != _visual:
             local_to_root = cursor.transform * local_to_root
             cursor = cursor.get_parent() as Node3D
-        for y in [box.position.y, box.end.y]:
-            var height: float = (local_to_root * Vector3(
-                box.get_center().x, y, box.get_center().z)).y
+        for corner in range(8):
+            var point := Vector3(
+                box.end.x if (corner & 1) != 0 else box.position.x,
+                box.end.y if (corner & 2) != 0 else box.position.y,
+                box.end.z if (corner & 4) != 0 else box.position.z)
+            var height: float = (local_to_root * point).y
             lowest = minf(lowest, height)
             highest = maxf(highest, height)
-    if is_finite(highest - lowest) and highest - lowest > 0.001:
-        _visual.scale *= target_height / (highest - lowest)
-    # Старый FBX-конвертер Gobkit сохраняет меш в сантиметрах
-    # с масштабом узла 100. В Godot его Skin после импортирования
-    # дополнительно усиливает перемещения костей; ограничиваем
-    # визуальный масштаб, не вмешиваясь в настоящий Skeleton3D.
-    if source == "Gobkit":
-        _visual.scale *= 0.013
+    if not is_finite(highest - lowest) or highest - lowest <= 0.001:
+        _visual.queue_free()
+        _visual = null
+        return false
+    # Gobkit использует старую FBX-конверсию с отдельным
+    # масштабом деформации Skin; сохраняем проверенную поправку
+    # для этих четырёх GLB, а рост других видов измеряем точно.
+    var source_scale := 0.013 if source == "Gobkit" else 1.0
+    var factor: float = target_height / (highest - lowest) * source_scale
+    _visual.scale *= factor
+    # Привязываем нижнюю точку меша к поверхности клетки.
+    # Иначе импортированный pivot оставлял зверя над грунтом
+    # или прятал его лапы под землёй.
+    _visual.position.y -= lowest * factor
     # Длинный единый клип допускает нарезку на действия.
     # Отдельные idle/walk/attack/death нельзя перематывать
     # по временным отрезкам от другой анимации.
