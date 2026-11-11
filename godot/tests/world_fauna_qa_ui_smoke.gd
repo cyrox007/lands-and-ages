@@ -49,9 +49,9 @@ func _run() -> void:
     # через FoodWeb. Ни камера, ни звук не создают добычу.
     var region: Vector2i = spot["region"]
     var prey_kind := str(spot["prey"])
-    var count_before := view._wildlife.population_at(region, prey_kind)
+    var count_before: int = view._wildlife.population_at(region, prey_kind)
     hunt.pressed.emit()
-    var count_after := view._wildlife.population_at(region, prey_kind)
+    var count_after: int = view._wildlife.population_at(region, prey_kind)
     if count_before - count_after != 1 \
             or view._fauna_qa_day != view._food_web.last_day:
         push_error("Приёмочная кнопка не завершила физический захват добычи")
