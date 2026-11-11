@@ -195,13 +195,13 @@ func inspection_spot() -> Dictionary:
                 var distance := Vector2(hunter_cell - prey_cell).length_squared()
                 if distance >= score:
                     continue
-                    # Ближайшая физическая пара выбрана один раз
-                    # без создания фиктивного контакта или охоты.
-                    score = distance
-                    best = {"region": region, "predator": hunter_kind,
-                        "prey": chosen, "distance": sqrt(distance),
-                        "center": (Vector2(hunter_cell + prey_cell) \
-                            + Vector2.ONE) * 0.5}
+                # Ближайшая физическая пара выбрана один раз
+                # без создания фиктивного контакта или охоты.
+                score = distance
+                best = {"region": region, "predator": hunter_kind,
+                    "prey": chosen, "distance": sqrt(distance),
+                    "center": (Vector2(hunter_cell + prey_cell) \
+                        + Vector2.ONE) * 0.5}
     return best
 
 
