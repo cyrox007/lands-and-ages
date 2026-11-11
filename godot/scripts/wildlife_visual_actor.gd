@@ -18,6 +18,8 @@ var _packed := false
 var _master := ""
 var _elapsed := 0.0
 var _visual: Node3D
+var _contact_player: AudioStreamPlayer3D
+var contact_sound_plays := 0
 
 
 func configure(species_name: String, scene: PackedScene,
@@ -182,6 +184,56 @@ func attack_duration() -> float:
             if animation != null and is_finite(animation.length):
                 return maxf(0.1, animation.length)
     return 0.0
+
+
+static func _contact_audio() -> AudioStreamWAV:
+    # Короткий приглушённый шум соприкосновения создаём один раз
+    # для видимого актёра. Не выдаём его за голос какого-либо
+    # животного и не используем внешние файлы без лицензии.
+    var clip := AudioStreamWAV.new()
+    clip.format = AudioStreamWAV.FORMAT_16_BITS
+    clip.mix_rate = 16000
+    clip.stereo = false
+    var frames := 2400
+    var samples := PackedByteArray()
+    samples.resize(frames * 2)
+    var filtered_noise := 0.0
+    for i in range(frames):
+        # Затухание убирает резкий щелчок на конце, а низкий тон
+        # и фильтрованный шорох дают короткий негромкий контакт.
+        var time := float(i) / float(clip.mix_rate)
+        var progress := float(i) / float(frames)
+        var envelope := pow(1.0 - progress, 3.0)
+        var noise_value := sin(float(i) * 12.9898 + 31.4) * 43758.5453
+        var random_value := (noise_value - floorf(noise_value)) * 2.0 - 1.0
+        filtered_noise = lerpf(filtered_noise, random_value, 0.12)
+        var low := sin(TAU * (110.0 * time - 70.0 * time * time))
+        var sample := clampi(roundi((0.50 * low + 0.24 * filtered_noise)
+            * envelope * 11000.0), -32768, 32767)
+        # AudioStreamWAV хранит PCM16 little-endian: сначала
+        # младший байт, затем старший, без преобразования в текст.
+        samples[i * 2] = sample & 255
+        samples[i * 2 + 1] = (sample >> 8) & 255
+    clip.data = samples
+    return clip
+
+
+func play_contact_sound() -> bool:
+    # Источник 3D находится на самом хищнике, не в центре камеры.
+    # Без SceneTree не запускаем звук. Генерация выполняется лишь
+    # при первом подтверждённом визуальном контакте.
+    if not is_inside_tree():
+        return false
+    if _contact_player == null:
+        _contact_player = AudioStreamPlayer3D.new()
+        _contact_player.name = "ContactSound"
+        _contact_player.volume_db = -18.0
+        _contact_player.max_distance = 24.0
+        _contact_player.stream = _contact_audio()
+        add_child(_contact_player)
+    _contact_player.play()
+    contact_sound_plays += 1
+    return true
 
 
 func motion_time() -> float:
