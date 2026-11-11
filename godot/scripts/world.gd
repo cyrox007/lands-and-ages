@@ -87,6 +87,7 @@ var _food_web: RefCounted
 var _wildlife_visuals
 var _fauna_audio_listener: AudioListener3D
 var _fauna_inspection_status: Label
+var _fauna_qa_day := -1
 var _harvest: RefCounted
 var _domestic: RefCounted
 var _animal_status: Label
@@ -572,6 +573,12 @@ func _setup_interface() -> void:
 	fauna_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	fauna_button.pressed.connect(_focus_fauna)
 	column.add_child(fauna_button)
+	var fauna_hunt_button := Button.new()
+	fauna_hunt_button.name = "Испытание охоты 12.9"
+	fauna_hunt_button.text = "Проверить охоту: расходует 1 живую добычу"
+	fauna_hunt_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fauna_hunt_button.pressed.connect(_exercise_fauna_hunt)
+	column.add_child(fauna_hunt_button)
 	_fauna_inspection_status = Label.new()
 	_fauna_inspection_status.name = "Статус осмотра фауны"
 	_fauna_inspection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -812,6 +819,57 @@ func _toggle_debug() -> void:
 	_debug_details.visible = not _debug_details.visible
 	_details_toggle.text = "Скрыть диагностику" if _debug_details.visible \
 		else "Показать диагностику"
+	_update_hud()
+
+
+func _exercise_fauna_hunt() -> void:
+	# Приёмочный сценарий запускается только по явному нажатию
+	# кнопки, расходует реально доступную добычу через FoodWeb
+	# и не подменяет физический захват анимацией.
+	if _wildlife_visuals == null or _food_web == null or _wildlife == null:
+		return
+	if _day_task_id >= 0 or _days_pending > 0 or _benchmark_running \
+			or not _storage_request.is_empty() or _fire_demo_active():
+		_fauna_inspection_status.text = "Сначала завершите расчёт физического мира"
+		return
+	if _fauna_qa_day == _food_web.last_day:
+		_fauna_inspection_status.text = "Один проверочный захват уже был. Перейдите на следующий физический день."
+		return
+	var spot: Dictionary = _wildlife_visuals.inspection_spot()
+	if spot.is_empty():
+		_fauna_inspection_status.text = "Нет доступной добычи для проверки"
+		return
+	var region: Vector2i = spot["region"]
+	var hunter_kind := str(spot["predator"])
+	var prey_kind := str(spot["prey"])
+	var key := "%s:%d:%d" % [hunter_kind, region.x, region.y]
+	var prey_key := "%s:%d:%d" % [prey_kind, region.x, region.y]
+	# Сначала игрок должен открыть участок с существующими
+	# визуальными особями. Невидимых животных не перемещаем.
+	if not _wildlife_visuals._visible.has(key) \
+			or not _wildlife_visuals._visible.has(prey_key):
+		_fauna_inspection_status.text = "Сначала нажмите «Найти животных» и дождитесь загрузки"
+		return
+	var hunter_move: Dictionary = _wildlife_visuals._movement.get(key, {})
+	var prey_move: Dictionary = _wildlife_visuals._movement.get(prey_key, {})
+	if hunter_move.is_empty() or prey_move.is_empty() \
+			or bool(hunter_move.get("walking", false)) \
+			or bool(prey_move.get("walking", false)) \
+			or float(hunter_move.get("attack", 0.0)) > 0.0:
+		_fauna_inspection_status.text = "Дождитесь завершения текущих движений животных"
+		return
+	var captured: Array[Dictionary] = []
+	if _food_web._feed(region, hunter_kind, 1, captured) != 1 \
+			or captured.is_empty():
+		_fauna_inspection_status.text = "Физический захват не выполнен: доступной добычи нет"
+		return
+	_fauna_qa_day = _food_web.last_day
+	# Событие передаётся отдельно от календарного last_hunts,
+	# чтобы диагностика не переигрывала прошлую охоту в те же сутки.
+	var reacted: int = _wildlife_visuals.react_hunts(captured)
+	_fauna_inspection_status.text = "Физически захвачена 1 особь (%s). Визуальная погоня: %s. Мир изменён; для повтора нужны новые сутки." % [
+		str(captured[0]["prey"]), "запущена" if reacted > 0 \
+		else "не началась (расстояние или состояние животных)"]
 	_update_hud()
 
 
