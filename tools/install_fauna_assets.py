@@ -47,8 +47,12 @@ LOCAL_SPECIES = {
     # Права на них сохраняются за владельцем Lands and Ages.
     "кабан": ("Boar_LandsAndAges.glb", None, "LandsAndAges"),
     "дикий гусь": ("Goose_LandsAndAges.glb", None, "LandsAndAges"),
+    "заяц": ("Hare_LandsAndAges.glb", None, "LandsAndAges"),
+    "дикая курица": ("Hen_LandsAndAges.glb", None, "LandsAndAges"),
+    "дикая кошка": ("Cat_LandsAndAges.glb", None, "LandsAndAges"),
 }
-# Оставшиеся внешние виды доступны как скелетные CC0 GLB.
+# Остальные виды также получили собственные скелеты вместо общего
+# четырёхногого рига, ранее использованного для зайца и курицы.
 # Их точные адреса берём из официального CC0-манифеста, а не
 # угадываем по имени файла и не подменяем чужим животным.
 GOBKIT_SPECIES = {
@@ -58,10 +62,11 @@ GOBKIT_SPECIES = {
 # Хеши взяты из реально импортированных GLB Godot CI.
 # Любая замена файла требует новой графической и лицензионной приёмки.
 PINNED_SHA256 = {
-    "Hare.glb": "3342949e3b124441d4ac8a7bdffd93835c90752bfe0f3b7785a6cdd8f5b99cfb",
+    "Hare_LandsAndAges.glb": "e75b7da4e8bccac0cf5924104f19d1ac023e2d277122f143c19711fb1d9cb886",
     "Goose_LandsAndAges.glb": "44483cf32a602056c0e872b96e81b64648349e1bebc8a1d6a0ddc9c2110d6905",
     "Boar_LandsAndAges.glb": "c8b48ff10b3a6b24474ef25db861a68186951600be786c9bbb6a4f116c3fdc0a",
-    "Rooster.glb": "9c8a1c07418653dc0f1ede704934c9ef89a0735c1ed44ec755a97aae0c15e9a6",
+    "Hen_LandsAndAges.glb": "dbfc8cb766ad0fabb006949dcda0514a59448c6f00902e742afa1d966162fade",
+    "Cat_LandsAndAges.glb": "8e1067519bd89995e243097d51dd179b83da62a5bba5dbf04a4f789625e790ff",
 }
 GOBKIT_MANIFEST = "https://gobkit.com/api/free"
 MAX_BYTES = 40 * 1024 * 1024
@@ -189,7 +194,7 @@ def install(check_only: bool) -> None:
     if check_only and provenance.exists():
         existing = json.loads(provenance.read_text(encoding="utf-8")).get(
             "models", {})
-    models = {**ASSETS, **resolve_gobkit(check_only), **LOCAL_SPECIES}
+    models = {**ASSETS, **LOCAL_SPECIES}
     manifest = {"license": "mixed: CC0-1.0 and project-owned", "models": {}}
     for kind, (filename, url, author) in models.items():
         target = DESTINATION / filename
@@ -221,13 +226,23 @@ def install(check_only: bool) -> None:
         # Проверяем обязательные видовые кости, а не только файл и MeshInstance3D.
         # Это исключает возврат скелета кабана при импорте птицы.
         if author == "LandsAndAges":
-            nodes = {str(node.get("name", "")) for node in gltf.get("nodes", [])}
-            expected = ({"Neck", "Head", "Beak", "WingLeft", "WingRight",
-                         "LegLeft", "LegRight"} if kind == "дикий гусь"
-                        else {"Snout", "TuskLeft", "TuskRight",
-                              "LegFrontLeft", "LegFrontRight",
-                              "LegBackLeft", "LegBackRight"})
-            if not expected.issubset(nodes) or len(gltf["animations"]) < 4:
+            # Контроль видовых костей не позволит снова подключить
+            # один кабаний риг для птиц, зайца и кошки.
+            anatomy = {
+                "дикий гусь": {"Neck", "Head", "Beak", "WingLeft",
+                               "WingRight", "LegLeft", "LegRight"},
+                "кабан": {"Snout", "TuskLeft", "TuskRight",
+                          "LegFrontLeft", "LegFrontRight",
+                          "LegBackLeft", "LegBackRight"},
+                "заяц": {"Head", "EarLeft", "EarRight",
+                         "LegFrontLeft", "LegBackLeft", "Tail"},
+                "дикая курица": {"Neck", "Head", "Beak",
+                                 "WingLeft", "WingRight", "LegLeft", "LegRight"},
+                "дикая кошка": {"Head", "EarLeft", "EarRight",
+                                "LegFrontLeft", "LegBackLeft", "Tail"},
+            }
+            names = {str(node.get("name", "")) for node in gltf.get("nodes", [])}
+            if not anatomy[kind].issubset(names) or len(gltf["animations"]) < 4:
                 raise ValueError("Нет видовой анатомии/анимаций: " + kind)
         if not target.exists():
             target.write_bytes(data)

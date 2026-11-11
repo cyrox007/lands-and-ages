@@ -126,17 +126,23 @@ func set_motion(next: String) -> void:
     # отдельного run/gallop нет, используем настоящий walk,
     # а не придумываем анимацию или двигаем статичный куб.
     var action := next if next in ["покой", "ходьба", "бег",
-        "атака", "смерть"] else "покой"
+        "кормление", "тревога", "атака", "смерть"] else "покой"
     if state == action and _elapsed > 0.0:
         return
     state = action
     _elapsed = 0.0
     if _packed:
+        # У временных единых клипов Gobkit отдельных действий кормления
+        # и тревоги нет — корректно показываем исходный покой.
+        if action in ["кормление", "тревога"]:
+            state = "покой"
         _player.play(_master)
         _player.pause()
         return
     var target: Array = {"покой": ["idle"], "ходьба": ["walk", "gallop"],
         "бег": ["run", "gallop", "sprint", "walk"],
+        "кормление": ["eating", "eat", "graze"],
+        "тревога": ["alert", "warn", "idle"],
         "атака": ["attack", "bite"], "смерть": ["death", "dead", "die"]}[action]
     var selection := ""
     for name in _player.get_animation_list():

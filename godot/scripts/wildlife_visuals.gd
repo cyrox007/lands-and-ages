@@ -39,12 +39,14 @@ const MODELS := {
     "корова": {"file": "Cow.gltf", "source": "Quaternius", "height": 1.4},
     "собака": {"file": "Husky.gltf", "source": "Quaternius", "height": 0.7},
     "кабан": {"file": "Boar_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.9},
-    # Остальные модели Gobkit пока ожидают отдельной художественной приёмки.
-    "заяц": {"file": "Hare.glb", "source": "Gobkit", "height": 0.48},
+    # Для птиц и млекопитающих используются разные видовые скелеты.
+    "заяц": {"file": "Hare_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.48},
     "дикий гусь": {"file": "Goose_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.72},
     "гусь": {"file": "Goose_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.72},
-    "курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46},
-    "дикая курица": {"file": "Rooster.glb", "source": "Gobkit", "height": 0.46}
+    "курица": {"file": "Hen_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.46},
+    "дикая курица": {"file": "Hen_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.46},
+    "дикая кошка": {"file": "Cat_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.55},
+    "кошка": {"file": "Cat_LandsAndAges.glb", "source": "LandsAndAges", "height": 0.55}
 }
 
 var world: RefCounted
@@ -116,7 +118,7 @@ func _population(region: Vector2i, kind: String) -> int:
         return predators.count_at(region, kind)
     # Домашняя особь должна действительно пройти племенные
     # поколения и находиться на существующем хозяйственном дворе.
-    if kind in ["корова", "собака", "курица", "гусь"]:
+    if kind in ["корова", "собака", "курица", "гусь", "кошка"]:
         if domestic == null or domestic.site.x < 0 \
                 or region != world.config.region_of(domestic.site):
             return 0
@@ -467,6 +469,10 @@ func _start_flee(key: String, danger: Vector2i) -> bool:
     var cell: Vector2i = movement["cell"]
     var next: Vector2i = _flee_target(movement, danger)
     if next == cell:
+        # При отсутствии безопасного пути зверь замирает в тревоге.
+        # Это только скелетная реакция на опасность, без телепортации.
+        (_visible[key] as Node3D).set_motion("тревога")
+        movement["rest"] = 1.0
         return false
     var actor := _visible[key] as Node3D
     var flat := Vector2(float(next.x) + 0.5, float(next.y) + 0.5)
@@ -650,6 +656,7 @@ func _process(delta: float) -> void:
                 # принудительный скачок меша нарушал лимит пути
                 # за кадр и выглядел бы как микротелепортация.
                 movement["cell"] = movement["next"]
+                var was_fleeing := bool(movement.get("flee", false))
                 movement["walking"] = false
                 movement["flee"] = false
                 if bool(movement.get("chase", false)):
@@ -684,7 +691,17 @@ func _process(delta: float) -> void:
                         actor.set_motion("покой")
                 else:
                     movement["rest"] = 1.4
-                    actor.set_motion("покой")
+                    # Животные, питающиеся растительностью, могут
+                    # анимированно пастись во время обычного отдыха.
+                    # Визуализация не списывает физические запасы корма.
+                    var kind := str(actor.get("species"))
+                    var forager := kind in ["олень", "тур", "корова",
+                        "кабан", "заяц", "дикий гусь", "гусь",
+                        "дикая курица", "курица"]
+                    # После бегства возвращаем обычный покой, а не
+                    # начинаем пастись рядом с ещё опасным участком.
+                    actor.set_motion("кормление" if forager and not was_fleeing
+                        else "покой")
             continue
         movement["rest"] = maxf(0.0, float(movement["rest"]) - frame_time)
         if float(movement["rest"]) > 0.0:
@@ -693,6 +710,12 @@ func _process(delta: float) -> void:
         movement["step"] = int(movement["step"]) + 1
         if next == movement["cell"]:
             movement["rest"] = 2.5
+            # Без доступного шага остаёмся в текущей клетке;
+            # для травоядных это естественный визуальный выпас.
+            if str(actor.get("species")) in ["олень", "тур", "корова",
+                    "кабан", "заяц", "дикий гусь", "гусь",
+                    "дикая курица", "курица"]:
+                actor.set_motion("кормление")
             continue
         var flat := Vector2(float(next.x) + 0.5, float(next.y) + 0.5)
         var target: Vector3 = world.config.to_scene(

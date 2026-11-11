@@ -186,22 +186,25 @@
       ]
     },
     "заяц": {
-      "file": "Hare.glb",
-      "author": "Gobkit",
-      "download_url": "https://gobkit.com/freebies/animal006/Hare.glb",
-      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
-      "license": "CC0-1.0",
+      "file": "Hare_LandsAndAges.glb",
+      "author": "LandsAndAges",
+      "download_url": null,
+      "source": "tools/build_missing_fauna.mjs",
+      "license": "Авторская модель Lands and Ages",
       "skins": 1,
-      "joints": 16,
+      "joints": 11,
       "animations": [
-        "idle",
-        "attack",
-        "dead",
-        "walk"
+        "Idle",
+        "Walk",
+        "Run",
+        "Eating",
+        "Alert",
+        "Attack",
+        "Death"
       ],
-      "sha256": "3342949e3b124441d4ac8a7bdffd93835c90752bfe0f3b7785a6cdd8f5b99cfb",
+      "sha256": "e75b7da4e8bccac0cf5924104f19d1ac023e2d277122f143c19711fb1d9cb886",
       "files": [
-        "Hare.glb"
+        "Hare_LandsAndAges.glb"
       ]
     },
     "дикий гусь": {
@@ -223,23 +226,48 @@
         "Goose_LandsAndAges.glb"
       ]
     },
-    "курица": {
-      "file": "Rooster.glb",
-      "author": "Gobkit",
-      "download_url": "https://gobkit.com/freebies/birds/Rooster.glb",
-      "source": "https://gobkit.itch.io/gobkit-free-animal-pack-vol-2",
-      "license": "CC0-1.0",
+    "дикая курица": {
+      "file": "Hen_LandsAndAges.glb",
+      "author": "LandsAndAges",
+      "download_url": null,
+      "source": "tools/build_missing_fauna.mjs",
+      "license": "Авторская модель Lands and Ages",
       "skins": 1,
-      "joints": 16,
+      "joints": 10,
       "animations": [
-        "idle",
-        "attack",
-        "dead",
-        "walk"
+        "Idle",
+        "Walk",
+        "Run",
+        "Eating",
+        "Alert",
+        "Attack",
+        "Death"
       ],
-      "sha256": "9c8a1c07418653dc0f1ede704934c9ef89a0735c1ed44ec755a97aae0c15e9a6",
+      "sha256": "dbfc8cb766ad0fabb006949dcda0514a59448c6f00902e742afa1d966162fade",
       "files": [
-        "Rooster.glb"
+        "Hen_LandsAndAges.glb"
+      ]
+    },
+    "дикая кошка": {
+      "file": "Cat_LandsAndAges.glb",
+      "author": "LandsAndAges",
+      "download_url": null,
+      "source": "tools/build_missing_fauna.mjs",
+      "license": "Авторская модель Lands and Ages",
+      "skins": 1,
+      "joints": 11,
+      "animations": [
+        "Idle",
+        "Walk",
+        "Run",
+        "Eating",
+        "Alert",
+        "Attack",
+        "Death"
+      ],
+      "sha256": "8e1067519bd89995e243097d51dd179b83da62a5bba5dbf04a4f789625e790ff",
+      "files": [
+        "Cat_LandsAndAges.glb"
       ]
     }
   }

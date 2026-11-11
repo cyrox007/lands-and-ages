@@ -6,6 +6,7 @@ on:
     paths:
       - "tools/install_fauna_assets.py"
       - "tools/build_authored_fauna.mjs"
+      - "tools/build_missing_fauna.mjs"
       - "tools/check_fauna_silhouettes.py"
       - "godot/assets/fauna/**"
       - "godot/scripts/wildlife_visual_actor.gd"
@@ -30,6 +31,7 @@ jobs:
           # Отсутствие ресурсов — ошибка комплектации, а не теста.
           python3 tools/install_fauna_assets.py --check
           node tools/build_authored_fauna.mjs --check
+          node tools/build_missing_fauna.mjs --check
           python3 tools/check_fauna_silhouettes.py
       - name: "Установка Godot 4.7.2"
         run: |
