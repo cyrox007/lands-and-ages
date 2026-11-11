@@ -9,7 +9,9 @@ const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 
 const ROOT := "res://assets/fauna/"
 const MAX_VISIBLE := 16
-const MAX_RENDER_RANGE := 42.0
+const MIN_RENDER_RANGE := 80.0
+const MAX_RENDER_RANGE := 128.0
+const MAX_OVERVIEW_SCALE := 2.0
 const UPDATE_INTERVAL := 0.60
 const LOCAL_WALK_SPEED := 0.85
 const FLEE_SPEED := 2.40
@@ -706,23 +708,43 @@ func _process(delta: float) -> void:
         actor.set_motion("ходьба")
 
 
-func refresh(center: Vector2, _camera_width: float,
+static func _render_radius(camera_size: float) -> float:
+    # Область обзора растёт при отдалении. Старый предел 42 клетки
+    # обрезал животных, хотя широкий изометрический кадр их ещё
+    # показывал. На близком зуме сохраняем запас для устойчивости.
+    return clampf(maxf(MIN_RENDER_RANGE, camera_size * 1.2),
+        MIN_RENDER_RANGE, MAX_RENDER_RANGE)
+
+
+static func _overview_scale(camera_size: float) -> float:
+    # На обзорном расстоянии маленькие 3D-животные занимают всего
+    # несколько пикселей. Увеличиваем только видимый актёр, чтобы
+    # не потерять его на карте. При близком зуме рост физический;
+    # взаимные пропорции видов сохраняются во всех режимах.
+    return lerpf(1.0, MAX_OVERVIEW_SCALE,
+        smoothstep(24.0, 105.0, camera_size))
+
+
+func refresh(center: Vector2, camera_size: float,
         delta: float = UPDATE_INTERVAL) -> void:
     # Пересоздание не допускается каждый кадр. Число узлов строго
     # ограничено, а при отсутствии ассета вид остаётся невидимым.
     if world == null or wildlife == null or predators == null:
         return
+    # Масштаб обзора меняется сразу при зуме, даже если очередная
+    # проверка региональных популяций ещё не наступила (0.6 с).
+    var visual_factor := _overview_scale(camera_size)
+    for existing_actor in _visible.values():
+        (existing_actor as Node3D).scale = Vector3.ONE * visual_factor
     _elapsed += delta
     if _elapsed < UPDATE_INTERVAL \
             and _last_population_day == wildlife.last_day:
         return
     _elapsed = 0.0
     _last_population_day = wildlife.last_day
-    # Масштаб камеры не должен удалять уже существующих животных.
-    # Число скелетов по-прежнему ограничено MAX_VISIBLE, а небольшой
-    # постоянный радиус защищает от мерцания при приближении и задержке
-    # потоковой камеры, пока подгружаются чанки поверхности.
-    var radius := MAX_RENDER_RANGE
+    # Выбираем животных внутри области, которую может показать
+    # камера при текущем зуме; максимум узлов остаётся прежним.
+    var radius := _render_radius(camera_size)
     var desired := {}
     var ranked: Array[Dictionary] = _nearest_candidates(center, radius)
     for i in range(mini(MAX_VISIBLE, ranked.size())):
@@ -749,6 +771,7 @@ func refresh(center: Vector2, _camera_width: float,
         var cell: Vector2i = entry["cell"]
         var flat := Vector2(float(cell.x) + 0.5, float(cell.y) + 0.5)
         actor.position = world.config.to_scene(flat, world.height_at(flat))
+        actor.scale = Vector3.ONE * visual_factor
         actor.rotation.y = Terrain.hash2(cell.x, cell.y,
             world.config.world_seed + kind.hash()) * TAU
         # Графические движения не инициируют охоту и не меняют
