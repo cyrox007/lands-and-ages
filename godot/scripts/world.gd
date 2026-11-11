@@ -85,6 +85,9 @@ var _industry: RefCounted
 var _wildlife: RefCounted
 var _food_web: RefCounted
 var _wildlife_visuals
+var _fauna_audio_listener: AudioListener3D
+var _fauna_inspection_status: Label
+var _fauna_qa_day := -1
 var _harvest: RefCounted
 var _domestic: RefCounted
 var _animal_status: Label
@@ -317,6 +320,13 @@ func _ready() -> void:
 	_camera.size = 66.0
 	_camera.current = true
 	add_child(_camera)
+	# Изометрическая камера находится высоко над миром. Слушатель
+	# располагается у поверхности наблюдаемой клетки, чтобы
+	# пространственный звук животных не затухал из-за высоты камеры.
+	_fauna_audio_listener = AudioListener3D.new()
+	_fauna_audio_listener.name = "Приёмник звуков фауны"
+	add_child(_fauna_audio_listener)
+	_fauna_audio_listener.make_current()
 	# Графика животных существует только около камеры. Её создание
 	# не прибавляет особей и не вмешивается в физический календарь.
 	_wildlife_visuals = WildlifeVisuals.new()
@@ -555,6 +565,25 @@ func _setup_interface() -> void:
 	_showcase_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_showcase_text.text = "Лес · река · горы · побережье"
 	column.add_child(_showcase_text)
+	# Приёмка 12.9 доступна сразу: ищем уже существующую
+	# региональную пару и перемещаем к ней только камеру.
+	var fauna_button := Button.new()
+	fauna_button.name = "FaunaInspect"
+	fauna_button.text = "Найти животных для проверки"
+	fauna_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fauna_button.pressed.connect(_focus_fauna)
+	column.add_child(fauna_button)
+	var fauna_hunt_button := Button.new()
+	fauna_hunt_button.name = "FaunaHuntQA"
+	fauna_hunt_button.text = "Проверить охоту: расходует 1 живую добычу"
+	fauna_hunt_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fauna_hunt_button.pressed.connect(_exercise_fauna_hunt)
+	column.add_child(fauna_hunt_button)
+	_fauna_inspection_status = Label.new()
+	_fauna_inspection_status.name = "Статус осмотра фауны"
+	_fauna_inspection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_fauna_inspection_status.text = "Осмотр не запускался; мир не изменён"
+	column.add_child(_fauna_inspection_status)
 	# Игрок может запустить настоящую цепочку из физического сырья.
 	# Работа идёт по календарю, а не по нажатию декоративной кнопки.
 	var economy_button := Button.new()
@@ -793,6 +822,98 @@ func _toggle_debug() -> void:
 	_update_hud()
 
 
+func _exercise_fauna_hunt() -> void:
+	# Приёмочный сценарий запускается только по явному нажатию
+	# кнопки, расходует реально доступную добычу через FoodWeb
+	# и не подменяет физический захват анимацией.
+	if _wildlife_visuals == null or _food_web == null or _wildlife == null:
+		return
+	if _day_task_id >= 0 or _days_pending > 0 or _benchmark_running \
+			or not _storage_request.is_empty() or _fire_demo_active():
+		_fauna_inspection_status.text = "Сначала завершите расчёт физического мира"
+		return
+	if _fauna_qa_day == _food_web.last_day:
+		_fauna_inspection_status.text = "Один проверочный захват уже был. Перейдите на следующий физический день."
+		return
+	var spot: Dictionary = _wildlife_visuals.inspection_spot()
+	if spot.is_empty():
+		_fauna_inspection_status.text = "Нет доступной добычи для проверки"
+		return
+	var region: Vector2i = spot["region"]
+	var hunter_kind := str(spot["predator"])
+	var prey_kind := str(spot["prey"])
+	var key := "%s:%d:%d" % [hunter_kind, region.x, region.y]
+	var prey_key := "%s:%d:%d" % [prey_kind, region.x, region.y]
+	# Сначала игрок должен открыть участок с существующими
+	# визуальными особями. Невидимых животных не перемещаем.
+	if not _wildlife_visuals._visible.has(key) \
+			or not _wildlife_visuals._visible.has(prey_key):
+		_fauna_inspection_status.text = "Сначала нажмите «Найти животных» и дождитесь загрузки"
+		return
+	var hunter_move: Dictionary = _wildlife_visuals._movement.get(key, {})
+	var prey_move: Dictionary = _wildlife_visuals._movement.get(prey_key, {})
+	if hunter_move.is_empty() or prey_move.is_empty() \
+			or bool(hunter_move.get("walking", false)) \
+			or bool(prey_move.get("walking", false)) \
+			or float(hunter_move.get("attack", 0.0)) > 0.0:
+		_fauna_inspection_status.text = "Дождитесь завершения текущих движений животных"
+		return
+	var captured: Array[Dictionary] = []
+	if _food_web._feed(region, hunter_kind, 1, captured) != 1 \
+			or captured.is_empty():
+		_fauna_inspection_status.text = "Физический захват не выполнен: доступной добычи нет"
+		return
+	_fauna_qa_day = _food_web.last_day
+	# Событие передаётся отдельно от календарного last_hunts,
+	# чтобы диагностика не переигрывала прошлую охоту в те же сутки.
+	var reacted: int = _wildlife_visuals.react_hunts(captured)
+	_fauna_inspection_status.text = "Физически захвачена 1 особь (%s). Визуальная погоня: %s. Мир изменён; для повтора нужны новые сутки." % [
+		str(captured[0]["prey"]), "запущена" if reacted > 0 \
+		else "не началась (расстояние или состояние животных)"]
+	_update_hud()
+
+
+func _focus_fauna() -> void:
+	# Функция выбирает реально населённый участок, не создавая
+	# тестовых животных и не меняя календарь природной симуляции.
+	if _world_model == null or _wildlife_visuals == null:
+		return
+	if _benchmark_running or _day_task_id >= 0 or _days_pending > 0 \
+			or not _storage_request.is_empty() or _fire_demo_active():
+		_fauna_inspection_status.text = "Сначала завершите расчёт мира"
+		return
+	if _wildlife_visuals.available_models() == 0:
+		_fauna_inspection_status.text = "Модели фауны не установлены: tools/install_fauna_assets.py"
+		return
+	var spot: Dictionary = _wildlife_visuals.inspection_spot()
+	if spot.is_empty():
+		_fauna_inspection_status.text = "Нет видимой пары живых хищников и добычи"
+		return
+	# При удалённом переходе подгружаем необходимые чанки.
+	# Самих зверей не переносим и физическую численность не трогаем.
+	var old_sparse := _detail_for_zoom(_camera.size) \
+		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	_center = _world_model.config.clamp_point(spot["center"])
+	_camera.size = clampf(maxf(32.0, float(spot["distance"]) * 2.0 + 12.0),
+		MIN_ZOOM, 66.0)
+	_pan_delta = Vector2.ZERO
+	_pan_pending = false
+	_view_mode = 0
+	_update_camera()
+	_apply_visual_budget()
+	_update_material_detail()
+	var sparse := _detail_for_zoom(_camera.size) \
+		< NatureRenderer.SPARSE_GROUND_COVER_DETAIL
+	if _loading_layer != null:
+		_loading_label.text = "Открываем реальную фауну"
+		_loading_layer.show()
+	_refresh_visible(old_sparse != sparse)
+	_wildlife_visuals.refresh(_center, _camera.size, 1.0)
+	_fauna_inspection_status.text = "Регион %s: %s и %s. Здесь можно наблюдать скелетную ходьбу и смену физических суток." % [
+		str(spot["region"]), str(spot["predator"]), str(spot["prey"])]
+	_update_hud()
+
+
 func _next_showcase_view() -> void:
 	# Прогулка не запускает физические события и не изменяет мир.
 	# Во время расчёта суток или фонового теста остаёмся в
@@ -860,6 +981,12 @@ func _update_camera() -> void:
 	var offset := Vector3(45.0, 63.0, 45.0)
 	_camera.position = Vector3(_center.x, 0.0, _center.y) + offset
 	_camera.look_at(Vector3(_center.x, 0.0, _center.y), Vector3.UP)
+	if _fauna_audio_listener != null:
+		# Звук слушаем у земли в центре обзора, но оставляем
+		# направление стереопанорамы таким же, как у камеры.
+		_fauna_audio_listener.position = _world_model.config.to_scene(
+			_center, _world_model.height_at(_center))
+		_fauna_audio_listener.rotation = _camera.rotation
 
 
 func _process(delta: float) -> void:

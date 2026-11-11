@@ -5,6 +5,7 @@ extends Node3D
 const Actor = preload("res://scripts/wildlife_visual_actor.gd")
 const Paths = preload("res://scripts/world_resource_path.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 
 const ROOT := "res://assets/fauna/"
 const MAX_VISIBLE := 16
@@ -147,6 +148,61 @@ func _position(region: Vector2i, kind: String,
         if Paths.walkable(world, hydro, surface, cell):
             return cell
     return Vector2i(-1, -1)
+
+
+func inspection_spot() -> Dictionary:
+    # Для ручного осмотра ищем существующие пары хищника и
+    # травоядного. Камера перемещается, а животные и популяции —
+    # нет. Если в мире нет живой пары, возвращаем пустой ответ.
+    if world == null or wildlife == null or predators == null:
+        return {}
+    var best: Dictionary = {}
+    var score := INF
+    var regions: Vector2i = world.config.region_count()
+    for ry in range(regions.y):
+        for rx in range(regions.x):
+            var region := Vector2i(rx, ry)
+            for hunter_kind in ["волк", "лиса"]:
+                if predators.count_at(region, hunter_kind) <= 0 \
+                        or not ResourceLoader.exists(ROOT \
+                            + str(MODELS[hunter_kind]["file"])):
+                    continue
+                var hunter_cell := _position(region, hunter_kind, Vector2.ZERO)
+                if hunter_cell.x < 0:
+                    continue
+                # Повторяем тот же критерий давления добычи,
+                # что FoodWeb._feed: диагностический реальный
+                # захват впоследствии выберет именно этот вид.
+                var chosen := ""
+                var pressure_max := -1.0
+                for prey_kind in FoodWeb.SPECIES[hunter_kind]["prey"]:
+                    var species := str(prey_kind)
+                    var available: int = predators._huntable(region, species)
+                    if available <= 0:
+                        continue
+                    var capacity := maxi(1, wildlife.capacity_at(region, species))
+                    var pressure := float(available) / float(capacity)
+                    if pressure > pressure_max:
+                        pressure_max = pressure
+                        chosen = species
+                if chosen.is_empty() or not MODELS.has(chosen) \
+                        or not ResourceLoader.exists(ROOT \
+                            + str(MODELS[chosen]["file"])):
+                    continue
+                var prey_cell := _position(region, chosen, Vector2.ZERO)
+                if prey_cell.x < 0:
+                    continue
+                var distance := Vector2(hunter_cell - prey_cell).length_squared()
+                if distance >= score:
+                    continue
+                # Ближайшая физическая пара выбрана один раз
+                # без создания фиктивного контакта или охоты.
+                score = distance
+                best = {"region": region, "predator": hunter_kind,
+                    "prey": chosen, "distance": sqrt(distance),
+                    "center": (Vector2(hunter_cell + prey_cell) \
+                        + Vector2.ONE) * 0.5}
+    return best
 
 
 func _nearest_candidates(center: Vector2,
@@ -468,18 +524,22 @@ func react_hazards(hazards: Array) -> int:
     return reacted
 
 
-func react_hunts() -> int:
-    # Только завершённые физические поедания FoodWeb могут
-    # вызвать жест атаки. Ни добычу, ни само преследование
-    # графика не создаёт; далёкие хищники не получают Node3D.
+func react_hunts(confirmed: Array[Dictionary] = []) -> int:
+    # Обычный календарь передаёт последний завершённый FoodWeb.
+    # Ручной диагностический захват может передать новые события
+    # успешного _feed в тот же день без повторного проигрывания
+    # старой охоты. Визуализация сама не списывает животных.
     if world == null or wildlife == null or predators == null:
         return 0
-    if predators.last_day != wildlife.last_day \
-            or predators.last_day <= _last_hunt_day:
+    if predators.last_day != wildlife.last_day:
+        return 0
+    if confirmed.is_empty() and predators.last_day <= _last_hunt_day:
         return 0
     _last_hunt_day = predators.last_day
+    var hunts: Array[Dictionary] = confirmed if not confirmed.is_empty() \
+        else predators.last_hunts
     var reacted := 0
-    for hunt in predators.last_hunts:
+    for hunt in hunts:
         if not (hunt is Dictionary) \
                 or not (hunt.get("region") is Vector2i) \
                 or int(hunt.get("count", 0)) <= 0:

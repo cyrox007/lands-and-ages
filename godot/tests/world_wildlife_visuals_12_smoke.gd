@@ -152,6 +152,22 @@ func _check() -> void:
     var visuals := Visuals.new()
     get_root().add_child(visuals)
     visuals.configure(world, hydro, ground, fauna, predators)
+    # Ручной осмотр находит настоящие стада, но никогда не
+    # изменяет их физическую численность ради демонстрации.
+    var inspection_before: Dictionary = fauna.to_data()
+    var spot: Dictionary = visuals.inspection_spot()
+    print("STAGE12-INSPECTION-DIAG: ", JSON.stringify({
+        "spot": str(spot), "available_models": visuals.available_models(),
+        "same_fauna": fauna.to_data() == inspection_before,
+        "predators": predators.total()
+    }))
+    if spot.is_empty() \
+            or fauna.population_at(spot["region"], str(spot["prey"])) <= 0 \
+            or predators.count_at(spot["region"], str(spot["predator"])) <= 0 \
+            or fauna.to_data() != inspection_before:
+        push_error("Осмотр не нашёл реальную пару животных без изменения мира")
+        quit(1)
+        return
     var center := Vector2(128.0, 96.0)
     var radius := minf(Visuals.MAX_RENDER_RANGE, 66.0 * 0.62)
     visuals.refresh(center, 66.0, 1.0)
@@ -592,6 +608,7 @@ func _check() -> void:
         "attack_facing_prey": true,
         "contact_sound_3d": true,
         "no_phantom_contact_sound": true,
+        "fauna_inspection_spot": true,
         "no_attack_without_visible_prey": true,
         "stale_pursuit_guard": true,
         "rendering": "реальные GLTF/GLB; ручная визуальная приёмка ещё нужна"
