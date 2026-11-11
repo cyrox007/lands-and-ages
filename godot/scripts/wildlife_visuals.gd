@@ -469,6 +469,10 @@ func _start_flee(key: String, danger: Vector2i) -> bool:
     var cell: Vector2i = movement["cell"]
     var next: Vector2i = _flee_target(movement, danger)
     if next == cell:
+        # При отсутствии безопасного пути зверь замирает в тревоге.
+        # Это только скелетная реакция на опасность, без телепортации.
+        (_visible[key] as Node3D).set_motion("тревога")
+        movement["rest"] = 1.0
         return false
     var actor := _visible[key] as Node3D
     var flat := Vector2(float(next.x) + 0.5, float(next.y) + 0.5)
@@ -686,7 +690,14 @@ func _process(delta: float) -> void:
                         actor.set_motion("покой")
                 else:
                     movement["rest"] = 1.4
-                    actor.set_motion("покой")
+                    # Животные, питающиеся растительностью, могут
+                    # анимированно пастись во время обычного отдыха.
+                    # Визуализация не списывает физические запасы корма.
+                    var kind := str(actor.get("species"))
+                    var forager := kind in ["олень", "тур", "корова",
+                        "кабан", "заяц", "дикий гусь", "гусь",
+                        "дикая курица", "курица"]
+                    actor.set_motion("кормление" if forager else "покой")
             continue
         movement["rest"] = maxf(0.0, float(movement["rest"]) - frame_time)
         if float(movement["rest"]) > 0.0:
@@ -695,6 +706,12 @@ func _process(delta: float) -> void:
         movement["step"] = int(movement["step"]) + 1
         if next == movement["cell"]:
             movement["rest"] = 2.5
+            # Без доступного шага остаёмся в текущей клетке;
+            # для травоядных это естественный визуальный выпас.
+            if str(actor.get("species")) in ["олень", "тур", "корова",
+                    "кабан", "заяц", "дикий гусь", "гусь",
+                    "дикая курица", "курица"]:
+                actor.set_motion("кормление")
             continue
         var flat := Vector2(float(next.x) + 0.5, float(next.y) + 0.5)
         var target: Vector3 = world.config.to_scene(
