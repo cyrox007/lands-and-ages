@@ -34,6 +34,7 @@ func bind_industry(production: RefCounted) -> void:
     industry = production
     if industry != null:
         industry.road_tiles = _roads
+        _refresh_ports()
 
 
 static func _id(seed: int, cell: Vector2i) -> String:
@@ -82,6 +83,7 @@ func sync_workshop() -> bool:
         return false
     _buildings.append({"id": settlement_id + ":мастерская",
         "kind": WORKSHOP, "x": center.x, "y": center.y})
+    _refresh_ports()
     return true
 
 
@@ -114,7 +116,55 @@ func build_storage(cell: Vector2i) -> bool:
         return false
     _buildings.append({"id": settlement_id + ":склад",
         "kind": STORAGE, "x": cell.x, "y": cell.y})
+    _refresh_ports()
     return true
+
+
+func port_for(kind: String) -> Vector2i:
+    # Вход в мастерскую или малый склад расположен строго за стеной.
+    # Сначала предпочитаем оплаченную дорогу, затем ближайшую к центру
+    # доступную клетку. Декоративный меш не влияет на выбор входа.
+    if industry == null or not has_workshop():
+        return Vector2i(-1, -1)
+    for building in _buildings:
+        if str(building["kind"]) != kind:
+            continue
+        var at := Vector2i(int(building["x"]), int(building["y"]))
+        var footprint := Rect2i(at, Vector2i.ONE)
+        var bounds := Rect2i(Vector2i.ZERO,
+            Vector2i(world.config.width, world.config.height))
+        var best := Vector2i(-1, -1)
+        var score := 100000
+        for candidate in Topology.perimeter(footprint, bounds):
+            if occupies(candidate) or not Paths.walkable(
+                    world, industry.hydro, industry.surface, candidate) \
+                    or industry.nature.intersects_solid(
+                        Vector2(candidate) + Vector2(0.5, 0.5), 0.35):
+                continue
+            var distance := absi(candidate.x - center.x) \
+                + absi(candidate.y - center.y)
+            var priority := distance + (0 if _roads.has(candidate) else 100)
+            if priority < score:
+                best = candidate
+                score = priority
+        return best
+    return Vector2i(-1, -1)
+
+
+func _refresh_ports() -> void:
+    # Фундаменты исключаются из поиска путей, а порт выбирается из
+    # геометрии того же физического реестра. Не создаём отдельный склад.
+    if industry == null:
+        return
+    industry.blocked_tiles.clear()
+    for item in _buildings:
+        var cell := Vector2i(int(item["x"]), int(item["y"]))
+        industry.blocked_tiles[cell] = true
+    var port := port_for(STORAGE) if has_storage() else port_for(WORKSHOP)
+    if port.x < 0:
+        port = port_for(WORKSHOP)
+    if port.x >= 0:
+        industry.set_home_port(port)
 
 
 func roads() -> Array[Vector2i]:
@@ -167,6 +217,9 @@ func build_road(cell: Vector2i) -> bool:
             or not industry.construct("участок дороги"):
         return false
     _roads[cell] = true
+    # Новое покрытие может открыть более удобный дверной порт.
+    # Путь активного перевозчика пересчитывается без телепортации.
+    _refresh_ports()
     return true
 
 
@@ -306,4 +359,5 @@ func load_data(data: Dictionary) -> bool:
     center = cell
     settlement_id = expected
     _buildings = accepted
+    _refresh_ports()
     return true

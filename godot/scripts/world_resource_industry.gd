@@ -28,6 +28,8 @@ var stock: Dictionary = {}
 var completed: Dictionary = {}
 var delivery: Dictionary = {}
 var road_tiles: Dictionary = {}
+var blocked_tiles: Dictionary = {}
+var home_port := Vector2i(-1, -1)
 var last_event := "Хозяйственный участок не создан"
 
 
@@ -53,6 +55,22 @@ func activate(cell: Vector2i) -> bool:
     return true
 
 
+func _home() -> Vector2i:
+    # До постройки и у старых сохранений ещё нет физического входа.
+    # После привязки поселения все новые маршруты идут от порта.
+    return home_port if home_port.x >= 0 else site
+
+
+func set_home_port(cell: Vector2i) -> bool:
+    # Порт должен быть на суше и снаружи физических зданий.
+    # Положение перевозчика в процессе доставки НЕ меняется.
+    if site.x < 0 or blocked_tiles.has(cell) \
+            or not Paths.walkable(world, hydro, surface, cell):
+        return false
+    home_port = cell
+    return true
+
+
 func _schedule(kind: String, source_id: String,
         tree_id: int, target: Vector2i, amount: int,
         length: int) -> bool:
@@ -62,11 +80,12 @@ func _schedule(kind: String, source_id: String,
             or amount > MAX_DELIVERY or length < 1 \
             or length > MAX_PENDING_STEPS:
         return false
+    var origin := _home()
     delivery = {
         "kind": kind, "source_id": source_id,
         "tree_id": tree_id, "amount": amount,
         "target": [target.x, target.y],
-        "position": [site.x, site.y],
+        "position": [origin.x, origin.y],
         "length": length, "left": length, "phase": "туда"
     }
     last_event = "Перевозчик отправился за ресурсом: " + kind
@@ -80,6 +99,7 @@ func order_deposit(kind: String, amount: int) -> bool:
             or site.x < 0 or not delivery.is_empty():
         return false
     var best: Dictionary = {}
+    var origin := _home()
     var best_length := MAX_PENDING_STEPS + 1
     for item in deposits.to_data().get("sources", []):
         if str(item["kind"]) != kind or int(item["remaining_units"]) < amount:
@@ -87,10 +107,10 @@ func order_deposit(kind: String, amount: int) -> bool:
         var target := Vector2i(int(item["x"]), int(item["y"]))
         # Манхэттенова оценка не бывает длиннее реального маршрута:
         # отсеиваем только заведомо неулучшающие кандидаты.
-        if absi(target.x - site.x) + absi(target.y - site.y) >= best_length:
+        if absi(target.x - origin.x) + absi(target.y - origin.y) >= best_length:
             continue
         var route: Array[Vector2i] = Paths.find(
-            world, hydro, surface, site, target, road_tiles)
+            world, hydro, surface, origin, target, road_tiles, blocked_tiles)
         if route.is_empty() or route.size() >= best_length:
             continue
         best = item
@@ -110,12 +130,13 @@ func order_wood(amount: int) -> bool:
             or site.x < 0 or not delivery.is_empty():
         return false
     var candidates: Array = []
+    var origin := _home()
     for object in nature.to_data().get("objects", []):
         if str(object[1]) != "дерево" \
                 or int(object[7]) + int(object[8]) < amount:
             continue
         var cell := Vector2i(int(object[3]), int(object[4]))
-        var estimate := absi(cell.x - site.x) + absi(cell.y - site.y)
+        var estimate := absi(cell.x - origin.x) + absi(cell.y - origin.y)
         candidates.append({"id": int(object[0]), "cell": cell,
             "distance": estimate})
     candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
@@ -132,11 +153,11 @@ func order_wood(amount: int) -> bool:
         var tree: Vector2i = entry["cell"]
         for direction in DIRECTIONS:
             var target: Vector2i = tree + direction
-            var lower := absi(target.x - site.x) + absi(target.y - site.y)
+            var lower := absi(target.x - origin.x) + absi(target.y - origin.y)
             if lower >= best_length:
                 continue
             var route: Array[Vector2i] = Paths.find(
-                world, hydro, surface, site, target, road_tiles)
+                world, hydro, surface, origin, target, road_tiles, blocked_tiles)
             if route.is_empty() or route.size() >= best_length:
                 continue
             best_id = int(entry["id"])
@@ -199,13 +220,13 @@ func advance_day(day: int) -> void:
             continue
         var point: Array = delivery["position"]
         var current := Vector2i(int(point[0]), int(point[1]))
-        var target: Vector2i = site
+        var target: Vector2i = _home()
         if delivery["phase"] == "туда":
             var pair: Array = delivery["target"]
             target = Vector2i(int(pair[0]), int(pair[1]))
         if current != target:
             var path: Array[Vector2i] = Paths.find(
-                world, hydro, surface, current, target, road_tiles)
+                world, hydro, surface, current, target, road_tiles, blocked_tiles)
             if path.is_empty():
                 last_event = "Перевозчик задержан: природный маршрут перекрыт"
                 continue
