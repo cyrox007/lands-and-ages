@@ -1,10 +1,13 @@
-name: "13.0–13.5 — поселение, размещение и регрессии"
+name: "13.0–13.6 — физическое поселение и 3D-центр"
 
 on:
   pull_request:
     branches: [develop]
     paths:
       - "godot/scripts/world_settlement.gd"
+      - "godot/scripts/world_headquarters_rules.gd"
+      - "godot/scripts/world_headquarters_visual.gd"
+      - "godot/scripts/natural_resource_recipes.gd"
       - "godot/scripts/world_build_picker.gd"
       - "godot/scripts/world_settlement_visual.gd"
       - "godot/scripts/world_save.gd"
@@ -14,6 +17,7 @@ on:
       - "godot/scripts/world_resource_path.gd"
       - "godot/scripts/world_road_topology.gd"
       - "godot/tests/world_settlement_13_smoke.gd"
+      - "art/reference/headquarters/**"
       - "godot/tests/world_build_picker_13_smoke.gd"
       - "godot/tests/world_stage13_multiseed_smoke.gd"
       - ".github/workflows/godot-stage13-settlement.yml"
@@ -38,7 +42,7 @@ jobs:
           timeout 160s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
             --headless --path godot --editor --import --quit 2>&1 | tee /tmp/import.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" /tmp/import.log; then exit 1; fi
-      - name: "Территория, мастерская, оплаченный склад, коллизии и WorldSave"
+      - name: "Поселение, 3D-центр I–IV, строительство, повреждения и WorldSave"
         run: |
           set -o pipefail
           timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \

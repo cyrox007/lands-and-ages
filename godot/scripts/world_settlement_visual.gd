@@ -1,6 +1,8 @@
 extends Node3D
 ## Вид мастерской всегда восстанавливается из физического реестра.
 
+const HeadquartersVisual = preload("res://scripts/world_headquarters_visual.gd")
+
 const WORKSHOP_SIZE := Vector3(0.90, 0.95, 0.90)
 const STORAGE_SIZE := Vector3(0.85, 0.62, 0.85)
 const ROAD_SIZE := Vector3(0.96, 0.06, 0.96)
@@ -23,6 +25,13 @@ func rebuild(settlement: RefCounted, map: RefCounted) -> void:
             == settlement.STORAGE else Color(0.64, 0.33, 0.22)
         _add_building(map, Vector2i(int(item["x"]), int(item["y"])),
             str(item["kind"]), size, color)
+    # Полноценный центр остаётся отдельным физическим зданием 2×2.
+    # Стадии и уровни определяются реестром, а не удалённым WebP.
+    var headquarters: Dictionary = settlement.headquarters_state()
+    if not headquarters.is_empty():
+        var building := HeadquartersVisual.new()
+        building.rebuild(map, headquarters)
+        add_child(building)
     # Каждая оплаченная дорога — отдельная физическая поверхность,
     # расположенная на реальной высоте земли, а не пиксельная линия.
     for cell in settlement.roads():

@@ -39,6 +39,7 @@ const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const Settlement = preload("res://scripts/world_settlement.gd")
+const Headquarters = preload("res://scripts/world_headquarters_rules.gd")
 const BuildPicker = preload("res://scripts/world_build_picker.gd")
 const SettlementVisual = preload("res://scripts/world_settlement_visual.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
@@ -751,6 +752,11 @@ func _setup_interface() -> void:
 	_debug_details.add_child(produce_button)
 	var consumer_select := OptionButton.new()
 	var consumer_ids := ResourceRecipes.CONSUMERS.keys()
+	# Главный центр и его восстановление оплачиваются отдельным
+	# заказом с проверкой 2×2, чтобы нельзя было купить пустую запись.
+	for type in Headquarters.CONSUMERS.slice(1):
+		consumer_ids.erase(type)
+	consumer_ids.erase(Headquarters.REPAIR)
 	consumer_ids.sort()
 	_industry_building = str(consumer_ids[0])
 	for name in consumer_ids:
@@ -774,6 +780,24 @@ func _setup_interface() -> void:
 	road_button.text = "Выбрать место дороги (3 покрытия)"
 	road_button.pressed.connect(_build_settlement_road)
 	_debug_details.add_child(road_button)
+	# У центра четыре клетки фундамента; улучшения сохраняют то же
+	# строение и не создают второй независимый городской склад.
+	var center_button := Button.new()
+	center_button.text = "Разместить центр поселения 2×2"
+	center_button.pressed.connect(_build_headquarters)
+	_debug_details.add_child(center_button)
+	var upgrade_button := Button.new()
+	upgrade_button.text = "Улучшить центр до следующего уровня"
+	upgrade_button.pressed.connect(_upgrade_headquarters)
+	_debug_details.add_child(upgrade_button)
+	var repair_button := Button.new()
+	repair_button.text = "Восстановить повреждённый центр"
+	repair_button.pressed.connect(_repair_headquarters)
+	_debug_details.add_child(repair_button)
+	var damage_button := Button.new()
+	damage_button.text = "Испытать повреждение центра (тест)"
+	damage_button.pressed.connect(_test_headquarters_damage)
+	_debug_details.add_child(damage_button)
 	var cancel_build_button := Button.new()
 	cancel_build_button.text = "Отменить размещение (Esc)"
 	cancel_build_button.pressed.connect(_cancel_build_placement)
@@ -2545,6 +2569,10 @@ func _begin_build_placement(kind: String) -> void:
 		_storage_status = "Малый склад уже построен"
 		_update_hud()
 		return
+	if kind == "центр поселения" and _settlement.has_headquarters():
+		_storage_status = "Центр поселения уже существует"
+		_update_hud()
+		return
 	_placement_kind = kind
 	_placement_touch_moved = false
 	if _placement_marker != null:
@@ -2568,10 +2596,16 @@ func _mark_build_cell(cell: Vector2i, valid: bool) -> void:
 		_placement_marker = MeshInstance3D.new()
 		_placement_marker.name = "Выбранная площадка строительства"
 		var mesh := BoxMesh.new()
-		mesh.size = Vector3(0.88, 0.10, 0.88)
 		_placement_marker.mesh = mesh
 		add_child(_placement_marker)
-	var flat := Vector2(cell) + Vector2(0.5, 0.5)
+	# У первого центра четыре клетки 2×2. Подсветка должна совпадать
+	# с настоящим строительным фундаментом, а не с одной клеткой.
+	var span: float = 1.88 if _placement_kind == "центр поселения" \
+		else 0.88
+	var extent: BoxMesh = _placement_marker.mesh
+	extent.size = Vector3(span, 0.10, span)
+	var offset := 1.0 if _placement_kind == "центр поселения" else 0.5
+	var flat := Vector2(cell) + Vector2(offset, offset)
 	_placement_marker.position = _world_model.config.to_scene(
 		flat, _world_model.height_at(flat) + 0.20)
 	var material := StandardMaterial3D.new()
@@ -2604,9 +2638,13 @@ func _confirm_build_placement(screen: Vector2) -> void:
 		_storage_status = "%s: %s" % [cell, reason]
 		_update_hud()
 		return
-	var success: bool = bool(_settlement.build_storage(cell)) \
-		if _placement_kind == Settlement.STORAGE \
-		else bool(_settlement.build_road(cell))
+	var success := false
+	if _placement_kind == Settlement.STORAGE:
+		success = bool(_settlement.build_storage(cell))
+	elif _placement_kind == "центр поселения":
+		success = bool(_settlement.build_headquarters(cell))
+	else:
+		success = bool(_settlement.build_road(cell))
 	_mark_build_cell(cell, success)
 	if not success:
 		_storage_status = "Не удалось завершить заказ: проверьте материалы"
@@ -2616,7 +2654,7 @@ func _confirm_build_placement(screen: Vector2) -> void:
 		_sync_first_economy_visual()
 		# Дорогу можно продолжить следующим тапом, а второй склад
 		# поставить нельзя — завершаем режим после первого склада.
-		if _placement_kind == Settlement.STORAGE:
+		if _placement_kind in [Settlement.STORAGE, "центр поселения"]:
 			_placement_kind = ""
 	_update_hud()
 
@@ -2629,6 +2667,51 @@ func _build_settlement_road() -> void:
 func _build_settlement_storage() -> void:
 	# Игрок указывает место склада; стоимость оплачивается после клика.
 	_begin_build_placement(Settlement.STORAGE)
+
+
+func _build_headquarters() -> void:
+	# Только выбираем физическую площадку центра. Расход ресурсов
+	# происходит после клика по четырём допустимым клеткам.
+	_begin_build_placement("центр поселения")
+
+
+func _upgrade_headquarters() -> void:
+	# Центр улучшается на месте; следующую ступень оплачивает
+	# существующее производство, не выдавая кирпичи из воздуха.
+	if not _industry_action_allowed() or _settlement == null:
+		_storage_status = "Дождитесь окончания расчёта хозяйства"
+	elif not _settlement.upgrade_headquarters():
+		_storage_status = "Нужен готовый центр, технология и материалы следующего уровня"
+	else:
+		_storage_status = "Улучшение оплачено · работы продлятся 8 игровых дней"
+		_sync_first_economy_visual()
+	_update_hud()
+
+
+func _repair_headquarters() -> void:
+	# Восстанавливаем имеющийся разрушенный/повреждённый центр,
+	# не выдавая новый участок и не минуя списание материалов.
+	if not _industry_action_allowed() or _settlement == null:
+		_storage_status = "Дождитесь конца расчёта хозяйства"
+	elif not _settlement.repair_headquarters():
+		_storage_status = "Для ремонта нужны 2 блока, 2 раствора и повреждённый центр"
+	else:
+		_storage_status = "Ремонт оплачен · восстановление длится 8 дней"
+		_sync_first_economy_visual()
+	_update_hud()
+
+
+func _test_headquarters_damage() -> void:
+	# Это намеренный тест в техническом меню, а не имитация
+	# стихийного бедствия. Кнопка отнимает 45 прочности по запросу.
+	if not _industry_action_allowed() or _settlement == null:
+		_storage_status = "Испытание недоступно при расчёте физики"
+	elif not _settlement.damage_headquarters(45):
+		_storage_status = "Повреждать можно только завершённый центр"
+	else:
+		_storage_status = "Тест: центр получил 45 урона"
+		_sync_first_economy_visual()
+	_update_hud()
 
 
 func _industry_research() -> void:
@@ -2961,6 +3044,10 @@ func _complete_day(result: Dictionary) -> void:
 				# не запускаем нового перевозчика внутри её коллизии.
 				_settlement.bind_industry(_industry)
 		_industry.advance_day(_last_completed_day)
+	# Архитектурные стадии зависят только от календаря, обновляются
+	# после фона и не используют покадровый графический таймер.
+	if _settlement != null:
+		_settlement.advance_day(_last_completed_day)
 	# Обновляем вид после перемещения обоих рабочих за этот день;
 	# изображения не являются самостоятельной физикой.
 	_sync_first_economy_visual()
@@ -3306,6 +3393,16 @@ func _update_hud() -> void:
 		if _settlement != null and _settlement.established():
 			_economy_status.text += " · поселение %s · дорог %d" % [
 				_settlement.settlement_id, _settlement.roads().size()]
+			# Строительный этап, уровень и здоровье центра читаем из
+			# единого реестра, поэтому HUD не выдумывает готовность по времени.
+			var headquarters: Dictionary = _settlement.headquarters_state()
+			if not headquarters.is_empty():
+				_economy_status.text += " · центр %d→%d · %s · прочность %d%% · стадия %s" % [
+					int(headquarters["level"]), int(headquarters["target_level"]),
+					str(headquarters["state"]), int(headquarters["integrity"]),
+					Headquarters.visual_stage(headquarters)]
+			else:
+				_economy_status.text += " · главный центр ещё не построен"
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
 	var slowest: Dictionary = WorldFireDemo.slowest_phase(_last_day_profile_us)
 	var slow_text := " · медленнее всего: %s %.1f мс" % [
