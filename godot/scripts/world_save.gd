@@ -121,6 +121,12 @@ static func capture(state: Dictionary) -> Dictionary:
 	if settlement != null and settlement.established():
 		if economy == null or economy.phase == "ожидание":
 			return {}
+		# Снимок не может записать построенные дороги без оплаченного
+		# покрытия в том же атомарном производственном реестре.
+		if settlement.roads().size() > 0 and (industry == null \
+				or int(industry.completed.get("участок дороги", 0)) \
+				< settlement.roads().size()):
+			return {}
 		snapshot["settlement"] = settlement.to_data()
 	# Дикие популяции добавляются в снимок только после реальной
 	# генерации и обработки того же климатического дня.

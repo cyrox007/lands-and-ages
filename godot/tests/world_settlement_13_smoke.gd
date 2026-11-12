@@ -12,6 +12,8 @@ const Generation = preload("res://scripts/natural_resource_generation.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Settlement = preload("res://scripts/world_settlement.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
+const Topology = preload("res://scripts/world_road_topology.gd")
+const Paths = preload("res://scripts/world_resource_path.gd")
 const Visual = preload("res://scripts/world_settlement_visual.gd")
 const Weather = preload("res://scripts/weather_events.gd")
 const Natural = preload("res://scripts/natural_processes.gd")
@@ -148,7 +150,7 @@ func _verify() -> bool:
     if not industry.activate(economy.site):
         push_error("Не активирован производственный участок")
         return false
-    village.industry = industry
+    village.bind_industry(industry)
     var storage_cell := Vector2i(-1, -1)
     for distance in range(1, 4):
         if storage_cell.x >= 0:
@@ -190,14 +192,78 @@ func _verify() -> bool:
         push_error("Нет физического корпуса малого склада")
         return false
 
+    # Дорога — физический результат существующего рецепта. Сначала
+    # проверяем отсутствие бесплатной постройки, затем оплату покрытия.
+    var road_cell := Vector2i(-1, -1)
+    for side in Topology.SIDES:
+        var candidate: Vector2i = village.center + side
+        if village.can_build_road(candidate):
+            road_cell = candidate
+            break
+    if road_cell.x < 0:
+        push_error("На исходном участке нет достижимой дорожной клетки")
+        return false
+    if village.build_road(road_cell) or not village.roads().is_empty():
+        push_error("Дорога появилась без оплаченных материалов")
+        return false
+    industry.stock = {"дорожное покрытие": 3}
+    if not village.build_road(road_cell) or village.roads().size() != 1 \
+            or not industry.stock.is_empty() \
+            or int(industry.completed.get("участок дороги", 0)) != 1 \
+            or village.build_road(road_cell) or village.road_mask(road_cell) != 0:
+        push_error("Нет материальной дороги или нарушено списание")
+        return false
+
+    # Существующая дорога влияет на путь и скорость перевозчика;
+    # природная проверка проходимости при этом не отключается.
+    var path: Array[Vector2i] = Paths.find(
+        world, hydro, surface, village.center, road_cell, industry.road_tiles)
+    if path.size() != 1 or path[0] != road_cell:
+        push_error("Маршрут не использует готовую дорогу")
+        return false
+    var segment: Array[Vector2i] = []
+    var paved := {}
+    for x in range(16):
+        var point := Vector2i(x, 0)
+        segment.append(point)
+        paved[point] = true
+    if Industry.travel_steps(segment, {}) != Industry.STEPS_PER_DAY \
+            or Industry.travel_steps(segment, paved) != 16:
+        push_error("Дорога не ускоряет физический переход клеток")
+        return false
+
+    visual.rebuild(village, world)
+    var road_body := visual.get_node_or_null(
+        "Дорога %d_%d" % [road_cell.x, road_cell.y])
+    if not (road_body is StaticBody3D):
+        push_error("Отсутствует физическое дорожное полотно")
+        return false
+    var road_collision := road_body.get_node_or_null("CollisionShape3D")
+    if not (road_collision is CollisionShape3D) \
+            or not (road_collision.shape is BoxShape3D) \
+            or road_collision.shape.size != Visual.ROAD_SIZE:
+        push_error("Дорожное полотно не имеет размера и коллизии")
+        return false
+
     # Новый и старый формат восстановления сохраняют расход, объект
     # и координаты. Порченое положение должно заблокировать весь файл.
     var complete := Save.capture(state)
     var restored: Dictionary = Save.restore(complete)
     if complete.is_empty() or restored.is_empty() \
             or restored["settlement"].to_data() != village.to_data() \
-            or restored["economy"].to_data() != economy.to_data():
+            or restored["economy"].to_data() != economy.to_data() \
+            or restored["industry"].road_tiles.size() != 1:
         push_error("WorldSave изменил физическую постройку или запасы")
+        return false
+    bad = complete.duplicate(true)
+    bad["industry"]["completed"].erase("участок дороги")
+    if not Save.restore(bad).is_empty():
+        push_error("WorldSave принял бесплатную дорогу")
+        return false
+    bad = complete.duplicate(true)
+    bad["settlement"]["roads"][0] = [village.center.x, village.center.y]
+    if not Save.restore(bad).is_empty():
+        push_error("WorldSave принял дорогу через фундамент здания")
         return false
     bad = complete.duplicate(true)
     bad["settlement"]["buildings"][0]["x"] += 1

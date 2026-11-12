@@ -1,8 +1,12 @@
 extends RefCounted
 ## Постоянное поселение этапа 13; право на мастерскую подтверждает Economy.
 
+const Paths = preload("res://scripts/world_resource_path.gd")
+const Topology = preload("res://scripts/world_road_topology.gd")
+
 const VERSION := 1
 const RADIUS := 9
+const MAX_ROADS := 128
 const WORKSHOP := "кирпичная мастерская"
 const STORAGE := "малый склад"
 
@@ -12,6 +16,7 @@ var industry: RefCounted
 var settlement_id := ""
 var center := Vector2i(-1, -1)
 var _buildings: Array[Dictionary] = []
+var _roads: Dictionary = {}
 
 
 func _init(map: RefCounted, first_economy: RefCounted,
@@ -19,7 +24,16 @@ func _init(map: RefCounted, first_economy: RefCounted,
     # Не дублируем реестр глины, леса и кирпичей.
     world = map
     economy = first_economy
+    bind_industry(production)
+
+
+func bind_industry(production: RefCounted) -> void:
+    # Реестр дорог принадлежит поселению, перевозчики получают ссылку
+    # на него, а не независимую копию. При восстановлении всё связываем
+    # после загрузки оплаченных производственных записей.
     industry = production
+    if industry != null:
+        industry.road_tiles = _roads
 
 
 static func _id(seed: int, cell: Vector2i) -> String:
@@ -103,6 +117,59 @@ func build_storage(cell: Vector2i) -> bool:
     return true
 
 
+func roads() -> Array[Vector2i]:
+    # UI получает упорядоченный список, но не ссылку на реестр.
+    # Сортировка делает сериализацию независимой от истории вставки.
+    var cells: Array[Vector2i] = []
+    for cell in _roads:
+        cells.append(cell)
+    cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+        return a.y < b.y if a.y != b.y else a.x < b.x)
+    return cells
+
+
+func road_mask(cell: Vector2i) -> int:
+    # Геометрия соединений определяется только построенными дорогами.
+    return Topology.road_mask(_roads, cell)
+
+
+func _road_connected(cell: Vector2i, registry: Dictionary) -> bool:
+    # Первый участок начинается от мастерской; остальные продолжают
+    # реально существующую четырёхсвязную дорогу.
+    if absi(cell.x - center.x) + absi(cell.y - center.y) == 1:
+        return true
+    for side in Topology.SIDES:
+        if registry.has(cell + side):
+            return true
+    return false
+
+
+func can_build_road(cell: Vector2i) -> bool:
+    # Не допускаем дорог внутри зданий, в воде, на непроходимых склонах
+    # и сквозь объекты природы. Проверка не изменяет склад.
+    if not has_workshop() or industry == null or industry.site != center \
+            or _roads.size() >= MAX_ROADS or not within_territory(cell) \
+            or occupies(cell) or _roads.has(cell):
+        return false
+    if not Paths.walkable(world, industry.hydro, industry.surface, cell):
+        return false
+    if industry.nature.intersects_solid(
+            Vector2(cell) + Vector2(0.5, 0.5), 0.35):
+        return false
+    return _road_connected(cell, _roads)
+
+
+func build_road(cell: Vector2i) -> bool:
+    # Сначала проверяем физическое место, затем единым вызовом
+    # списываем три единицы уже изготовленного дорожного покрытия.
+    # Повторное нажатие не расходует продукцию и не удваивает участок.
+    if not can_build_road(cell) \
+            or not industry.construct("участок дороги"):
+        return false
+    _roads[cell] = true
+    return true
+
+
 func occupies(cell: Vector2i) -> bool:
     # Коллизия фундамента занимает одну клетку, территория — не коллизия.
     for item in _buildings:
@@ -124,8 +191,12 @@ func buildings() -> Array[Dictionary]:
 
 func to_data() -> Dictionary:
     # Не сохраняем графические узлы или временные маршруты.
+    var surfaces: Array = []
+    for cell in roads():
+        surfaces.append([cell.x, cell.y])
     return {"version": VERSION, "id": settlement_id,
-        "center": [center.x, center.y], "buildings": buildings()}
+        "center": [center.x, center.y], "buildings": buildings(),
+        "roads": surfaces}
 
 
 func load_data(data: Dictionary) -> bool:
@@ -186,7 +257,52 @@ func load_data(data: Dictionary) -> bool:
     if workshop_count != (1 if economy.built else 0) \
             or storage_count > 1:
         return false
-    # Отрицательный тест не должен менять уже существующее поселение.
+    # Старые сохранения не содержат roads. Новый раздел строго
+    # привязан к оплате каждого участка, доступному грунту и связности.
+    var roads_data: Variant = data.get("roads", [])
+    if not (roads_data is Array) or roads_data.size() > MAX_ROADS:
+        return false
+    var candidate_roads := {}
+    for pair_data in roads_data:
+        if not (pair_data is Array) or pair_data.size() != 2 \
+                or not _whole(pair_data[0]) or not _whole(pair_data[1]):
+            return false
+        var road_cell := Vector2i(int(pair_data[0]), int(pair_data[1]))
+        if candidate_roads.has(road_cell) \
+                or not world.config.contains_cell(road_cell) \
+                or absi(road_cell.x - cell.x) + absi(road_cell.y - cell.y) > RADIUS \
+                or occupied.has(road_cell):
+            return false
+        if industry == null or industry.site != cell \
+                or not Paths.walkable(world, industry.hydro, industry.surface, road_cell) \
+                or industry.nature.intersects_solid(
+                    Vector2(road_cell) + Vector2(0.5, 0.5), 0.35):
+            return false
+        candidate_roads[road_cell] = true
+    if not candidate_roads.is_empty():
+        if not economy.built or industry == null \
+                or int(industry.completed.get("участок дороги", 0)) \
+                    < candidate_roads.size():
+            return false
+        # Восстанавливаем лишь одну дорогу от мастерской без островов.
+        var seen := {}
+        seen[cell] = true
+        var queue: Array[Vector2i] = [cell]
+        var cursor := 0
+        while cursor < queue.size():
+            var current: Vector2i = queue[cursor]
+            cursor += 1
+            for side in Topology.SIDES:
+                var neighbor: Vector2i = current + side
+                if candidate_roads.has(neighbor) and not seen.has(neighbor):
+                    seen[neighbor] = true
+                    queue.append(neighbor)
+        if seen.size() != candidate_roads.size() + 1:
+            return false
+    # Не мутируем поселение до полной проверки всех построек и дорог.
+    _roads.clear()
+    for road_cell in candidate_roads:
+        _roads[road_cell] = true
     center = cell
     settlement_id = expected
     _buildings = accepted

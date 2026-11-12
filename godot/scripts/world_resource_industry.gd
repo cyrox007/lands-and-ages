@@ -27,6 +27,7 @@ var technology := 0
 var stock: Dictionary = {}
 var completed: Dictionary = {}
 var delivery: Dictionary = {}
+var road_tiles: Dictionary = {}
 var last_event := "Хозяйственный участок не создан"
 
 
@@ -89,7 +90,7 @@ func order_deposit(kind: String, amount: int) -> bool:
         if absi(target.x - site.x) + absi(target.y - site.y) >= best_length:
             continue
         var route: Array[Vector2i] = Paths.find(
-            world, hydro, surface, site, target)
+            world, hydro, surface, site, target, road_tiles)
         if route.is_empty() or route.size() >= best_length:
             continue
         best = item
@@ -135,7 +136,7 @@ func order_wood(amount: int) -> bool:
             if lower >= best_length:
                 continue
             var route: Array[Vector2i] = Paths.find(
-                world, hydro, surface, site, target)
+                world, hydro, surface, site, target, road_tiles)
             if route.is_empty() or route.size() >= best_length:
                 continue
             best_id = int(entry["id"])
@@ -171,6 +172,22 @@ func _collect() -> bool:
     return deposits.extract(id, amount) == amount
 
 
+static func travel_steps(path: Array[Vector2i], roads: Dictionary,
+        speed: int = STEPS_PER_DAY) -> int:
+    # Половинки затрат на шаг: грунт = 2, готовая дорога = 1.
+    # Поэтому дорога ускоряет движение, но никогда не телепортирует
+    # груз: каждую клетку маршрута всё равно проходим по очереди.
+    var budget := speed * 2
+    var steps := 0
+    for cell in path:
+        var cost := 1 if roads.has(cell) else 2
+        if budget < cost:
+            break
+        budget -= cost
+        steps += 1
+    return steps
+
+
 func advance_day(day: int) -> void:
     # Положение перевозчика пересчитывается каждый день. Паводок,
     # оползень и смена проходимости способны задержать доставку,
@@ -188,11 +205,11 @@ func advance_day(day: int) -> void:
             target = Vector2i(int(pair[0]), int(pair[1]))
         if current != target:
             var path: Array[Vector2i] = Paths.find(
-                world, hydro, surface, current, target)
+                world, hydro, surface, current, target, road_tiles)
             if path.is_empty():
                 last_event = "Перевозчик задержан: природный маршрут перекрыт"
                 continue
-            var steps := mini(STEPS_PER_DAY, path.size())
+            var steps := travel_steps(path, road_tiles)
             current = path[steps - 1]
             delivery["position"] = [current.x, current.y]
             delivery["left"] = maxi(0, path.size() - steps)
