@@ -24,8 +24,14 @@ func _init(map: RefCounted, first_economy: RefCounted,
     # Не дублируем реестр глины, леса и кирпичей.
     world = map
     economy = first_economy
+    bind_industry(production)
+
+
+func bind_industry(production: RefCounted) -> void:
+    # Реестр дорог принадлежит поселению, перевозчики получают ссылку
+    # на него, а не независимую копию. При восстановлении всё связываем
+    # после загрузки оплаченных производственных записей.
     industry = production
-    # У перевозчиков и поселения одна таблица дорог, без копий.
     if industry != null:
         industry.road_tiles = _roads
 
@@ -279,7 +285,8 @@ func load_data(data: Dictionary) -> bool:
                     < candidate_roads.size():
             return false
         # Восстанавливаем лишь одну дорогу от мастерской без островов.
-        var seen := {cell: true}
+        var seen := {}
+        seen[cell] = true
         var queue: Array[Vector2i] = [cell]
         var cursor := 0
         while cursor < queue.size():
