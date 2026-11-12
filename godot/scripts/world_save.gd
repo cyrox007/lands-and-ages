@@ -16,6 +16,7 @@ const Fire = preload("res://scripts/fire_registry.gd")
 const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
+const Settlement = preload("res://scripts/world_settlement.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const FoodWeb = preload("res://scripts/wildlife_food_web.gd")
 const Harvest = preload("res://scripts/wildlife_harvest.gd")
@@ -114,6 +115,13 @@ static func capture(state: Dictionary) -> Dictionary:
 		if industry.last_day != climate.day:
 			return {}
 		snapshot["industry"] = industry.to_data()
+	# Поселение хранится только вместе с настоящим строительным заказом.
+	# Отсутствующий раздел не меняет прежний формат WorldSave.
+	var settlement: RefCounted = state.get("settlement")
+	if settlement != null and settlement.established():
+		if economy == null or economy.phase == "ожидание":
+			return {}
+		snapshot["settlement"] = settlement.to_data()
 	# Дикие популяции добавляются в снимок только после реальной
 	# генерации и обработки того же климатического дня.
 	var wildlife: RefCounted = state.get("wildlife")
@@ -225,6 +233,11 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 	if snapshot.has("industry") and (not (snapshot["industry"] is Dictionary)
 			or not industry.load_data(snapshot["industry"], int(saved_day))):
 		return {}
+	# Поддельное здание отклоняем до возвращения новой модели миру.
+	var settlement := Settlement.new(world, economy)
+	if snapshot.has("settlement") and (not (snapshot["settlement"] is Dictionary)
+			or not settlement.load_data(snapshot["settlement"])):
+		return {}
 	# Старое сохранение остаётся доступно без автоматического
 	# появления животных. Существующий реестр читается атомарно.
 	var wildlife := Wildlife.new(world, hydro, surface, climate, nature)
@@ -259,7 +272,8 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 		"climate": climate, "weather": weather,
 		"natural": natural, "disasters": disasters,
 		"nature": nature, "fire": fire, "resources": resources,
-		"economy": economy, "industry": industry, "wildlife": wildlife,
+		"economy": economy, "industry": industry, "settlement": settlement,
+		"wildlife": wildlife,
 		"food_web": food_web, "harvest": harvest, "domestic": domestic,
 		"landscape": Landscape.new(world),
 		"runner": Runner.new(world, hydro, surface, climate,
