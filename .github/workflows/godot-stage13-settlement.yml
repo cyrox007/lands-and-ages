@@ -1,4 +1,4 @@
-name: "13.0–13.1 — поселение, мастерская и оплаченный склад"
+name: "13.0–13.2 — поселение, склад и материальные дороги"
 
 on:
   pull_request:
@@ -10,6 +10,8 @@ on:
       - "godot/scripts/world.gd"
       - "godot/scripts/world_first_economy.gd"
       - "godot/scripts/world_resource_industry.gd"
+      - "godot/scripts/world_resource_path.gd"
+      - "godot/scripts/world_road_topology.gd"
       - "godot/tests/world_settlement_13_smoke.gd"
       - ".github/workflows/godot-stage13-settlement.yml"
   workflow_dispatch:
@@ -49,3 +51,13 @@ jobs:
             2>&1 | tee /tmp/economy.log
           grep -q "STAGE12-ECONOMY: успешно" /tmp/economy.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/economy.log; then exit 1; fi
+
+      - name: "Регрессия производственного склада и реальных дорог"
+        run: |
+          set -o pipefail
+          timeout 240s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_resource_industry_12_smoke.gd \
+            2>&1 | tee /tmp/industry.log
+          grep -q "STAGE12-INDUSTRY: успешно" /tmp/industry.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/industry.log; then exit 1; fi
