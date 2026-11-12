@@ -103,16 +103,57 @@ func has_storage() -> bool:
     return false
 
 
+func can_build_storage(cell: Vector2i) -> bool:
+    # Проверка площадки не расходует материалы. Фундамент склада
+    # не может перекрыть уже оплаченную дорогу, здание или воду.
+    return has_workshop() and not has_storage() and industry != null \
+        and industry.site == center and within_territory(cell) \
+        and not occupies(cell) and not _roads.has(cell) \
+        and economy._buildable(cell)
+
+
+func placement_problem(kind: String, cell: Vector2i) -> String:
+    # Возвращаем причину запрета до изменения физического реестра.
+    # UI и автотесты пользуются одинаковыми правилами площадки.
+    if kind not in [STORAGE, "участок дороги"]:
+        return "Неизвестный тип постройки"
+    if not has_workshop() or industry == null or industry.site != center:
+        return "Сначала завершите кирпичную мастерскую"
+    if not world.config.contains_cell(cell):
+        return "Площадка вне границ карты"
+    if not within_territory(cell):
+        return "Площадка вне территории поселения"
+    if occupies(cell):
+        return "Здесь уже стоит здание"
+    if _roads.has(cell):
+        return "Клетка уже занята дорогой"
+    if kind == STORAGE:
+        if has_storage():
+            return "Малый склад уже построен"
+        if not can_build_storage(cell):
+            return "Для склада нужна сухая ровная площадка без препятствий"
+        if int(industry.stock.get("каменные блоки", 0)) < 2 \
+                or int(industry.stock.get("строительный раствор", 0)) < 2:
+            return "Для склада нужны 2 каменных блока и 2 раствора"
+        return ""
+    if not Paths.walkable(world, industry.hydro, industry.surface, cell) \
+            or industry.nature.intersects_solid(
+                Vector2(cell) + Vector2(0.5, 0.5), 0.35):
+        return "Дорога недопустима на воде, склоне или препятствии"
+    if _roads.size() >= MAX_ROADS:
+        return "Достигнут предел дорог поселения"
+    if not _road_connected(cell, _roads):
+        return "Дорога должна соединяться с мастерской или готовой дорогой"
+    if int(industry.stock.get("дорожное покрытие", 0)) < 3:
+        return "Для участка дороги нужны 3 единицы покрытия"
+    return ""
+
+
 func build_storage(cell: Vector2i) -> bool:
-    # До списания материалов проверяем место и существующую мастерскую.
-    # Отказ не должен менять ни склад сырья, ни реестр построек.
-    if not has_workshop() or has_storage() or industry == null \
-            or industry.site != center or not within_territory(cell) \
-            or occupies(cell) or not economy._buildable(cell):
-        return false
-    # Фундамент — существующий материальный потребитель этапа 12.
-    # Нельзя создать склад только потому, что игрок нажал кнопку.
-    if not industry.construct("каменный фундамент"):
+    # Строительство повторяет проверку физического места прямо
+    # перед атомарным списанием материалов из отраслевого склада.
+    if not can_build_storage(cell) \
+            or not industry.construct("каменный фундамент"):
         return false
     _buildings.append({"id": settlement_id + ":склад",
         "kind": STORAGE, "x": cell.x, "y": cell.y})

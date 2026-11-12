@@ -171,7 +171,14 @@ func _verify() -> bool:
     if village.build_storage(storage_cell) or village.has_storage():
         push_error("Склад появился без строительных материалов")
         return false
+    if village.placement_problem(Settlement.STORAGE, storage_cell) \
+            != "Для склада нужны 2 каменных блока и 2 раствора":
+        push_error("UI не сообщил реальную стоимость фундамента")
+        return false
     industry.stock = {"каменные блоки": 2, "строительный раствор": 2}
+    if not village.placement_problem(Settlement.STORAGE, storage_cell).is_empty():
+        push_error("Разрешённая площадка склада ошибочно запрещена")
+        return false
     if not village.build_storage(storage_cell) or not village.has_storage() \
             or industry.stock.size() != 0 \
             or village.build_storage(storage_cell) \
@@ -206,12 +213,29 @@ func _verify() -> bool:
     if village.build_road(road_cell) or not village.roads().is_empty():
         push_error("Дорога появилась без оплаченных материалов")
         return false
+    if village.placement_problem("участок дороги", road_cell) \
+            != "Для участка дороги нужны 3 единицы покрытия":
+        push_error("UI не сообщил недостающие дорожные материалы")
+        return false
     industry.stock = {"дорожное покрытие": 3}
+    if not village.placement_problem("участок дороги", road_cell).is_empty():
+        push_error("Разрешённая дорожная клетка ошибочно запрещена")
+        return false
     if not village.build_road(road_cell) or village.roads().size() != 1 \
             or not industry.stock.is_empty() \
             or int(industry.completed.get("участок дороги", 0)) != 1 \
             or village.build_road(road_cell) or village.road_mask(road_cell) != 0:
         push_error("Нет материальной дороги или нарушено списание")
+        return false
+    if village.placement_problem(Settlement.STORAGE, road_cell) \
+            != "Клетка уже занята дорогой" \
+            or village.placement_problem("участок дороги", road_cell) \
+                != "Клетка уже занята дорогой" \
+            or village.placement_problem("участок дороги", village.center) \
+                != "Здесь уже стоит здание" \
+            or village.placement_problem("участок дороги", Vector2i(-1, -1)) \
+                != "Площадка вне границ карты":
+        push_error("Размещение приняло занятую или выходящую за карту клетку")
         return false
 
     # Существующая дорога влияет на путь и скорость перевозчика;
