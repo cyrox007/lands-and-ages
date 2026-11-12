@@ -149,14 +149,23 @@ func _verify() -> bool:
         push_error("Не активирован производственный участок")
         return false
     village.industry = industry
-    var storage_cell := economy.site + Vector2i(1, 0)
-    var directions := [Vector2i(1, 0), Vector2i(0, 1),
-        Vector2i(-1, 0), Vector2i(0, -1)]
-    for direction in directions:
-        var candidate: Vector2i = economy.site + direction
-        if economy._buildable(candidate):
-            storage_cell = candidate
+    var storage_cell := Vector2i(-1, -1)
+    for distance in range(1, 4):
+        if storage_cell.x >= 0:
             break
+        for dx in range(-distance, distance + 1):
+            var dy := distance - absi(dx)
+            for sign_y in [-1, 1]:
+                var candidate: Vector2i = economy.site \
+                    + Vector2i(dx, dy * sign_y)
+                if economy._buildable(candidate):
+                    storage_cell = candidate
+                    break
+            if storage_cell.x >= 0:
+                break
+    if storage_cell.x < 0:
+        push_error("В контрольном поселении нет места для склада")
+        return false
     if village.build_storage(storage_cell) or village.has_storage():
         push_error("Склад появился без строительных материалов")
         return false
