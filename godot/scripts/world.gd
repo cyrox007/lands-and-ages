@@ -3393,6 +3393,16 @@ func _update_hud() -> void:
 		if _settlement != null and _settlement.established():
 			_economy_status.text += " · поселение %s · дорог %d" % [
 				_settlement.settlement_id, _settlement.roads().size()]
+			# Строительный этап, уровень и здоровье центра читаем из
+			# единого реестра, поэтому HUD не выдумывает готовность по времени.
+			var headquarters: Dictionary = _settlement.headquarters_state()
+			if not headquarters.is_empty():
+				_economy_status.text += " · центр %d→%d · %s · прочность %d%% · стадия %s" % [
+					int(headquarters["level"]), int(headquarters["target_level"]),
+					str(headquarters["state"]), int(headquarters["integrity"]),
+					Headquarters.visual_stage(headquarters)]
+			else:
+				_economy_status.text += " · главный центр ещё не построен"
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
 	var slowest: Dictionary = WorldFireDemo.slowest_phase(_last_day_profile_us)
 	var slow_text := " · медленнее всего: %s %.1f мс" % [
