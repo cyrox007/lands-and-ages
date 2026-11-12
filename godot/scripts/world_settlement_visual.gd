@@ -30,7 +30,9 @@ func _add_building(map: RefCounted, cell: Vector2i,
     # Рендер можно пересоздать без расхода материалов.
     var flat := Vector2(cell) + Vector2(0.5, 0.5)
     var body := StaticBody3D.new()
-    body.name = kind
+    # Сохраняем прежнее имя мастерской: его использует игровой QA.
+    body.name = "Кирпичная мастерская" if kind == "кирпичная мастерская" \
+        else kind
     body.collision_layer = 1
     body.collision_mask = 1
     body.position = map.config.to_scene(flat, map.height_at(flat) \
