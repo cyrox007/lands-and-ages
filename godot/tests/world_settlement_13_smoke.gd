@@ -11,6 +11,7 @@ const Resources = preload("res://scripts/natural_resource_registry.gd")
 const Generation = preload("res://scripts/natural_resource_generation.gd")
 const Economy = preload("res://scripts/world_first_economy.gd")
 const Settlement = preload("res://scripts/world_settlement.gd")
+const Headquarters = preload("res://scripts/world_headquarters_rules.gd")
 const Industry = preload("res://scripts/world_resource_industry.gd")
 const Topology = preload("res://scripts/world_road_topology.gd")
 const Paths = preload("res://scripts/world_resource_path.gd")
@@ -269,6 +270,45 @@ func _verify() -> bool:
         push_error("Дорожное полотно не имеет размера и коллизии")
         return false
 
+    # Главный 3D-центр занимает четыре действительных клетки и
+    # не получает бесплатного здания от самого факта основания поселения.
+    var hq_cell := Vector2i(-1, -1)
+    for dx in range(-8, 8):
+        if hq_cell.x >= 0:
+            break
+        for dy in range(-8, 8):
+            var candidate: Vector2i = village.center + Vector2i(dx, dy)
+            if village.can_build_headquarters(candidate):
+                hq_cell = candidate
+                break
+    if hq_cell.x < 0 or village.build_headquarters(hq_cell):
+        push_error("Центр 2×2 отсутствует или построен без материалов")
+        return false
+    industry.stock = {
+        "обожжённый кирпич": 3, "каменные блоки": 2,
+        "строительный раствор": 2
+    }
+    if not village.build_headquarters(hq_cell) \
+            or not industry.stock.is_empty() \
+            or village.build_headquarters(hq_cell):
+        push_error("Не выполнено атомарное списание центра поселения")
+        return false
+    for plot in Headquarters.footprint(hq_cell):
+        if not village.occupies(plot) or not industry.blocked_tiles.has(plot):
+            push_error("3D-центр не закрыл настоящие четыре клетки")
+            return false
+    if Headquarters.visual_stage(village.headquarters_state()) != "фундамент":
+        push_error("Начальная стадия строительства неверна")
+        return false
+    visual.rebuild(village, world)
+    var hq_body := visual.get_node_or_null("Центр поселения")
+    if not (hq_body is StaticBody3D) \
+            or not (hq_body.get_node_or_null("CollisionShape3D") \
+                is CollisionShape3D) \
+            or hq_body.get_node_or_null("Каменный фундамент") == null:
+        push_error("Нет объёмного 3D-центра или коллизии фундамента 2×2")
+        return false
+
     # Порт выбирается на доступной клетке снаружи складского корпуса.
     # Он обслуживает один реальный производственный запас, не создавая
     # второй склад и не нарушая ранее проложенную дорогу.
@@ -295,8 +335,23 @@ func _verify() -> bool:
             or restored["economy"].to_data() != economy.to_data() \
             or restored["industry"].road_tiles.size() != 1 \
             or restored["industry"].home_port != storage_port \
-            or restored["industry"].blocked_tiles.size() != 2:
+            or restored["industry"].blocked_tiles.size() != 6:
         push_error("WorldSave изменил физическую постройку или запасы")
+        return false
+    bad = complete.duplicate(true)
+    bad["industry"]["completed"].erase(Headquarters.CONSUMERS[1])
+    if not Save.restore(bad).is_empty():
+        push_error("WorldSave принял неоплаченный центр поселения")
+        return false
+    bad = complete.duplicate(true)
+    bad["settlement"]["headquarters"]["level"] = 4
+    if not Save.restore(bad).is_empty():
+        push_error("WorldSave принял поддельный IV уровень центра")
+        return false
+    bad = complete.duplicate(true)
+    bad["settlement"]["headquarters"]["x"] = village.center.x
+    if not Save.restore(bad).is_empty():
+        push_error("WorldSave принял центр поверх мастерской")
         return false
     bad = complete.duplicate(true)
     bad["industry"]["completed"].erase("участок дороги")
@@ -361,7 +416,99 @@ func _verify() -> bool:
         push_error("Перевозчик не доставил камень к доступному порту")
         return false
 
+    if not _verify_headquarters_lifecycle(village, industry, visual, world):
+        return false
     print("STAGE13: центр ", village.center, " · день ", climate.day,
         " · здания ", village.buildings().size(),
         " · вход ", storage_port, " · дорог ", village.roads().size())
+    return true
+
+
+func _verify_headquarters_lifecycle(village: RefCounted, industry: RefCounted,
+        visual: Node3D, world: RefCounted) -> bool:
+    # Дни здесь ускорены только в фикстуре: сами правила центра
+    # проверяют каждый оплаченный переход и защищают от повторного дня.
+    # В игровой сцене эти же правила вызываются после WorldDayRunner.
+    var day: int = industry.last_day
+    industry.last_day = day + Headquarters.BUILD_DAYS
+    if not village.advance_day(industry.last_day) \
+            or village.advance_day(industry.last_day) \
+            or str(village.headquarters_state()["state"]) != "готово":
+        push_error("Стройка центра не завершилась через восемь суток")
+        return false
+
+    # Каждое улучшение платное, а не просто смена графики.
+    var costs := [
+        {"обожжённый кирпич": 3, "каменные блоки": 4,
+            "строительный раствор": 4},
+        {"железо": 2, "каменные блоки": 6,
+            "строительный раствор": 4},
+        {"бронза": 3, "железо": 4, "каменные блоки": 8}
+    ]
+    for level in range(2, 5):
+        if village.upgrade_headquarters():
+            push_error("Разрешено бесплатное улучшение центра")
+            return false
+        # Технологию и товарные партии настраивает только тест:
+        # обычный игрок обязан исследовать их и произвести сам.
+        industry.technology = level - 2 if level <= 3 else 2
+        industry.stock = costs[level - 2].duplicate(true)
+        if not village.upgrade_headquarters() or not industry.stock.is_empty() \
+                or village.upgrade_headquarters():
+            push_error("Дважды оплачено улучшение уровня %d" % level)
+            return false
+        if village.within_territory(village.center +
+                Vector2i(Headquarters.RADII[level - 1], 0)):
+            push_error("Территория расширилась до завершения улучшения")
+            return false
+        industry.last_day += Headquarters.BUILD_DAYS
+        village.advance_day(industry.last_day)
+        if int(village.headquarters_state()["level"]) != level \
+                or not village.within_territory(village.center +
+                    Vector2i(Headquarters.RADII[level - 1], 0)) \
+                or not village.load_data(village.to_data()):
+            push_error("Не закреплён оплаченный уровень %d" % level)
+            return false
+        visual.rebuild(village, world)
+        var hq: Node3D = visual.get_node_or_null("Центр поселения")
+        if hq == null or (level >= 3 \
+                and hq.get_node_or_null("Башня") == null) \
+                or (level == 4 and hq.get_node_or_null("Донжон") == null):
+            push_error("Отсутствует трёхмерная архитектура уровня %d" % level)
+            return false
+
+    # Повреждения меняют вид, руины стареют, но место 2×2 остаётся
+    # занятым. Ремонт возможен только после нового расхода материалов.
+    if not village.damage_headquarters(45) \
+            or village.headquarters_state()["state"] != "повреждено" \
+            or not village.damage_headquarters(60) \
+            or village.headquarters_state()["state"] != "свежие руины":
+        push_error("Не работают реальные повреждения и разрушение")
+        return false
+    visual.rebuild(village, world)
+    var ruin: Node3D = visual.get_node_or_null("Центр поселения")
+    if ruin == null or ruin.get_node_or_null("Обломки") == null \
+            or ruin.get_node_or_null("Левый скат крыши") != null:
+        push_error("Разрушенный центр продолжает показывать целую крышу")
+        return false
+    industry.last_day += 30
+    village.advance_day(industry.last_day)
+    if village.headquarters_state()["state"] != "заросшие руины" \
+            or village.repair_headquarters():
+        push_error("Старение руин или запрет бесплатного ремонта нарушены")
+        return false
+    industry.stock = {
+        "каменные блоки": 2, "строительный раствор": 2
+    }
+    if not village.repair_headquarters() or village.repair_headquarters():
+        push_error("Двойное восстановление прошло без платы")
+        return false
+    industry.last_day += Headquarters.BUILD_DAYS
+    village.advance_day(industry.last_day)
+    var restored: Dictionary = village.headquarters_state()
+    if restored["state"] != "готово" or int(restored["integrity"]) != 100 \
+            or int(restored["level"]) != 4 \
+            or not village.load_data(village.to_data()):
+        push_error("Ремонт не восстановил оплаченный центр IV уровня")
+        return false
     return true
