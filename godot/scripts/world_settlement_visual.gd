@@ -13,7 +13,7 @@ func rebuild(settlement: RefCounted, map: RefCounted) -> void:
         return
     # Строения создаются по физическому реестру, не по кнопке UI.
     for item in settlement.buildings():
-        var size := STORAGE_SIZE if str(item["kind"]) == settlement.STORAGE \
+        var size := STORAGE_SIZE if str(item["kind"]) == "малый склад" \
             else WORKSHOP_SIZE
         var color := Color(0.48, 0.42, 0.30) if str(item["kind"]) \
             == settlement.STORAGE else Color(0.64, 0.33, 0.22)
