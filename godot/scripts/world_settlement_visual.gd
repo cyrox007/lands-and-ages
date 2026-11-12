@@ -20,6 +20,7 @@ func rebuild(settlement: RefCounted, map: RefCounted) -> void:
 
     # Статическая коллизия действительно закрывает фундамент.
     var collision := CollisionShape3D.new()
+    collision.name = "CollisionShape3D"
     var shape := BoxShape3D.new()
     shape.size = WORKSHOP_SIZE
     collision.shape = shape
@@ -28,6 +29,7 @@ func rebuild(settlement: RefCounted, map: RefCounted) -> void:
     # Временный корпус пока без финального арт-пакета. В отличие
     # от прежнего маркера размер совпадает с физическим телом.
     var model := MeshInstance3D.new()
+    model.name = "MeshInstance3D"
     var mesh := BoxMesh.new()
     mesh.size = WORKSHOP_SIZE
     model.mesh = mesh
