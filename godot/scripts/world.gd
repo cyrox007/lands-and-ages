@@ -2597,13 +2597,13 @@ func _mark_build_cell(cell: Vector2i, valid: bool) -> void:
 		_placement_marker.name = "Выбранная площадка строительства"
 		var mesh := BoxMesh.new()
 		_placement_marker.mesh = mesh
+		add_child(_placement_marker)
 	# У первого центра четыре клетки 2×2. Подсветка должна совпадать
 	# с настоящим строительным фундаментом, а не с одной клеткой.
 	var span: float = 1.88 if _placement_kind == "центр поселения" \
 		else 0.88
 	var extent: BoxMesh = _placement_marker.mesh
 	extent.size = Vector3(span, 0.10, span)
-		add_child(_placement_marker)
 	var offset := 1.0 if _placement_kind == "центр поселения" else 0.5
 	var flat := Vector2(cell) + Vector2(offset, offset)
 	_placement_marker.position = _world_model.config.to_scene(
