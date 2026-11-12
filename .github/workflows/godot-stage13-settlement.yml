@@ -1,4 +1,4 @@
-name: "13.0–13.4 — дороги, порты и выбор площадки"
+name: "13.0–13.5 — поселение, размещение и регрессии"
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "godot/scripts/world_road_topology.gd"
       - "godot/tests/world_settlement_13_smoke.gd"
       - "godot/tests/world_build_picker_13_smoke.gd"
+      - "godot/tests/world_stage13_multiseed_smoke.gd"
       - ".github/workflows/godot-stage13-settlement.yml"
   workflow_dispatch:
 
@@ -54,6 +55,16 @@ jobs:
             2>&1 | tee /tmp/placement.log
           grep -q "STAGE13-PLACEMENT: успешно" /tmp/placement.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/placement.log; then exit 1; fi
+
+      - name: "Три независимых мира — оплаченная мастерская и WorldSave"
+        run: |
+          set -o pipefail
+          timeout 300s /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path godot \
+            --script res://tests/world_stage13_multiseed_smoke.gd \
+            2>&1 | tee /tmp/multiseed.log
+          grep -q "STAGE13-MULTISEED: успешно" /tmp/multiseed.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Invalid call|ERROR:" /tmp/multiseed.log; then exit 1; fi
 
       - name: "Регрессия хозяйственного цикла 12"
         run: |
