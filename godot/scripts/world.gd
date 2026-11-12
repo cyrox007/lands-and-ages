@@ -38,6 +38,8 @@ const Nature = preload("res://scripts/nature_registry.gd")
 const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
+const Settlement = preload("res://scripts/world_settlement.gd")
+const SettlementVisual = preload("res://scripts/world_settlement_visual.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
 const WildlifeVisuals = preload("res://scripts/wildlife_visuals.gd")
@@ -82,6 +84,7 @@ var _nature: RefCounted
 var _resources: RefCounted
 var _economy: RefCounted
 var _industry: RefCounted
+var _settlement: RefCounted
 var _wildlife: RefCounted
 var _food_web: RefCounted
 var _wildlife_visuals
@@ -294,6 +297,7 @@ func _ready() -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
+	_settlement = Settlement.new(_world_model, _economy)
 	_wildlife = models["wildlife"]
 	_food_web = models["food_web"]
 	_harvest = models["harvest"]
@@ -2359,6 +2363,8 @@ func _begin_first_economy() -> void:
 		_update_hud()
 		return
 	if _economy.start():
+		# Территория привязана к реальному принятому заказу.
+		_settlement.found(_economy.site)
 		_storage_status = "Заказ принят: добыча, доставка, обжиг, постройка"
 	else:
 		_storage_status = _economy.last_event
@@ -2392,21 +2398,12 @@ func _sync_first_economy_visual() -> void:
 		carrier.position = _world_model.config.to_scene(
 			center, _world_model.height_at(center) + 0.40)
 		_economy_visual.add_child(carrier)
-	if not _economy.built:
+	# Готовая мастерская — физическое тело из реестра, не куб-маркер.
+	if _settlement == null or not _settlement.has_workshop():
 		return
-	var site_cell: Vector2i = _economy.site
-	var site_center := Vector2(site_cell) + Vector2(0.5, 0.5)
-	var building := MeshInstance3D.new()
-	building.name = "Кирпичная мастерская"
-	var box := BoxMesh.new()
-	box.size = Vector3(1.25, 1.15, 1.25)
-	building.mesh = box
-	var brick := StandardMaterial3D.new()
-	brick.albedo_color = Color(0.64, 0.33, 0.22)
-	building.material_override = brick
-	building.position = _world_model.config.to_scene(
-		site_center, _world_model.height_at(site_center) + 0.575)
-	_economy_visual.add_child(building)
+	var structure := SettlementVisual.new()
+	_economy_visual.add_child(structure)
+	structure.rebuild(_settlement, _world_model)
 
 
 
@@ -2560,7 +2557,8 @@ func _storage_models() -> Dictionary:
 		"weather": _weather_events, "natural": _natural_processes,
 		"disasters": _natural_disasters, "nature": _nature,
 		"resources": _resources, "economy": _economy,
-		"industry": _industry, "wildlife": _wildlife,
+		"industry": _industry, "settlement": _settlement,
+		"wildlife": _wildlife,
 		"food_web": _food_web, "harvest": _harvest,
 		"domestic": _domestic, "fire": _fire
 	}
@@ -2626,6 +2624,10 @@ func _install_loaded_world(models: Dictionary) -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
+	_settlement = models["settlement"]
+	# Старый сохранённый цех оплачен: регистрируем его без расходов.
+	if _settlement != null and not _settlement.established():
+		_settlement.attach_legacy_workshop()
 	_wildlife = models["wildlife"]
 	_food_web = models["food_web"]
 	_harvest = models["harvest"]
@@ -2761,6 +2763,8 @@ func _complete_day(result: Dictionary) -> void:
 	# после фонового расчёта, не создавая гонку с WorkerThreadPool.
 	if _economy != null:
 		_economy.advance_day(_last_completed_day)
+		if _settlement != null:
+			_settlement.sync_workshop()
 		_sync_first_economy_visual()
 	# Второй участок появляется только после строительства первой
 	# мастерской: до этого он не является источником материалов.
@@ -3107,6 +3111,8 @@ func _update_hud() -> void:
 		var info: Dictionary = _economy.summary()
 		_economy_status.text = "Хозяйство: %s · %s · кирпичи %d" % [
 			str(info["phase"]), str(info["event"]), int(info["bricks"])]
+		if _settlement != null and _settlement.established():
+			_economy_status.text += " · поселение %s" % _settlement.settlement_id
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
 	var slowest: Dictionary = WorldFireDemo.slowest_phase(_last_day_profile_us)
 	var slow_text := " · медленнее всего: %s %.1f мс" % [
