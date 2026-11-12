@@ -2465,11 +2465,21 @@ func _build_settlement_storage() -> void:
 		_storage_status = "Малый склад уже построен"
 	else:
 		var placed := false
-		for direction in [Vector2i(1, 0), Vector2i(0, 1),
-				Vector2i(-1, 0), Vector2i(0, -1)]:
-			if _settlement.build_storage(_settlement.center + direction):
-				placed = true
+		# Ищем ближайшую пригодную клетку, а не считаем,
+		# что любая соседняя площадка гарантированно ровная.
+		for distance in range(1, 4):
+			if placed:
 				break
+			for dx in range(-distance, distance + 1):
+				var dy := distance - absi(dx)
+				for sign_y in [-1, 1]:
+					var cell: Vector2i = _settlement.center \
+						+ Vector2i(dx, dy * sign_y)
+					if _settlement.build_storage(cell):
+						placed = true
+						break
+				if placed:
+					break
 		_storage_status = "Склад построен из оплаченного фундамента" \
 			if placed else "Нет материалов или свободной площадки"
 		if placed:
