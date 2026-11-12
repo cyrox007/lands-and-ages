@@ -1,4 +1,3 @@
-node_modules/
 __pycache__/
 .pytest_cache/
 .venv/
@@ -9,7 +8,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-play.html
 
 # Импортированные ресурсы редактора Godot не храним в Git.
 godot/.godot/
