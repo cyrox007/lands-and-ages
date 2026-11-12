@@ -35,7 +35,7 @@ static func ray_cell(world: RefCounted, origin: Vector3,
     for step in range(24):
         var distance := (near + far) * 0.5
         var position := origin + direction * distance
-        var flat := world.config.clamp_point(Vector2(position.x, position.z))
+        var flat: Vector2 = world.config.clamp_point(Vector2(position.x, position.z))
         var ground: float = world.height_at(flat) * scale
         if position.y > ground:
             near = distance
