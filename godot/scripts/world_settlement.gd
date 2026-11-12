@@ -3,6 +3,8 @@ extends RefCounted
 
 const Paths = preload("res://scripts/world_resource_path.gd")
 const Topology = preload("res://scripts/world_road_topology.gd")
+const Headquarters = preload("res://scripts/world_headquarters_rules.gd")
+const Recipes = preload("res://scripts/natural_resource_recipes.gd")
 
 const VERSION := 1
 const RADIUS := 9
@@ -17,6 +19,7 @@ var settlement_id := ""
 var center := Vector2i(-1, -1)
 var _buildings: Array[Dictionary] = []
 var _roads: Dictionary = {}
+var _headquarters: Dictionary = {}
 
 
 func _init(map: RefCounted, first_economy: RefCounted,
@@ -103,6 +106,92 @@ func has_storage() -> bool:
     return false
 
 
+func headquarters_state() -> Dictionary:
+    # Для HUD и рендера отдаём снимок; прямое изменение словаря
+    # обошло бы реальное строительство и проверку стоимости.
+    return _headquarters.duplicate(true)
+
+
+func has_headquarters() -> bool:
+    return not _headquarters.is_empty()
+
+
+func can_build_headquarters(cell: Vector2i) -> bool:
+    # Центр 2×2 не заменяет мастерскую и не пересекает её коллизию.
+    # Все четыре клетки обязаны быть пригодными ещё до оплаты материалов.
+    if not has_workshop() or has_headquarters() or industry == null \
+            or industry.site != center or not industry.delivery.is_empty():
+        return false
+    for plot in Headquarters.footprint(cell):
+        if not within_territory(plot) or not economy._buildable(plot) \
+                or occupies(plot) or _roads.has(plot) \
+                or plot == industry.home_port:
+            return false
+    return true
+
+
+func build_headquarters(cell: Vector2i) -> bool:
+    # Три вида продукции списываются атомарно через существующий
+    # потребитель Industry; только после успеха появляется фундамент.
+    if not can_build_headquarters(cell) \
+            or not industry.construct(Headquarters.CONSUMERS[1]):
+        return false
+    _headquarters = Headquarters.initial(settlement_id, cell, industry.last_day)
+    _refresh_ports()
+    return true
+
+
+func upgrade_headquarters() -> bool:
+    # Новый архитектурный уровень требует готового предыдущего,
+    # технологии и новой партии настоящих строительных материалов.
+    if _headquarters.is_empty() or industry == null \
+            or str(_headquarters["state"]) != "готово":
+        return false
+    var level := int(_headquarters["level"])
+    if level >= Headquarters.MAX_LEVEL \
+            or not industry.construct(Headquarters.CONSUMERS[level + 1]):
+        return false
+    _headquarters["target_level"] = level + 1
+    _headquarters["paid_level"] = level + 1
+    _headquarters["state"] = "улучшение"
+    _headquarters["progress"] = 0
+    _headquarters["last_day"] = industry.last_day
+    return true
+
+
+func repair_headquarters() -> bool:
+    # Ремонт и восстановление руин — отдельный оплаченный заказ.
+    # Прочность возвращается лишь после физических суток работы.
+    if _headquarters.is_empty() or industry == null \
+            or str(_headquarters["state"]) not in [
+                "повреждено", "свежие руины",
+                "старые руины", "заросшие руины"]:
+        return false
+    if not industry.construct(Headquarters.REPAIR):
+        return false
+    _headquarters["repairs"] = int(_headquarters["repairs"]) + 1
+    _headquarters["state"] = "восстановление"
+    _headquarters["target_level"] = int(_headquarters["level"])
+    _headquarters["progress"] = 0
+    _headquarters["last_day"] = industry.last_day
+    _headquarters["ruin_days"] = 0
+    return true
+
+
+func damage_headquarters(amount: int) -> bool:
+    # Единая точка будущего урона от пожаров и осады. Графика не
+    # умеет сама разрушать здание или менять физическую прочность.
+    if not Headquarters.damage(_headquarters, amount):
+        return false
+    return true
+
+
+func advance_day(day: int) -> bool:
+    # Обновление идёт вслед за физическим днём карты, не за FPS.
+    # Стадии, руины и законченный уровень детерминированы.
+    return Headquarters.advance(_headquarters, day)
+
+
 func can_build_storage(cell: Vector2i) -> bool:
     # Проверка площадки не расходует материалы. Фундамент склада
     # не может перекрыть уже оплаченную дорогу, здание или воду.
@@ -115,12 +204,22 @@ func can_build_storage(cell: Vector2i) -> bool:
 func placement_problem(kind: String, cell: Vector2i) -> String:
     # Возвращаем причину запрета до изменения физического реестра.
     # UI и автотесты пользуются одинаковыми правилами площадки.
-    if kind not in [STORAGE, "участок дороги"]:
+    if kind not in [STORAGE, "участок дороги", "центр поселения"]:
         return "Неизвестный тип постройки"
     if not has_workshop() or industry == null or industry.site != center:
         return "Сначала завершите кирпичную мастерскую"
     if not world.config.contains_cell(cell):
         return "Площадка вне границ карты"
+    if kind == "центр поселения":
+        if has_headquarters():
+            return "Центр поселения уже существует"
+        if not can_build_headquarters(cell):
+            return "Для центра нужны четыре свободные сухие клетки 2×2 без перевозки"
+        var costs: Dictionary = Recipes.CONSUMERS[Headquarters.CONSUMERS[1]]["inputs"]
+        for material in costs:
+            if int(industry.stock.get(material, 0)) < int(costs[material]):
+                return "Недостаточно материалов для центра: " + str(material)
+        return ""
     if not within_territory(cell):
         return "Площадка вне территории поселения"
     if occupies(cell):
@@ -201,6 +300,11 @@ func _refresh_ports() -> void:
     for item in _buildings:
         var cell := Vector2i(int(item["x"]), int(item["y"]))
         industry.blocked_tiles[cell] = true
+    if not _headquarters.is_empty():
+        var anchor := Vector2i(int(_headquarters["x"]),
+            int(_headquarters["y"]))
+        for plot in Headquarters.footprint(anchor):
+            industry.blocked_tiles[plot] = true
     var port := port_for(STORAGE) if has_storage() else port_for(WORKSHOP)
     if port.x < 0:
         port = port_for(WORKSHOP)
@@ -265,17 +369,23 @@ func build_road(cell: Vector2i) -> bool:
 
 
 func occupies(cell: Vector2i) -> bool:
-    # Коллизия фундамента занимает одну клетку, территория — не коллизия.
+    # Центр занимает реальный фундамент 2×2, даже после разрушения.
+    # Другие постройки остаются отдельными клетками и не перекрываются.
     for item in _buildings:
         if Vector2i(int(item["x"]), int(item["y"])) == cell:
             return true
+    if not _headquarters.is_empty():
+        var anchor := Vector2i(int(_headquarters["x"]),
+            int(_headquarters["y"]))
+        return cell in Headquarters.footprint(anchor)
     return false
 
 
 func within_territory(cell: Vector2i) -> bool:
     # Пока один компактный посёлок; физика миллионов NPC не нужна.
     return established() and world.config.contains_cell(cell) \
-        and absi(cell.x - center.x) + absi(cell.y - center.y) <= RADIUS
+        and absi(cell.x - center.x) + absi(cell.y - center.y) \
+            <= Headquarters.radius(_headquarters)
 
 
 func buildings() -> Array[Dictionary]:
@@ -288,9 +398,14 @@ func to_data() -> Dictionary:
     var surfaces: Array = []
     for cell in roads():
         surfaces.append([cell.x, cell.y])
-    return {"version": VERSION, "id": settlement_id,
+    var result := {"version": VERSION, "id": settlement_id,
         "center": [center.x, center.y], "buildings": buildings(),
         "roads": surfaces}
+    # Старые сохранения не получают пустой псевдоцентр: отсутствие
+    # поля означает прежнюю законную мастерскую без главного здания.
+    if not _headquarters.is_empty():
+        result["headquarters"] = headquarters_state()
+    return result
 
 
 func load_data(data: Dictionary) -> bool:
@@ -351,6 +466,25 @@ func load_data(data: Dictionary) -> bool:
     if workshop_count != (1 if economy.built else 0) \
             or storage_count > 1:
         return false
+    # Новый центр хранится отдельно: старые форматы не обязаны
+    # содержать его. Площадка 2×2 проверяется на чужие фундаменты.
+    var raw_headquarters: Variant = data.get("headquarters", {})
+    if not (raw_headquarters is Dictionary):
+        return false
+    var candidate_hq: Dictionary = raw_headquarters.duplicate(true)
+    if not candidate_hq.is_empty():
+        if not economy.built or not Headquarters.valid(
+                candidate_hq, expected, industry.last_day if industry != null
+                else -1, industry):
+            return false
+        var anchor := Vector2i(int(candidate_hq["x"]),
+            int(candidate_hq["y"]))
+        for plot in Headquarters.footprint(anchor):
+            if not world.config.contains_cell(plot) \
+                    or absi(plot.x - cell.x) + absi(plot.y - cell.y) > RADIUS \
+                    or occupied.has(plot) or not economy._buildable(plot):
+                return false
+            occupied[plot] = true
     # Старые сохранения не содержат roads. Новый раздел строго
     # привязан к оплате каждого участка, доступному грунту и связности.
     var roads_data: Variant = data.get("roads", [])
@@ -400,5 +534,6 @@ func load_data(data: Dictionary) -> bool:
     center = cell
     settlement_id = expected
     _buildings = accepted
+    _headquarters = candidate_hq
     _refresh_ports()
     return true
