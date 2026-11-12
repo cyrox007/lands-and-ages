@@ -1169,15 +1169,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cancel_build_placement()
 			get_viewport().set_input_as_handled()
 			return
+		# Godot эмулирует мышь из физического тапа. Обрабатываем
+		# только первичное событие, чтобы не построить два объекта.
 		if event is InputEventMouseButton and event.pressed \
-				and event.button_index == MOUSE_BUTTON_LEFT:
+				and event.button_index == MOUSE_BUTTON_LEFT \
+				and event.device != InputEvent.DEVICE_ID_EMULATION:
 			_confirm_build_placement(event.position)
 			get_viewport().set_input_as_handled()
 			return
 		if event is InputEventScreenTouch:
 			if event.pressed:
 				_placement_touch_moved = false
-			elif not _placement_touch_moved:
+			elif not _placement_touch_moved \
+					and event.device != InputEvent.DEVICE_ID_EMULATION:
 				_confirm_build_placement(event.position)
 				get_viewport().set_input_as_handled()
 				return
