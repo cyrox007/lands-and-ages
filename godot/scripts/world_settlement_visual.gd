@@ -8,6 +8,9 @@ const STORAGE_SIZE := Vector3(0.85, 0.62, 0.85)
 func rebuild(settlement: RefCounted, map: RefCounted) -> void:
     # Графический узел — не источник истины, поэтому его можно пересоздать.
     for previous in get_children():
+        # Снимаем старый узел сразу, иначе Godot переименует новый
+        # корпус из-за занятого имени до конца текущего кадра.
+        remove_child(previous)
         previous.queue_free()
     if settlement == null or not settlement.has_workshop():
         return
