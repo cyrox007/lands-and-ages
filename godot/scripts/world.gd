@@ -2600,8 +2600,9 @@ func _confirm_build_placement(screen: Vector2) -> void:
 		_storage_status = "%s: %s" % [cell, reason]
 		_update_hud()
 		return
-	var success := _settlement.build_storage(cell) \
-		if _placement_kind == Settlement.STORAGE else _settlement.build_road(cell)
+	var success: bool = bool(_settlement.build_storage(cell)) \
+		if _placement_kind == Settlement.STORAGE \
+		else bool(_settlement.build_road(cell))
 	_mark_build_cell(cell, success)
 	if not success:
 		_storage_status = "Не удалось завершить заказ: проверьте материалы"
