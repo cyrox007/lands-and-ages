@@ -245,6 +245,23 @@ func _verify() -> bool:
         push_error("Дорожное полотно не имеет размера и коллизии")
         return false
 
+    # Порт выбирается на доступной клетке снаружи складского корпуса.
+    # Он обслуживает один реальный производственный запас, не создавая
+    # второй склад и не нарушая ранее проложенную дорогу.
+    var storage_port: Vector2i = village.port_for(Settlement.STORAGE)
+    if storage_port.x < 0 or village.occupies(storage_port) \
+            or industry.home_port != storage_port \
+            or not Paths.walkable(world, hydro, surface, storage_port) \
+            or not industry.blocked_tiles.has(village.center) \
+            or not industry.blocked_tiles.has(storage_cell):
+        push_error("Рабочий получил неверный порт физического склада")
+        return false
+    if not Paths.find(world, hydro, surface, storage_port,
+            village.center, industry.road_tiles,
+            industry.blocked_tiles).is_empty():
+        push_error("Рабочий может пройти сквозь мастерскую")
+        return false
+
     # Новый и старый формат восстановления сохраняют расход, объект
     # и координаты. Порченое положение должно заблокировать весь файл.
     var complete := Save.capture(state)
@@ -252,7 +269,9 @@ func _verify() -> bool:
     if complete.is_empty() or restored.is_empty() \
             or restored["settlement"].to_data() != village.to_data() \
             or restored["economy"].to_data() != economy.to_data() \
-            or restored["industry"].road_tiles.size() != 1:
+            or restored["industry"].road_tiles.size() != 1 \
+            or restored["industry"].home_port != storage_port \
+            or restored["industry"].blocked_tiles.size() != 2:
         push_error("WorldSave изменил физическую постройку или запасы")
         return false
     bad = complete.duplicate(true)
@@ -278,6 +297,47 @@ func _verify() -> bool:
             or old["settlement"].buildings().size() != 1:
         push_error("Нарушена совместимость старого готового цеха")
         return false
+    # Новая поставка начинает путь у двери, а не в фундаменте.
+    # Сохранение во время маршрута должно восстановить ровно то же
+    # положение рабочего и тот же порт, без появления лишнего груза.
+    var stock_before: int = int(industry.stock.get("камень", 0))
+    if not industry.order_deposit("камень", 1):
+        push_error("Перевозчик не смог заказать реальный камень")
+        return false
+    if industry.delivery["position"] != [storage_port.x, storage_port.y] \
+            or int(industry.stock.get("камень", 0)) != stock_before:
+        push_error("Перевозчик начал путь внутри склада или бесплатно получил груз")
+        return false
+    var in_transit: Dictionary = Save.capture(state)
+    var resumed: Dictionary = Save.restore(in_transit)
+    if in_transit.is_empty() or resumed.is_empty() \
+            or resumed["industry"].delivery != industry.delivery \
+            or resumed["industry"].home_port != storage_port:
+        push_error("Маршрут перевозчика и порт не пережили WorldSave")
+        return false
+
+    # После прибытия к источнику товар ещё находится в пути. Только
+    # возвращение к действительному порту позволяет разгрузить камень.
+    var distance: int = int(industry.delivery["length"])
+    var days := mini(200, ceili(float(distance) /
+        float(Industry.STEPS_PER_DAY)) * 3 + 8)
+    for step in range(days):
+        if industry.delivery.is_empty():
+            break
+        industry.advance_day(industry.last_day + 1)
+        if not industry.delivery.is_empty():
+            var pair: Array = industry.delivery["position"]
+            var worker := Vector2i(int(pair[0]), int(pair[1]))
+            if village.occupies(worker) \
+                    or int(industry.stock.get("камень", 0)) != stock_before:
+                push_error("Перевозчик прошёл через здание или выгрузил в пути")
+                return false
+    if not industry.delivery.is_empty() \
+            or int(industry.stock.get("камень", 0)) != stock_before + 1:
+        push_error("Перевозчик не доставил камень к доступному порту")
+        return false
+
     print("STAGE13: центр ", village.center, " · день ", climate.day,
-        " · мастерских ", village.buildings().size())
+        " · здания ", village.buildings().size(),
+        " · вход ", storage_port, " · дорог ", village.roads().size())
     return true
