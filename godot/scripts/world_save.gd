@@ -234,7 +234,7 @@ static func restore(snapshot: Dictionary) -> Dictionary:
 			or not industry.load_data(snapshot["industry"], int(saved_day))):
 		return {}
 	# Поддельное здание отклоняем до возвращения новой модели миру.
-	var settlement := Settlement.new(world, economy)
+	var settlement := Settlement.new(world, economy, industry)
 	if snapshot.has("settlement") and (not (snapshot["settlement"] is Dictionary)
 			or not settlement.load_data(snapshot["settlement"])):
 		return {}
