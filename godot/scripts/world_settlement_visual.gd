@@ -34,7 +34,7 @@ func _add_road(map: RefCounted, cell: Vector2i) -> void:
     # для пешехода. Поверхность только отображает записи реестра.
     var flat := Vector2(cell) + Vector2(0.5, 0.5)
     var body := StaticBody3D.new()
-    body.name = "Дорога %d:%d" % [cell.x, cell.y]
+    body.name = "Дорога %d_%d" % [cell.x, cell.y]
     body.collision_layer = 1
     body.collision_mask = 1
     body.position = map.config.to_scene(
