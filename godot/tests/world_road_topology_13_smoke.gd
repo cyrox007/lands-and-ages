@@ -17,7 +17,8 @@ func _verify() -> bool:
     # участок не соединяет соседние готовые дороги.
     for mask in range(16):
         var point := Vector2i(3, 3)
-        var roads := {point: true}
+        var roads := {}
+        roads[point] = true
         for index in range(4):
             if (mask & (1 << index)) != 0:
                 roads[point + Roads.SIDES[index]] = true
@@ -30,14 +31,13 @@ func _verify() -> bool:
             return false
 
     # Нужны и прямые, и повороты, и Т-узлы, и перекрёстки.
-    var shapes := {
-        0: "isolated",
-        Roads.NORTH: "end",
-        Roads.NORTH | Roads.SOUTH: "straight",
-        Roads.NORTH | Roads.EAST: "corner",
-        Roads.NORTH | Roads.EAST | Roads.SOUTH: "junction",
-        15: "crossroads"
-    }
+    var shapes := {}
+    shapes[0] = "isolated"
+    shapes[Roads.NORTH] = "end"
+    shapes[Roads.NORTH | Roads.SOUTH] = "straight"
+    shapes[Roads.NORTH | Roads.EAST] = "corner"
+    shapes[Roads.NORTH | Roads.EAST | Roads.SOUTH] = "junction"
+    shapes[15] = "crossroads"
     for mask in shapes:
         if Roads.road_kind(int(mask)) != str(shapes[mask]):
             push_error("Неверный тип дорожного соединения")

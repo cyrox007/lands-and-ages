@@ -56,10 +56,10 @@ static func perimeter(footprint: Rect2i,
         for x in range(footprint.position.x,
                 footprint.position.x + footprint.size.x):
             for side in SIDES:
-                var next := Vector2i(x, y) + side
-                if not bounds.has_point(next) or footprint.has_point(next) \
-                        or visited.has(next):
+                var neighbor: Vector2i = Vector2i(x, y) + side
+                if not bounds.has_point(neighbor) or footprint.has_point(neighbor) \
+                        or visited.has(neighbor):
                     continue
-                visited[next] = true
-                result.append(next)
+                visited[neighbor] = true
+                result.append(neighbor)
     return result
