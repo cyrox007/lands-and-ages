@@ -764,6 +764,12 @@ func _setup_interface() -> void:
 	storage_button.text = "Построить малый склад (каменный фундамент)"
 	storage_button.pressed.connect(_build_settlement_storage)
 	_debug_details.add_child(storage_button)
+	# Участок дороги создаётся только после расхода покрытия;
+	# следующий участок продолжает готовую дорожную сеть.
+	var road_button := Button.new()
+	road_button.text = "Продлить дорогу (3 дорожных покрытия)"
+	road_button.pressed.connect(_build_settlement_road)
+	_debug_details.add_child(road_button)
 	var research_button := Button.new()
 	research_button.text = "Изучить следующую технологию (за материалы)"
 	research_button.pressed.connect(_industry_research)
@@ -2448,10 +2454,42 @@ func _industry_produce() -> void:
 func _industry_build() -> void:
 	# Потребитель получает лишь реально изготовленную продукцию;
 	# новый объект не создаёт металлы, камень или древесину.
+	if _industry_building == "участок дороги":
+		# Дорогу нельзя оплатить без выбора клетки в физическом реестре.
+		_build_settlement_road()
+		return
 	if not _industry_action_allowed():
 		_storage_status = "Хозяйственный участок ещё не активен"
 	elif not _industry.construct(_industry_building):
 		_storage_status = "Не хватает продукции: " + _industry_building
+	_update_hud()
+
+
+func _build_settlement_road() -> void:
+	# При первом строительстве ищем участок у мастерской; затем
+	# продолжаем существующую сеть. Все клетки проверяет Settlement.
+	if not _industry_action_allowed() or _settlement == null \
+			or not _settlement.has_workshop():
+		_storage_status = "Для дороги сначала завершите мастерскую"
+		_update_hud()
+		return
+	var anchors: Array[Vector2i] = [_settlement.center]
+	anchors.append_array(_settlement.roads())
+	var placed := false
+	for anchor in anchors:
+		for direction in [Vector2i(1, 0), Vector2i(0, 1),
+				Vector2i(-1, 0), Vector2i(0, -1)]:
+			var cell: Vector2i = anchor + direction
+			if _settlement.can_build_road(cell) \
+					and _settlement.build_road(cell):
+				placed = true
+				break
+		if placed:
+			break
+	_storage_status = "Дорога построена из дорожного покрытия" if placed \
+		else "Нет покрытия или свободной связанной площадки"
+	if placed:
+		_sync_first_economy_visual()
 	_update_hud()
 
 
@@ -3150,7 +3188,8 @@ func _update_hud() -> void:
 		_economy_status.text = "Хозяйство: %s · %s · кирпичи %d" % [
 			str(info["phase"]), str(info["event"]), int(info["bricks"])]
 		if _settlement != null and _settlement.established():
-			_economy_status.text += " · поселение %s" % _settlement.settlement_id
+			_economy_status.text += " · поселение %s · дорог %d" % [
+				_settlement.settlement_id, _settlement.roads().size()]
 	var phase := " · расчёт в фоне" if _day_task_id >= 0 else ""
 	var slowest: Dictionary = WorldFireDemo.slowest_phase(_last_day_profile_us)
 	var slow_text := " · медленнее всего: %s %.1f мс" % [
