@@ -21,7 +21,7 @@ static func walkable(world: RefCounted, hydro: RefCounted,
 
 static func find(world: RefCounted, hydro: RefCounted,
         surface: RefCounted, origin: Vector2i,
-        target: Vector2i) -> Array[Vector2i]:
+        target: Vector2i, roads: Dictionary = {}) -> Array[Vector2i]:
     # Поиск в ширину гарантирует кратчайший путь по четырёхсвязной
     # суше; ни груз, ни рабочий не переходят через непроходимую реку.
     var result: Array[Vector2i] = []
@@ -43,16 +43,26 @@ static func find(world: RefCounted, hydro: RefCounted,
         var i: int = queue[cursor]
         cursor += 1
         var point := Vector2i(i % width, i / width)
-        for direction in DIRECTIONS:
-            var next: Vector2i = point + direction
-            if not walkable(world, hydro, surface, next):
-                continue
-            var index: int = next.y * width + next.x
-            if parent[index] != -1:
-                continue
-            parent[index] = i
-            queue.append(index)
-            if index == goal:
+        # Среди равноудалённых путей сначала пробуем построенные
+        # участки дороги. Сам поиск остаётся кратчайшим по клеткам,
+        # а скорость готовых участков учитывает перевозчик.
+        var passes := 1 if roads.is_empty() else 2
+        for priority in range(passes):
+            for direction in DIRECTIONS:
+                var next: Vector2i = point + direction
+                if passes == 2 \
+                        and roads.has(next) != (priority == 0):
+                    continue
+                if not walkable(world, hydro, surface, next):
+                    continue
+                var index: int = next.y * width + next.x
+                if parent[index] != -1:
+                    continue
+                parent[index] = i
+                queue.append(index)
+                if index == goal:
+                    break
+            if parent[goal] != -1:
                 break
     if parent[goal] == -1:
         return result
