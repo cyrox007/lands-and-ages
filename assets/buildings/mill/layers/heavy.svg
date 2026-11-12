@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs>
-<linearGradient id="stone" x1="0" y1="0" x2="1" y2=".75"><stop stop-color="#e1d0ae"/><stop offset=".43" stop-color="#aa9b82"/><stop offset="1" stop-color="#635e55"/></linearGradient>
-<linearGradient id="wood" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9a96c"/><stop offset=".4" stop-color="#895a39"/><stop offset="1" stop-color="#48372a"/></linearGradient>
-<linearGradient id="roof" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c77f4b"/><stop offset=".45" stop-color="#805239"/><stop offset="1" stop-color="#483b33"/></linearGradient>
-<radialGradient id="gold"><stop stop-color="#fff9bf"/><stop offset=".45" stop-color="#ffcb69"/><stop offset="1" stop-color="#98552e"/></radialGradient>
-<radialGradient id="shadow"><stop stop-color="#112b20" stop-opacity=".47"/><stop offset=".55" stop-color="#17372a" stop-opacity=".21"/><stop offset="1" stop-color="#17372a" stop-opacity="0"/></radialGradient>
-</defs><path d="M66 150L93 120 107 140 84 163" fill="#2c312b" stroke="#4b3d30" stroke-width="4"/>
-<path d="M230 142L282 157 265 185 239 175" fill="#372a29" stroke="#5e4539" stroke-width="5"/>
-<path d="M99 190L139 214 119 234" fill="none" stroke="#382e29" stroke-width="6"/><path d="M201 224L228 240" fill="none" stroke="#47382d" stroke-width="7"/></svg>
