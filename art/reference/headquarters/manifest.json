@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "authoring": "Концепт-лист → ручная сетка вырезок → GrabCut → WebP",
+  "origin": {
+    "headquarters": "главное_здание_поселения_концепт_лист.png",
+    "workers": "a_highly_detailed_game_asset_sheet_in_a_clean_pix.png"
+  },
+  "headquarters": {
+    "headquarters-level1": "headquarters/headquarters-level1.webp",
+    "headquarters-foundation": "headquarters/headquarters-foundation.webp",
+    "headquarters-frame": "headquarters/headquarters-frame.webp",
+    "headquarters-walls": "headquarters/headquarters-walls.webp",
+    "headquarters-roof": "headquarters/headquarters-roof.webp",
+    "headquarters-complete": "headquarters/headquarters-complete.webp",
+    "headquarters-light-damage": "headquarters/headquarters-light-damage.webp",
+    "headquarters-heavy-damage": "headquarters/headquarters-heavy-damage.webp",
+    "headquarters-fresh-ruins": "headquarters/headquarters-fresh-ruins.webp",
+    "headquarters-old-ruins": "headquarters/headquarters-old-ruins.webp",
+    "headquarters-module-core": "headquarters/headquarters-module-core.webp",
+    "headquarters-module-wing": "headquarters/headquarters-module-wing.webp",
+    "headquarters-module-cupola": "headquarters/headquarters-module-cupola.webp",
+    "headquarters-module-roof": "headquarters/headquarters-module-roof.webp",
+    "headquarters-module-flag": "headquarters/headquarters-module-flag.webp",
+    "headquarters-module-gate": "headquarters/headquarters-module-gate.webp",
+    "headquarters-module-loading": "headquarters/headquarters-module-loading.webp"
+  },
+  "roles": {
+    "builder": "workers/builder.webp",
+    "porter": "workers/porter.webp",
+    "logger": "workers/logger.webp",
+    "quarry-worker": "workers/quarry-worker.webp",
+    "farmer": "workers/farmer.webp"
+  },
+  "walkReference": {
+    "path": "workers/walk-reference-se.webp",
+    "frameWidth": 96,
+    "frameHeight": 128,
+    "frames": 8,
+    "directions": [
+      "se"
+    ],
+    "status": "reference-only"
+  },
+  "notes": [
+    "В игре уже действует привязанная к расстоянию анимация носильщиков и строителей.",
+    "Оставшиеся три направления кадров надо отрисовать вручную в той же стилистике.",
+    "До завершения кадров старые анимации в игре следует оставить без изменений."
+  ]
+}
