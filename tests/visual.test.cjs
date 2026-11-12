@@ -132,3 +132,26 @@ test('постройка проходит разметку, фундамент, 
     assert.equal(V.constructionVisualPhase(site),phase,'progress='+progress);
   }
 });
+
+test('после очистки общая шкала прогресса сохраняет разные правила строительных стадий',()=>{
+  // Простая стадия требует только доски, а художественная —
+  // фактическую доставку всех материалов, включая камень.
+  const site={required:{boards:2,stone:1},
+    goods:{boards:2,stone:0},duration:10,progress:3};
+  assert.equal(V.constructionStage(site),'frame');
+  assert.equal(V.constructionVisualPhase(site),'survey');
+
+  // После доставки камня обе функции используют ту же долю
+  // завершённой работы, не меняя физический заказ.
+  site.goods.stone=1;
+  assert.equal(V.constructionStage(site),'frame');
+  assert.equal(V.constructionVisualPhase(site),'frame');
+
+  // Граничные значения из старого билдa остаются совместимыми.
+  site.progress=-5;
+  assert.equal(V.constructionStage(site),'foundation');
+  assert.equal(V.constructionVisualPhase(site),'foundation');
+  site.progress=20;
+  assert.equal(V.constructionStage(site),'roof');
+  assert.equal(V.constructionVisualPhase(site),'roof');
+});

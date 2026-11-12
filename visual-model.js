@@ -1,4 +1,4 @@
-/* Deterministic 2.5D visual state helpers. Visual-only; saves stay in engine.js. */
+/* Детерминированные вспомогательные функции 2.5D-графики. Сохранения принадлежат engine.js. */
 (function(root,factory){
   const api=factory();
   if(typeof module==='object'&&module.exports)module.exports=api;
@@ -49,24 +49,32 @@
     }
     return {arms,center};
   }
-  // Only actual completed construction work determines visual stages.
+  function constructionProgress(site){
+    // У двух видов строительной графики общая шкала завершённости.
+    // Ограничиваем прогресс интервалом [0, 1] и защищаем от нулевой
+    // длительности; расход материалов здесь не моделируется.
+    const elapsed=site.progress||0;
+    const duration=Math.max(.001,site.duration||1);
+    return Math.max(0,Math.min(1,elapsed/duration));
+  }
+
+  // Только завершённая физическая работа меняет стадии стройки.
   function constructionStage(site){
     const need=site.required?.boards||0,have=site.goods?.boards||0;
     if(have<need)return 'foundation';
-    const ratio=Math.max(0,Math.min(1,(site.progress||0)/Math.max(.001,site.duration||1)));
+    const ratio=constructionProgress(site);
     if(ratio<.20)return 'foundation';
     if(ratio<.50)return 'frame';
     if(ratio<.78)return 'walls';
     return 'roof';
   }
-  // Detailed art phase: material delivery happens BEFORE the foundation
-  // grows; each later step is driven by actual builder progress.
+  // Детальная художественная фаза: сначала реальная доставка
+  // досок и камня, затем рост готовности в общем игровом времени.
   function constructionVisualPhase(site){
     const required=site.required||{},goods=site.goods||{};
     if((goods.boards||0)<(required.boards||0)||
        (goods.stone||0)<(required.stone||0))return 'survey';
-    const progress=Math.max(0,Math.min(1,
-      (site.progress||0)/Math.max(.001,site.duration||1)));
+    const progress=constructionProgress(site);
     if(progress<.18)return 'foundation';
     if(progress<.46)return 'frame';
     if(progress<.77)return 'walls';
