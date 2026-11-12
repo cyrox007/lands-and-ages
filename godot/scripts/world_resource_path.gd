@@ -21,13 +21,16 @@ static func walkable(world: RefCounted, hydro: RefCounted,
 
 static func find(world: RefCounted, hydro: RefCounted,
         surface: RefCounted, origin: Vector2i,
-        target: Vector2i, roads: Dictionary = {}) -> Array[Vector2i]:
+        target: Vector2i, roads: Dictionary = {},
+        blocked: Dictionary = {}) -> Array[Vector2i]:
     # Поиск в ширину гарантирует кратчайший путь по четырёхсвязной
     # суше; ни груз, ни рабочий не переходят через непроходимую реку.
     var result: Array[Vector2i] = []
+    # Запрещаем входить в корпуса зданий. Старый перевозчик может
+    # выходить из ранее допустимого центра, но не заходить внутрь снова.
     if not walkable(world, hydro, surface, origin) \
             or not walkable(world, hydro, surface, target) \
-            or origin == target:
+            or blocked.has(target) or origin == target:
         return result
     var width: int = world.config.width
     var count: int = width * world.config.height
@@ -53,7 +56,8 @@ static func find(world: RefCounted, hydro: RefCounted,
                 if passes == 2 \
                         and roads.has(next) != (priority == 0):
                     continue
-                if not walkable(world, hydro, surface, next):
+                if blocked.has(next) \
+                        or not walkable(world, hydro, surface, next):
                     continue
                 var index: int = next.y * width + next.x
                 if parent[index] != -1:

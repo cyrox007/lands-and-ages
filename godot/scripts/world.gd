@@ -2410,6 +2410,28 @@ func _sync_first_economy_visual() -> void:
 		carrier.position = _world_model.config.to_scene(
 			center, _world_model.height_at(center) + 0.40)
 		_economy_visual.add_child(carrier)
+	# Производственный перевозчик — одна физическая точка на реальном
+	# маршруте. Её не создаёт визуальный таймер и нельзя показать груз,
+	# который уже находится на складе или ещё не был добыт.
+	if _industry != null and not _industry.delivery.is_empty():
+		var moving: Dictionary = _industry.delivery
+		var position: Array = moving["position"]
+		var carrier_cell := Vector2i(int(position[0]), int(position[1]))
+		if _world_model.config.contains_cell(carrier_cell):
+			var courier := MeshInstance3D.new()
+			courier.name = "Перевозчик производства"
+			var courier_shape := SphereMesh.new()
+			courier_shape.radius = 0.23
+			courier_shape.height = 0.46
+			courier.mesh = courier_shape
+			var courier_color := StandardMaterial3D.new()
+			courier_color.albedo_color = Color(0.31, 0.67, 0.90) \
+				if str(moving["phase"]) == "туда" else Color(0.84, 0.66, 0.28)
+			courier.material_override = courier_color
+			var flat := Vector2(carrier_cell) + Vector2(0.5, 0.5)
+			courier.position = _world_model.config.to_scene(
+				flat, _world_model.height_at(flat) + 0.40)
+			_economy_visual.add_child(courier)
 	# Готовая мастерская — физическое тело из реестра, не куб-маркер.
 	if _settlement == null or not _settlement.has_workshop():
 		return
@@ -2438,6 +2460,7 @@ func _industry_order() -> void:
 	else:
 		if not _industry.order_deposit(_industry_kind, 3):
 			_storage_status = _industry.last_event
+	_sync_first_economy_visual()
 	_update_hud()
 
 
@@ -2841,13 +2864,18 @@ func _complete_day(result: Dictionary) -> void:
 		_economy.advance_day(_last_completed_day)
 		if _settlement != null:
 			_settlement.sync_workshop()
-		_sync_first_economy_visual()
 	# Второй участок появляется только после строительства первой
 	# мастерской: до этого он не является источником материалов.
 	if _industry != null and _economy != null:
 		if _economy.built and _industry.site.x < 0:
-			_industry.activate(_economy.site)
+			if _industry.activate(_economy.site) and _settlement != null:
+				# Мастерская уже оплачена: находим физический вход, а
+				# не запускаем нового перевозчика внутри её коллизии.
+				_settlement.bind_industry(_industry)
 		_industry.advance_day(_last_completed_day)
+	# Обновляем вид после перемещения обоих рабочих за этот день;
+	# изображения не являются самостоятельной физикой.
+	_sync_first_economy_visual()
 	# Популяции пересчитываются после полной природной физики суток:
 	# они получают фактический снег, паводки и состояние растительности.
 	if _wildlife != null and _wildlife.generated:
