@@ -297,7 +297,7 @@ func _ready() -> void:
 	_resources = models["resources"]
 	_economy = models["economy"]
 	_industry = models["industry"]
-	_settlement = Settlement.new(_world_model, _economy)
+	_settlement = Settlement.new(_world_model, _economy, _industry)
 	_wildlife = models["wildlife"]
 	_food_web = models["food_web"]
 	_harvest = models["harvest"]
@@ -758,6 +758,12 @@ func _setup_interface() -> void:
 	build_button.text = "Израсходовать товары на строительство"
 	build_button.pressed.connect(_industry_build)
 	_debug_details.add_child(build_button)
+	# Отдельное действие создаёт реальный склад на свободной клетке.
+	# Оно не подменяет общий список технологических потребителей.
+	var storage_button := Button.new()
+	storage_button.text = "Построить малый склад (каменный фундамент)"
+	storage_button.pressed.connect(_build_settlement_storage)
+	_debug_details.add_child(storage_button)
 	var research_button := Button.new()
 	research_button.text = "Изучить следующую технологию (за материалы)"
 	research_button.pressed.connect(_industry_research)
@@ -2446,6 +2452,28 @@ func _industry_build() -> void:
 		_storage_status = "Хозяйственный участок ещё не активен"
 	elif not _industry.construct(_industry_building):
 		_storage_status = "Не хватает продукции: " + _industry_building
+	_update_hud()
+
+
+func _build_settlement_storage() -> void:
+	# Сначала находим свободную сухую клетку около мастерской.
+	# Реестр поселения сам проверит её и спишет материалы атомарно.
+	if not _industry_action_allowed() or _settlement == null \
+			or not _settlement.has_workshop():
+		_storage_status = "Сначала завершите мастерскую"
+	elif _settlement.has_storage():
+		_storage_status = "Малый склад уже построен"
+	else:
+		var placed := false
+		for direction in [Vector2i(1, 0), Vector2i(0, 1),
+				Vector2i(-1, 0), Vector2i(0, -1)]:
+			if _settlement.build_storage(_settlement.center + direction):
+				placed = true
+				break
+		_storage_status = "Склад построен из оплаченного фундамента" \
+			if placed else "Нет материалов или свободной площадки"
+		if placed:
+			_sync_first_economy_visual()
 	_update_hud()
 
 
