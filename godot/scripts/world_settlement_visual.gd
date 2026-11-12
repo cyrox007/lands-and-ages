@@ -3,6 +3,7 @@ extends Node3D
 
 const WORKSHOP_SIZE := Vector3(0.90, 0.95, 0.90)
 const STORAGE_SIZE := Vector3(0.85, 0.62, 0.85)
+const ROAD_SIZE := Vector3(0.96, 0.06, 0.96)
 
 
 func rebuild(settlement: RefCounted, map: RefCounted) -> void:
@@ -22,6 +23,40 @@ func rebuild(settlement: RefCounted, map: RefCounted) -> void:
             == settlement.STORAGE else Color(0.64, 0.33, 0.22)
         _add_building(map, Vector2i(int(item["x"]), int(item["y"])),
             str(item["kind"]), size, color)
+    # Каждая оплаченная дорога — отдельная физическая поверхность,
+    # расположенная на реальной высоте земли, а не пиксельная линия.
+    for cell in settlement.roads():
+        _add_road(map, cell)
+
+
+func _add_road(map: RefCounted, cell: Vector2i) -> void:
+    # Тонкий StaticBody3D сохраняет коллизию без высокой преграды
+    # для пешехода. Поверхность только отображает записи реестра.
+    var flat := Vector2(cell) + Vector2(0.5, 0.5)
+    var body := StaticBody3D.new()
+    body.name = "Дорога %d:%d" % [cell.x, cell.y]
+    body.collision_layer = 1
+    body.collision_mask = 1
+    body.position = map.config.to_scene(
+        flat, map.height_at(flat) + ROAD_SIZE.y * 0.5)
+
+    var collision := CollisionShape3D.new()
+    collision.name = "CollisionShape3D"
+    var shape := BoxShape3D.new()
+    shape.size = ROAD_SIZE
+    collision.shape = shape
+    body.add_child(collision)
+
+    var surface := MeshInstance3D.new()
+    surface.name = "MeshInstance3D"
+    var mesh := BoxMesh.new()
+    mesh.size = ROAD_SIZE
+    surface.mesh = mesh
+    var material := StandardMaterial3D.new()
+    material.albedo_color = Color(0.57, 0.49, 0.38)
+    surface.material_override = material
+    body.add_child(surface)
+    add_child(body)
 
 
 func _add_building(map: RefCounted, cell: Vector2i,
