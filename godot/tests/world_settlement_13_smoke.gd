@@ -234,7 +234,7 @@ func _verify() -> bool:
 
     visual.rebuild(village, world)
     var road_body := visual.get_node_or_null(
-        "Дорога %d:%d" % [road_cell.x, road_cell.y])
+        "Дорога %d_%d" % [road_cell.x, road_cell.y])
     if not (road_body is StaticBody3D):
         push_error("Отсутствует физическое дорожное полотно")
         return false
