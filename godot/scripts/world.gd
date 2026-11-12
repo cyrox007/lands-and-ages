@@ -2864,13 +2864,18 @@ func _complete_day(result: Dictionary) -> void:
 		_economy.advance_day(_last_completed_day)
 		if _settlement != null:
 			_settlement.sync_workshop()
-		_sync_first_economy_visual()
 	# Второй участок появляется только после строительства первой
 	# мастерской: до этого он не является источником материалов.
 	if _industry != null and _economy != null:
 		if _economy.built and _industry.site.x < 0:
-			_industry.activate(_economy.site)
+			if _industry.activate(_economy.site) and _settlement != null:
+				# Мастерская уже оплачена: находим физический вход, а
+				# не запускаем нового перевозчика внутри её коллизии.
+				_settlement.bind_industry(_industry)
 		_industry.advance_day(_last_completed_day)
+	# Обновляем вид после перемещения обоих рабочих за этот день;
+	# изображения не являются самостоятельной физикой.
+	_sync_first_economy_visual()
 	# Популяции пересчитываются после полной природной физики суток:
 	# они получают фактический снег, паводки и состояние растительности.
 	if _wildlife != null and _wildlife.generated:
