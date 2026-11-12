@@ -39,6 +39,7 @@ const NaturalResources = preload("res://scripts/natural_resource_registry.gd")
 const ResourceGeneration = preload("res://scripts/natural_resource_generation.gd")
 const FirstEconomy = preload("res://scripts/world_first_economy.gd")
 const Settlement = preload("res://scripts/world_settlement.gd")
+const BuildPicker = preload("res://scripts/world_build_picker.gd")
 const SettlementVisual = preload("res://scripts/world_settlement_visual.gd")
 const ResourceIndustry = preload("res://scripts/world_resource_industry.gd")
 const Wildlife = preload("res://scripts/wildlife_populations.gd")
@@ -102,6 +103,9 @@ var _industry_kind := "камень"
 var _industry_recipe := "тесать камень"
 var _industry_building := "каменный фундамент"
 var _economy_visual: Node3D
+var _placement_kind := ""
+var _placement_marker: MeshInstance3D
+var _placement_touch_moved := false
 var _economy_status: Label
 var _fire: RefCounted
 var _fire_presentation: Node3D
@@ -761,15 +765,19 @@ func _setup_interface() -> void:
 	# Отдельное действие создаёт реальный склад на свободной клетке.
 	# Оно не подменяет общий список технологических потребителей.
 	var storage_button := Button.new()
-	storage_button.text = "Построить малый склад (каменный фундамент)"
+	storage_button.text = "Выбрать место склада (2 блока + 2 раствора)"
 	storage_button.pressed.connect(_build_settlement_storage)
 	_debug_details.add_child(storage_button)
 	# Участок дороги создаётся только после расхода покрытия;
 	# следующий участок продолжает готовую дорожную сеть.
 	var road_button := Button.new()
-	road_button.text = "Продлить дорогу (3 дорожных покрытия)"
+	road_button.text = "Выбрать место дороги (3 покрытия)"
 	road_button.pressed.connect(_build_settlement_road)
 	_debug_details.add_child(road_button)
+	var cancel_build_button := Button.new()
+	cancel_build_button.text = "Отменить размещение (Esc)"
+	cancel_build_button.pressed.connect(_cancel_build_placement)
+	_debug_details.add_child(cancel_build_button)
 	var research_button := Button.new()
 	research_button.text = "Изучить следующую технологию (за материалы)"
 	research_button.pressed.connect(_industry_research)
@@ -1153,6 +1161,28 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _benchmark_running or _fire_demo_active() \
 			or (_loading_layer != null and _loading_layer.visible):
 		return
+	# Кнопки меню обрабатывает Control; сюда приходит только ввод,
+	# не занятый интерфейсом. ЛКМ/тап строят ровно в выбранной клетке.
+	if not _placement_kind.is_empty():
+		if event is InputEventKey and event.pressed \
+				and not event.echo and event.keycode == KEY_ESCAPE:
+			_cancel_build_placement()
+			get_viewport().set_input_as_handled()
+			return
+		if event is InputEventMouseButton and event.pressed \
+				and event.button_index == MOUSE_BUTTON_LEFT:
+			_confirm_build_placement(event.position)
+			get_viewport().set_input_as_handled()
+			return
+		if event is InputEventScreenTouch:
+			if event.pressed:
+				_placement_touch_moved = false
+			elif not _placement_touch_moved:
+				_confirm_build_placement(event.position)
+				get_viewport().set_input_as_handled()
+				return
+		elif event is InputEventScreenDrag:
+			_placement_touch_moved = true
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_change_zoom(0.88)
@@ -2488,64 +2518,112 @@ func _industry_build() -> void:
 	_update_hud()
 
 
-func _build_settlement_road() -> void:
-	# При первом строительстве ищем участок у мастерской; затем
-	# продолжаем существующую сеть. Все клетки проверяет Settlement.
+func _cancel_build_placement() -> void:
+	# Отмена не меняет склад, дороги и сохранение. Превью существует
+	# только в сцене и никогда не попадает в WorldSave.
+	_placement_kind = ""
+	if _placement_marker != null:
+		_placement_marker.queue_free()
+		_placement_marker = null
+	_storage_status = "Выбор площадки отменён"
+	_update_hud()
+
+
+func _begin_build_placement(kind: String) -> void:
+	# В режиме строительства игрок сам выбирает клетку на карте.
+	# Не заменяем ручной выбор автоматическим поиском участка.
 	if not _industry_action_allowed() or _settlement == null \
 			or not _settlement.has_workshop():
-		_storage_status = "Для дороги сначала завершите мастерскую"
+		_storage_status = "Сначала завершите мастерскую и расчёт дня"
 		_update_hud()
 		return
-	var anchors: Array[Vector2i] = [_settlement.center]
-	anchors.append_array(_settlement.roads())
-	var placed := false
-	for anchor in anchors:
-		for direction in [Vector2i(1, 0), Vector2i(0, 1),
-				Vector2i(-1, 0), Vector2i(0, -1)]:
-			var cell: Vector2i = anchor + direction
-			if _settlement.can_build_road(cell) \
-					and _settlement.build_road(cell):
-				placed = true
-				break
-		if placed:
-			break
-	_storage_status = "Дорога построена из дорожного покрытия" if placed \
-		else "Нет покрытия или свободной связанной площадки"
-	if placed:
-		_sync_first_economy_visual()
+	if kind == Settlement.STORAGE and _settlement.has_storage():
+		_storage_status = "Малый склад уже построен"
+		_update_hud()
+		return
+	_placement_kind = kind
+	_placement_touch_moved = false
+	if _placement_marker != null:
+		_placement_marker.queue_free()
+		_placement_marker = null
+	# Центрируем карту на реальном поселении, иначе игрок мог бы
+	# искать площадку далеко за пределами видимого экрана.
+	_center = Vector2(_settlement.center) + Vector2(0.5, 0.5)
+	_pan_delta = Vector2.ZERO
+	_pan_pending = true
+	_update_camera()
+	_refresh_visible(true)
+	_storage_status = "Выберите клетку на карте: %s · Esc — отмена" % kind
 	_update_hud()
+
+
+func _mark_build_cell(cell: Vector2i, valid: bool) -> void:
+	# Маркер показывает точную клетку принятого клика. Красный цвет
+	# обозначает отказ; графический узел не заменяет физический реестр.
+	if _placement_marker == null:
+		_placement_marker = MeshInstance3D.new()
+		_placement_marker.name = "Выбранная площадка строительства"
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(0.88, 0.10, 0.88)
+		_placement_marker.mesh = mesh
+		add_child(_placement_marker)
+	var flat := Vector2(cell) + Vector2(0.5, 0.5)
+	_placement_marker.position = _world_model.config.to_scene(
+		flat, _world_model.height_at(flat) + 0.20)
+	var material := StandardMaterial3D.new()
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(0.20, 0.80, 0.34, 0.65) if valid \
+		else Color(0.92, 0.20, 0.20, 0.65)
+	_placement_marker.material_override = material
+
+
+func _confirm_build_placement(screen: Vector2) -> void:
+	# Экранная точка превращается в координату единой физической карты.
+	# Пока работает фоновая физика, действие недоступно и материалы
+	# не списываются независимо от числа нажатий.
+	if _placement_kind.is_empty():
+		return
+	if not _industry_action_allowed():
+		_storage_status = "Дождитесь конца расчёта перед строительством"
+		_update_hud()
+		return
+	var visible_camera: Camera3D = _display_camera if _display_camera != null \
+		else _camera
+	var cell := BuildPicker.screen_cell(_world_model, visible_camera, screen)
+	if not _world_model.config.contains_cell(cell):
+		_storage_status = "За пределами карты: выберите землю поселения"
+		_update_hud()
+		return
+	var reason: String = _settlement.placement_problem(_placement_kind, cell)
+	if not reason.is_empty():
+		_mark_build_cell(cell, false)
+		_storage_status = "%s: %s" % [cell, reason]
+		_update_hud()
+		return
+	var success := _settlement.build_storage(cell) \
+		if _placement_kind == Settlement.STORAGE else _settlement.build_road(cell)
+	_mark_build_cell(cell, success)
+	if not success:
+		_storage_status = "Не удалось завершить заказ: проверьте материалы"
+	else:
+		_storage_status = "%s построен на клетке %s" % [
+			_placement_kind, cell]
+		_sync_first_economy_visual()
+		# Дорогу можно продолжить следующим тапом, а второй склад
+		# поставить нельзя — завершаем режим после первого склада.
+		if _placement_kind == Settlement.STORAGE:
+			_placement_kind = ""
+	_update_hud()
+
+
+func _build_settlement_road() -> void:
+	# Кнопка только начинает выбор, не создавая бесплатную дорогу.
+	_begin_build_placement("участок дороги")
 
 
 func _build_settlement_storage() -> void:
-	# Сначала находим свободную сухую клетку около мастерской.
-	# Реестр поселения сам проверит её и спишет материалы атомарно.
-	if not _industry_action_allowed() or _settlement == null \
-			or not _settlement.has_workshop():
-		_storage_status = "Сначала завершите мастерскую"
-	elif _settlement.has_storage():
-		_storage_status = "Малый склад уже построен"
-	else:
-		var placed := false
-		# Ищем ближайшую пригодную клетку, а не считаем,
-		# что любая соседняя площадка гарантированно ровная.
-		for distance in range(1, 4):
-			if placed:
-				break
-			for dx in range(-distance, distance + 1):
-				var dy := distance - absi(dx)
-				for sign_y in [-1, 1]:
-					var cell: Vector2i = _settlement.center \
-						+ Vector2i(dx, dy * sign_y)
-					if _settlement.build_storage(cell):
-						placed = true
-						break
-				if placed:
-					break
-		_storage_status = "Склад построен из оплаченного фундамента" \
-			if placed else "Нет материалов или свободной площадки"
-		if placed:
-			_sync_first_economy_visual()
-	_update_hud()
+	# Игрок указывает место склада; стоимость оплачивается после клика.
+	_begin_build_placement(Settlement.STORAGE)
 
 
 func _industry_research() -> void:
@@ -2695,6 +2773,11 @@ func _perform_storage(action: String) -> void:
 		if models.is_empty():
 			_storage_status = "Нет корректного сохранения или повреждён файл"
 		else:
+			# Отменяем выбор из старого мира перед заменой моделей.
+			_placement_kind = ""
+			if _placement_marker != null:
+				_placement_marker.queue_free()
+				_placement_marker = null
 			_install_loaded_world(models)
 			_storage_status = "Мир восстановлен · день %d" % _climate.day
 	_update_hud()
