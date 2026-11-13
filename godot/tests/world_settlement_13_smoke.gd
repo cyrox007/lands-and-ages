@@ -305,7 +305,8 @@ func _verify() -> bool:
     if not (hq_body is StaticBody3D) \
             or not (hq_body.get_node_or_null("CollisionShape3D") \
                 is CollisionShape3D) \
-            or hq_body.get_node_or_null("Каменный фундамент") == null:
+            or hq_body.displayed_asset() != "Foundation" \
+            or hq_body.mesh_for("Foundation") == null:
         push_error("Нет объёмного 3D-центра или коллизии фундамента 2×2")
         return false
 
@@ -471,28 +472,47 @@ func _verify_headquarters_lifecycle(village: RefCounted, industry: RefCounted,
             return false
         visual.rebuild(village, world)
         var hq: Node3D = visual.get_node_or_null("Центр поселения")
-        if hq == null or (level >= 3 \
-                and hq.get_node_or_null("Башня") == null) \
-                or (level == 4 and hq.get_node_or_null("Донжон") == null):
+        if hq == null or hq.displayed_asset() != "Level_%d" % level \
+                or hq.mesh_for("Level_%d" % level) == null \
+                or hq.mesh_for("Level_%d" % level).mesh.get_surface_count() < 7:
+            # Уровни обязаны отображать импортированные авторские
+            # материалы и геометрию, а не процедурный BoxMesh.
             push_error("Отсутствует трёхмерная архитектура уровня %d" % level)
             return false
 
     # Повреждения меняют вид, руины стареют, но место 2×2 остаётся
     # занятым. Ремонт возможен только после нового расхода материалов.
     if not village.damage_headquarters(45) \
-            or village.headquarters_state()["state"] != "повреждено" \
-            or not village.damage_headquarters(60) \
+            or village.headquarters_state()["state"] != "повреждено":
+        push_error("Центр не принял начальное физическое повреждение")
+        return false
+    visual.rebuild(village, world)
+    var damaged: Node3D = visual.get_node_or_null("Центр поселения")
+    if damaged == null or damaged.displayed_asset() != "Level_4" \
+            or damaged.mesh_for("Damage_Marks") == null \
+            or not damaged.mesh_for("Damage_Marks").visible:
+        push_error("Нет отдельного художественного слоя лёгкого ущерба")
+        return false
+    if not village.damage_headquarters(60) \
             or village.headquarters_state()["state"] != "свежие руины":
         push_error("Не работают реальные повреждения и разрушение")
         return false
     visual.rebuild(village, world)
     var ruin: Node3D = visual.get_node_or_null("Центр поселения")
-    if ruin == null or ruin.get_node_or_null("Обломки") == null \
-            or ruin.get_node_or_null("Левый скат крыши") != null:
+    if ruin == null or ruin.displayed_asset() != "Ruins_Fresh" \
+            or ruin.mesh_for("Ruins_Fresh") == null \
+            or ruin.mesh_for("Level_4").visible:
+        # Здесь должна быть отдельная модель свежих руин, а не
+        # целая цитадель с наложенным чёрным материалом.
         push_error("Разрушенный центр продолжает показывать целую крышу")
         return false
     industry.last_day += 30
     village.advance_day(industry.last_day)
+    visual.rebuild(village, world)
+    var aged: Node3D = visual.get_node_or_null("Центр поселения")
+    if aged == null or aged.displayed_asset() != "Ruins_Overgrown":
+        push_error("Старые руины не сменили художественную модель")
+        return false
     if village.headquarters_state()["state"] != "заросшие руины" \
             or village.repair_headquarters():
         push_error("Старение руин или запрет бесплатного ремонта нарушены")
