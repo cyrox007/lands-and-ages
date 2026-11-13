@@ -482,7 +482,7 @@ func _verify_headquarters_lifecycle(village: RefCounted, industry: RefCounted,
 
     # Повреждения меняют вид, руины стареют, но место 2×2 остаётся
     # занятым. Ремонт возможен только после нового расхода материалов.
-    if not village.damage_headquarters(45) \
+    if not village.damage_headquarters(30) \
             or village.headquarters_state()["state"] != "повреждено":
         push_error("Центр не принял начальное физическое повреждение")
         return false
@@ -493,7 +493,18 @@ func _verify_headquarters_lifecycle(village: RefCounted, industry: RefCounted,
             or not damaged.mesh_for("Damage_Marks").visible:
         push_error("Нет отдельного художественного слоя лёгкого ущерба")
         return false
-    if not village.damage_headquarters(60) \
+    # Дополнительно проверяем, что тяжёлый урон действительно
+    # подменяет целую кровлю отдельным объёмным повреждённым мешем.
+    if not village.damage_headquarters(40):
+        push_error("Не получено тяжёлое повреждение центра")
+        return false
+    visual.rebuild(village, world)
+    var heavy: Node3D = visual.get_node_or_null("Центр поселения")
+    if heavy == null or heavy.displayed_asset() != "Level_4_Broken" \
+            or heavy.mesh_for("Level_4_Broken") == null:
+        push_error("Тяжёлый ущерб не переключил геометрию здания")
+        return false
+    if not village.damage_headquarters(40) \
             or village.headquarters_state()["state"] != "свежие руины":
         push_error("Не работают реальные повреждения и разрушение")
         return false
