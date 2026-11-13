@@ -1,0 +1,22 @@
+{
+  "meshes": {
+    "Level_1": 2800,
+    "Level_2": 3476,
+    "Level_3": 3906,
+    "Level_4": 4822,
+    "Level_1_Broken": 2660,
+    "Level_2_Broken": 3016,
+    "Level_3_Broken": 3326,
+    "Level_4_Broken": 4350,
+    "Foundation": 1440,
+    "Frame": 1716,
+    "Walls": 1872,
+    "Roof": 2072,
+    "Ruins_Fresh": 1848,
+    "Ruins_Old": 1968,
+    "Ruins_Overgrown": 2160,
+    "Damage_Marks": 228,
+    "Scaffolding": 156
+  },
+  "triangles": 41816
+}

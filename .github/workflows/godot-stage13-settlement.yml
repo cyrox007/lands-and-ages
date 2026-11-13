@@ -7,6 +7,8 @@ on:
       - "godot/scripts/world_settlement.gd"
       - "godot/scripts/world_headquarters_rules.gd"
       - "godot/scripts/world_headquarters_visual.gd"
+      - "godot/assets/buildings/headquarters/**"
+      - "tools/generate_headquarters_art.mjs"
       - "godot/scripts/natural_resource_recipes.gd"
       - "godot/scripts/world_build_picker.gd"
       - "godot/scripts/world_settlement_visual.gd"
@@ -36,6 +38,30 @@ jobs:
             --output /tmp/godot.zip
           unzip -q /tmp/godot.zip -d /tmp
           chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+      - name: "Проверка геометрии художественных glTF-ассетов"
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          from pathlib import Path
+
+          path = Path("godot/assets/buildings/headquarters/headquarters_art.gltf")
+          asset = json.loads(path.read_text(encoding="utf-8"))
+          expected = {
+              *(f"Level_{i}" for i in range(1, 5)),
+              *(f"Level_{i}_Broken" for i in range(1, 5)),
+              "Foundation", "Frame", "Walls", "Roof", "Ruins_Fresh",
+              "Ruins_Old", "Ruins_Overgrown", "Damage_Marks", "Scaffolding",
+          }
+          actual = {node["name"] for node in asset["nodes"]}
+          assert actual == expected, actual ^ expected
+          data = base64.b64decode(asset["buffers"][0]["uri"].split(",", 1)[1])
+          assert len(data) == asset["buffers"][0]["byteLength"]
+          assert len(asset["meshes"]) == len(expected)
+          assert all(len(mesh["primitives"]) >= 2 for mesh in asset["meshes"])
+          assert len(asset["materials"]) >= 12
+          print("HEADQUARTERS-ART: 17 независимых художественных 3D-мешей")
+          PY
       - name: "Импорт проекта и проверка GDScript"
         run: |
           set -o pipefail
